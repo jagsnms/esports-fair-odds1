@@ -75,7 +75,7 @@
     "Buckets: early<=8, mid<=18, late<=23, ot>=24 (prefers is_ot/half when available; otherwise total rounds)."
   ],
   "project_dir": "C:\\Users\\court\\OneDrive\\Desktop\\parlay\\esports-fair-odds",
-  "ran_at": "2026-02-15 14:26:15",
+  "ran_at": "2026-02-15 14:46:48",
   "rows_total_raw": 686,
   "rows_total_usable": 686,
   "training": {
