@@ -1,0 +1,161 @@
+{
+  "calibration": {
+    "cs2": {
+      "0.8": {}
+    },
+    "valorant": {
+      "0.8": {},
+      "0.9": {}
+    }
+  },
+  "games": {
+    "cs2": {
+      "band_levels": [
+        0.8
+      ],
+      "buckets": {
+        "early": 176,
+        "late": 20,
+        "mid": 184,
+        "ot": 10
+      },
+      "match_id": {
+        "top": {
+          "11": 38,
+          "21": 66,
+          "24": 42,
+          "3": 48,
+          "6": 39
+        },
+        "unique": 13
+      },
+      "mid_stats": {
+        "max": 0.99,
+        "mean": 0.3979615384615385,
+        "min": 0.01,
+        "std": 0.29390599035188475
+      },
+      "rows_usable": 390
+    },
+    "valorant": {
+      "band_levels": [
+        0.8,
+        0.9
+      ],
+      "buckets": {
+        "early": 118,
+        "late": 33,
+        "mid": 133,
+        "ot": 12
+      },
+      "match_id": {
+        "top": {
+          "19": 84,
+          "4": 47,
+          "7": 39,
+          "8": 37,
+          "9": 68
+        },
+        "unique": 6
+      },
+      "mid_stats": {
+        "max": 0.985,
+        "mean": 0.5151351351351352,
+        "min": 0.02,
+        "std": 0.2503989670376877
+      },
+      "rows_usable": 296
+    }
+  },
+  "log_csv": "C:\\Users\\court\\OneDrive\\Desktop\\parlay\\esports-fair-odds\\inplay_kappa_logs_clean.csv",
+  "notes": [
+    "Coverage target is market-mid containment inside beta interval.",
+    "MIN_ROWS_GLOBAL=60, MIN_ROWS_PER_BUCKET=30",
+    "MULT_GRID=0.5..2.5 (n=81)",
+    "Buckets: early<=8, mid<=18, late<=23, ot>=24 (by total rounds)."
+  ],
+  "project_dir": "C:\\Users\\court\\OneDrive\\Desktop\\parlay\\esports-fair-odds",
+  "ran_at": "2026-02-14 11:44:53",
+  "rows_total_raw": 686,
+  "rows_total_usable": 686,
+  "training": {
+    "cs2": {
+      "0.8": {
+        "early": {
+          "base_cover": 0.7215909090909091,
+          "base_width": 0.1448769224310149,
+          "best_cover": 0.8011363636363636,
+          "best_mult": 0.6,
+          "best_width": 0.18576544395802766,
+          "improve_cover_abs": -0.07727272727272738,
+          "n": 176,
+          "target": 0.8
+        },
+        "global": {
+          "base_cover": 0.6717948717948717,
+          "base_width": 0.1277628067578706,
+          "best_cover": 0.7923076923076923,
+          "best_mult": 0.55,
+          "best_width": 0.17080929170342263,
+          "improve_cover_abs": -0.12051282051282053,
+          "n": 390,
+          "target": 0.8
+        },
+        "mid": {
+          "base_cover": 0.6739130434782609,
+          "base_width": 0.11733830563968208,
+          "best_cover": 0.7989130434782609,
+          "best_mult": 0.575,
+          "best_width": 0.15344719049636057,
+          "improve_cover_abs": -0.125,
+          "n": 184,
+          "target": 0.8
+        }
+      }
+    },
+    "valorant": {
+      "0.8": {
+        "early": {
+          "base_cover": 0.8807339449541285,
+          "base_width": 0.15890800366716767,
+          "best_cover": 0.8073394495412844,
+          "best_mult": 1.4,
+          "best_width": 0.13455986403961706,
+          "improve_cover_abs": -0.07339449541284404,
+          "n": 109,
+          "target": 0.8
+        },
+        "global": {
+          "base_cover": 0.6545454545454545,
+          "base_width": 0.1479472927687857,
+          "best_cover": 0.7963636363636364,
+          "best_mult": 0.575,
+          "best_width": 0.19407802634874594,
+          "improve_cover_abs": -0.14181818181818184,
+          "n": 275,
+          "target": 0.8
+        },
+        "late": {
+          "base_cover": 0.3548387096774194,
+          "base_width": 0.1068462067527623,
+          "best_cover": 0.6774193548387096,
+          "best_mult": 0.5,
+          "best_width": 0.1504632551608366,
+          "improve_cover_abs": -0.32258064516129026,
+          "n": 31,
+          "target": 0.8
+        },
+        "mid": {
+          "base_cover": 0.5609756097560976,
+          "base_width": 0.15190546284933296,
+          "best_cover": 0.7642276422764228,
+          "best_mult": 0.5,
+          "best_width": 0.2130374942731281,
+          "improve_cover_abs": -0.2032520325203252,
+          "n": 123,
+          "target": 0.8
+        }
+      }
+    }
+  }
+}
