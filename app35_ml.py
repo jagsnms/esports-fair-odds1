@@ -38,7 +38,8 @@ if sys.platform.startswith("win"):
 # App paths (persistent log)
 # ==========================
 APP_DIR = Path(__file__).resolve().parent
-LOG_PATH = APP_DIR / "fair_odds_logs.csv"   # single rolling file
+PROJECT_ROOT = APP_DIR
+LOG_PATH = PROJECT_ROOT / "logs" / "fair_odds_logs.csv"   # single rolling file
 
 # Canonical schema for logs (prevents mixed old/new columns)
 # (Extended to support BO2 3-way fair odds in US.)
@@ -68,9 +69,9 @@ LOG_COLUMNS = [
 # ==========================
 # In-Play Logging (CS2 / Valorant) — K calibration
 # ==========================
-INPLAY_LOG_PATH = APP_DIR / "inplay_kappa_logs_clean.csv"
-INPLAY_RESULTS_PATH = APP_DIR / "inplay_match_results_clean.csv"
-INPLAY_MAP_RESULTS_PATH = APP_DIR / "inplay_map_results_clean.csv"
+INPLAY_LOG_PATH = PROJECT_ROOT / "logs" / "inplay_kappa_logs_clean.csv"
+INPLAY_RESULTS_PATH = PROJECT_ROOT / "logs" / "inplay_match_results_clean.csv"
+INPLAY_MAP_RESULTS_PATH = PROJECT_ROOT / "logs" / "inplay_map_results_clean.csv"
 
 INPLAY_LOG_COLUMNS = [
     "timestamp","game","match_id",
@@ -170,8 +171,8 @@ def show_inplay_log_paths():
 # ==========================
 # In-Play K calibration (band coverage vs market mid)
 # ==========================
-KAPPA_CALIB_PATH = APP_DIR / "kappa_calibration.json"
-KAPPA_TRAIN_SCRIPT = APP_DIR / "ml" / "train_kappa_calibration.py"
+KAPPA_CALIB_PATH = PROJECT_ROOT / "config" / "kappa_calibration.json"
+KAPPA_TRAIN_SCRIPT = PROJECT_ROOT / "ML" / "train_kappa_calibration.py"
 
 def load_kappa_calibration() -> dict:
     try:
@@ -185,7 +186,7 @@ def load_kappa_calibration() -> dict:
 def load_p_calibration_json(project_dir: Path) -> dict:
     """Load p_calibration.json if present. Returns {} if missing/invalid."""
     try:
-        p = project_dir / "p_calibration.json"
+        p = project_dir / "config" / "p_calibration.json"
         if not p.exists():
             return {}
         return json.loads(p.read_text(encoding="utf-8"))
@@ -258,7 +259,7 @@ def run_kappa_trainer() -> tuple[bool, str]:
     try:
         proc = subprocess.run(
             [sys.executable, str(KAPPA_TRAIN_SCRIPT)],
-            cwd=str(APP_DIR),
+            cwd=str(PROJECT_ROOT),
             capture_output=True,
             text=True,
             check=False,
@@ -274,9 +275,9 @@ def run_kappa_trainer() -> tuple[bool, str]:
 # ==========================
 # Probability calibration (p_fair calibration vs outcomes)
 # ==========================
-P_CALIB_PATH = APP_DIR / "p_calibration.json"
-P_CALIB_REPORT_PATH = APP_DIR / "p_calibration_report.json"
-P_TRAIN_SCRIPT = APP_DIR / "ml" / "train_prob_calibration.py"
+P_CALIB_PATH = PROJECT_ROOT / "config" / "p_calibration.json"
+P_CALIB_REPORT_PATH = PROJECT_ROOT / "config" / "p_calibration_report.json"
+P_TRAIN_SCRIPT = PROJECT_ROOT / "ML" / "train_prob_calibration.py"
 
 def load_p_calibration() -> dict:
     try:
@@ -294,7 +295,7 @@ def run_prob_trainer() -> tuple[bool, str]:
     try:
         proc = subprocess.run(
             [sys.executable, str(P_TRAIN_SCRIPT)],
-            cwd=str(APP_DIR),
+            cwd=str(PROJECT_ROOT),
             capture_output=True,
             text=True,
             check=False,
@@ -529,7 +530,7 @@ def get_team_tier(opp: str, df: pd.DataFrame) -> float:
 # ==========================
 @st.cache_data
 def load_cs2_teams() -> pd.DataFrame:
-    path = APP_DIR / "cs2_rankings_merged.csv"
+    path = PROJECT_ROOT / "data" / "processed" / "cs2_rankings_merged.csv"
     try:
         df = pd.read_csv(path)
     except Exception as e:
@@ -545,7 +546,7 @@ def load_cs2_teams() -> pd.DataFrame:
 
 @st.cache_data
 def load_dota_teams() -> pd.DataFrame:
-    path = APP_DIR / "gosu_dota2_rankings.csv"
+    path = PROJECT_ROOT / "data" / "processed" / "gosu_dota2_rankings.csv"
     try:
         df = pd.read_csv(path)
     except Exception as e:
@@ -570,10 +571,10 @@ def scrape_cs2_matches(team_id: str, team_slug: str):
     """Run scraper.py as a subprocess and parse the last JSON line (CS2)."""
     try:
         python_exe = sys.executable
-        script_path = str(APP_DIR / "scraper.py")
+        script_path = str(PROJECT_ROOT / "scraper.py")
         result = subprocess.run(
             [python_exe, script_path, str(team_id), team_slug],
-            capture_output=True, text=True, timeout=180, cwd=str(APP_DIR),
+            capture_output=True, text=True, timeout=180, cwd=str(PROJECT_ROOT),
             env={**os.environ, "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8"},
         )
         if result.returncode == 0:
@@ -594,14 +595,14 @@ def scrape_dota_matches_gosu_subprocess(team_slug: str, team_name: str, target: 
     """Run gosu_dota_scraper.py and parse the last JSON array from stdout."""
     try:
         python_exe = sys.executable
-        script_path = str(APP_DIR / "gosu_dota_scraper.py")
+        script_path = str(PROJECT_ROOT / "gosu_dota_scraper.py")
         cmd = [python_exe, script_path, "--team-slug", team_slug, "--team-name", team_name,
                "--target", str(target), "--zoom", str(zoom)]
         if headed: cmd.append("--headed")
         if browser_channel in ("chrome", "msedge"): cmd += ["--channel", browser_channel]
 
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=600, cwd=str(APP_DIR),
+            cmd, capture_output=True, text=True, timeout=600, cwd=str(PROJECT_ROOT),
             env={**os.environ, "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8"},
         )
         if result.returncode != 0:
@@ -3794,8 +3795,8 @@ with tabs[4]:
 
 
     # Optional: map name (useful for per-map priors / ML)
+    # Widget with key="val_map_name" automatically updates st.session_state; do not assign manually
     val_map_name = st.text_input("Map name (optional)", value=str(st.session_state.get("val_map_name", "")), key="val_map_name")
-    st.session_state["val_map_name"] = val_map_name
 
     st.markdown("### Context — series format and what the contract represents")
     cctx1, cctx2, cctx3, cctx4 = st.columns([1.0, 1.5, 1.0, 1.0])
@@ -4414,7 +4415,7 @@ with tabs[5]:
         if st.session_state.get("calib_kappa_out"):
             st.code(str(st.session_state.get("calib_kappa_out"))[:2000])
 
-    kappa_report_path = APP_DIR / "kappa_calibration_report.json"
+    kappa_report_path = PROJECT_ROOT / "config" / "kappa_calibration_report.json"
     if kappa_report_path.exists():
         try:
             krep = json.loads(kappa_report_path.read_text())

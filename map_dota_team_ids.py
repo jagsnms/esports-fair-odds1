@@ -1,10 +1,12 @@
 import pandas as pd
 import requests
 from difflib import get_close_matches
+from pathlib import Path
 
 # Path to your Dota CSV
-csv_path = "dota2_tiers_clean.csv"
-teams = pd.read_csv(csv_path)
+PROJECT_ROOT = Path(__file__).resolve().parent
+csv_path = PROJECT_ROOT / "data" / "processed" / "dota2_tiers_clean.csv"
+teams = pd.read_csv(str(csv_path))
 
 # Add team_id column if missing
 if "team_id" not in teams.columns:
@@ -36,5 +38,5 @@ for i, name in enumerate(teams["team"]):
             print(f"⚠ No match found for {name}")
 
 # Save updated CSV
-teams.to_csv(csv_path, index=False)
+teams.to_csv(str(csv_path), index=False)
 print("\n✅ Team IDs updated and saved to", csv_path)

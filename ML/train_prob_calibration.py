@@ -44,11 +44,11 @@ import pandas as pd
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 
-SNAPSHOT_CSV = PROJECT_DIR / "inplay_kappa_logs_clean.csv"
-RESULTS_CSV  = PROJECT_DIR / "inplay_match_results_clean.csv"
+SNAPSHOT_CSV = PROJECT_DIR / "logs" / "inplay_kappa_logs_clean.csv"
+RESULTS_CSV  = PROJECT_DIR / "logs" / "inplay_match_results_clean.csv"
 
-OUT_JSON   = PROJECT_DIR / "p_calibration.json"
-OUT_REPORT = PROJECT_DIR / "p_calibration_report.json"
+OUT_JSON   = PROJECT_DIR / "config" / "p_calibration.json"
+OUT_REPORT = PROJECT_DIR / "config" / "p_calibration_report.json"
 
 # --- Calibration row selection ---
 # Many snapshots per match can cause late rounds to dominate calibration.
@@ -64,7 +64,7 @@ def resolve_path(default_path: Path, argv: List[str], idx: int) -> Path:
         return p
     # Prefer v2 snapshot log if present
     if default_path.name == "inplay_kappa_logs_clean.csv":
-        cand = PROJECT_DIR / "inplay_kappa_logs_v2.csv"
+        cand = PROJECT_DIR / "logs" / "inplay_kappa_logs_v2.csv"
         if cand.exists():
             return cand
     return default_path

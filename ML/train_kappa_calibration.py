@@ -39,7 +39,7 @@ import pandas as pd
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 
 # Default log filename (clean logs)
-DEFAULT_LOG_CSV = PROJECT_DIR / "inplay_kappa_logs_clean.csv"
+DEFAULT_LOG_CSV = PROJECT_DIR / "logs" / "inplay_kappa_logs_clean.csv"
 
 # Allow overriding log path via CLI: python train_kappa_calibration.py /path/to/log.csv
 def resolve_log_csv(argv: List[str]) -> Path:
@@ -49,14 +49,14 @@ def resolve_log_csv(argv: List[str]) -> Path:
             p = (PROJECT_DIR / p).resolve()
         return p
     # Prefer v2 log if present
-    cand = PROJECT_DIR / "inplay_kappa_logs_v2.csv"
+    cand = PROJECT_DIR / "logs" / "inplay_kappa_logs_v2.csv"
     if cand.exists():
         return cand
     return DEFAULT_LOG_CSV
 
 
-CALIBRATION_JSON = PROJECT_DIR / "kappa_calibration.json"
-REPORT_JSON = PROJECT_DIR / "kappa_calibration_report.json"
+CALIBRATION_JSON = PROJECT_DIR / "config" / "kappa_calibration.json"
+REPORT_JSON = PROJECT_DIR / "config" / "kappa_calibration_report.json"
 
 # Buckets by total rounds (rounds_a + rounds_b)
 BUCKETS = [

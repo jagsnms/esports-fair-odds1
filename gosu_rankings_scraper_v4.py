@@ -235,7 +235,7 @@ def main():
     ap.add_argument("--max-pages", type=int, default=999999, help="hard cap on how many pages to attempt")
     ap.add_argument("--seed", type=str, default="", help="existing CSV to skip already-seen teams")
     ap.add_argument("--append", action="store_true", help="force append new rows to --out (header kept if file empty)")
-    ap.add_argument("--out", type=str, default="gosu_dota2_rankings.csv", help="CSV path (default: gosu_dota2_rankings.csv)")
+    ap.add_argument("--out", type=str, default="data/processed/gosu_dota2_rankings.csv", help="CSV path (default: data/processed/gosu_dota2_rankings.csv)")
     args = ap.parse_args()
 
     log(f"[start] headed={not args.headless} limit={args.limit} start={args.start_page} max_pages={args.max_pages} seed={bool(args.seed)} out={args.out}")

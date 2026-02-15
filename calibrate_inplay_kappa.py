@@ -24,10 +24,10 @@ from math import log, exp
 import numpy as np
 import pandas as pd
 
-APP_DIR = Path(__file__).resolve().parent
-LOGS = APP_DIR / "inplay_kappa_logs.csv"
-RESULTS = APP_DIR / "inplay_match_results.csv"
-OUT_JSON = APP_DIR / "inplay_calibration.json"
+PROJECT_ROOT = Path(__file__).resolve().parent
+LOGS = PROJECT_ROOT / "logs" / "inplay_kappa_logs.csv"
+RESULTS = PROJECT_ROOT / "logs" / "inplay_match_results_clean.csv"
+OUT_JSON = PROJECT_ROOT / "config" / "inplay_calibration.json"
 
 def logit(p: np.ndarray) -> np.ndarray:
     p = np.clip(p, 1e-6, 1 - 1e-6)
