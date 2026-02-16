@@ -1,11 +1,11 @@
 """Data loading, validation, and team lookups."""
+
 import csv
 import re
 import string
 import unicodedata
-from pathlib import Path
-from typing import Optional
 from difflib import SequenceMatcher
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
@@ -45,7 +45,7 @@ def gosu_name_from_slug(slug: str) -> str:
     return s.replace("-", " ").strip()
 
 
-def sniff_bad_csv(path: Path, expected_cols: Optional[int] = None, preview_cols: int = 5):
+def sniff_bad_csv(path: Path, expected_cols: int | None = None, preview_cols: int = 5):
     bad = []
     header = None
     try:
@@ -73,7 +73,9 @@ def read_csv_tolerant(path: Path) -> pd.DataFrame:
 def _coerce_numeric(series, name):
     s = pd.to_numeric(series, errors="coerce")
     if s.isna().any():
-        st.warning(f"{name}: {int(s.isna().sum())} value(s) could not be parsed; treating as missing.")
+        st.warning(
+            f"{name}: {int(s.isna().sum())} value(s) could not be parsed; treating as missing."
+        )
     return s
 
 
@@ -88,7 +90,9 @@ def validate_df_cs2(df: pd.DataFrame) -> pd.DataFrame:
     if df["hltv_id"].isna().any():
         st.info(f"CS2: {int(df['hltv_id'].isna().sum())} team(s) have no hltv_id.")
     if df["tier"].isna().any():
-        st.warning(f"CS2: {int(df['tier'].isna().sum())} team(s) missing tier; defaulting to Tier 5.")
+        st.warning(
+            f"CS2: {int(df['tier'].isna().sum())} team(s) missing tier; defaulting to Tier 5."
+        )
         df["tier"] = df["tier"].fillna(5.0)
     if (df["team"].astype(str).str.strip() == "").any():
         st.warning("CS2: Some rows have empty team names.")
@@ -107,7 +111,9 @@ def validate_df_dota(df: pd.DataFrame) -> pd.DataFrame:
     if bad.any():
         st.warning(f"Dota: dropping {int(bad.sum())} row(s) with missing team/tier.")
         try:
-            st.dataframe(df.loc[bad, ["team", "tier", "rank", "slug"]], use_container_width=True, height=140)
+            st.dataframe(
+                df.loc[bad, ["team", "tier", "rank", "slug"]], use_container_width=True, height=140
+            )
         except Exception:
             pass
     if "opendota_id" not in df.columns:
@@ -115,7 +121,9 @@ def validate_df_dota(df: pd.DataFrame) -> pd.DataFrame:
     return df.loc[~bad].copy()
 
 
-def piecewise_recent_weights(n: int, K: int = 6, decay: float = 0.85, floor: float = 0.6, newest_first: bool = True):
+def piecewise_recent_weights(
+    n: int, K: int = 6, decay: float = 0.85, floor: float = 0.6, newest_first: bool = True
+):
     if n <= 0:
         return []
     idx = range(n) if newest_first else range(n - 1, -1, -1)
@@ -125,7 +133,7 @@ def piecewise_recent_weights(n: int, K: int = 6, decay: float = 0.85, floor: flo
             w = 1.0
         else:
             steps = i - K + 1
-            w = max(floor, decay ** steps)
+            w = max(floor, decay**steps)
         raw.append(w)
     s = sum(raw) or 1.0
     factor = n / s

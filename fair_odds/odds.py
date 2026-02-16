@@ -1,4 +1,5 @@
 """Odds conversion, fair odds mapping, and decision helpers."""
+
 import math
 
 
@@ -20,10 +21,9 @@ def implied_prob_from_american(odds: int) -> float:
     return 100 / (odds + 100) if odds > 0 else abs(odds) / (abs(odds) + 100)
 
 
-def calculate_fair_odds_curve(gap: float,
-                              base_C=30, alpha=0.03,
-                              tail_cutoff=14,
-                              L=0.97, k=0.09, x0=0, v=1.0):
+def calculate_fair_odds_curve(
+    gap: float, base_C=30, alpha=0.03, tail_cutoff=14, L=0.97, k=0.09, x0=0, v=1.0
+):
     """Original hand-tuned mapping from gap -> p."""
     if abs(gap) <= tail_cutoff:
         C_dynamic = base_C / (1 + alpha * abs(gap))
@@ -87,12 +87,16 @@ def ev_pct_decimal(prob: float, dec_odds: float) -> float:
     return (prob * dec_odds - 1.0) * 100.0
 
 
-def decide_bet(p_model: float,
-               odds_a: int, odds_b: int,
-               n_matches_a: int, n_matches_b: int,
-               min_edge_pct: float,
-               prob_gap_pp: float,
-               shrink_target: int):
+def decide_bet(
+    p_model: float,
+    odds_a: int,
+    odds_b: int,
+    n_matches_a: int,
+    n_matches_b: int,
+    min_edge_pct: float,
+    prob_gap_pp: float,
+    shrink_target: int,
+):
     """
     Returns dict: p_decide, ev_a_dec, ev_b_dec, choice ('A'/'B'/None), reason (str).
     """
@@ -120,18 +124,26 @@ def decide_bet(p_model: float,
         best_side = "A" if ev_a_dec >= ev_b_dec else "B"
 
     reason = " & ".join(reasons) if reasons else "passes filters"
-    return {"p_decide": p_decide, "ev_a_dec": ev_a_dec, "ev_b_dec": ev_b_dec,
-            "choice": best_side, "reason": reason}
+    return {
+        "p_decide": p_decide,
+        "ev_a_dec": ev_a_dec,
+        "ev_b_dec": ev_b_dec,
+        "choice": best_side,
+        "reason": reason,
+    }
 
 
 def decide_bo2_3way(
     p_map_model: float,
-    n_matches_a: int, n_matches_b: int,
+    n_matches_a: int,
+    n_matches_b: int,
     min_edge_pct: float,
     prob_gap_pp: float,
     shrink_target: int,
     draw_k: float,
-    odds_a20: float, odds_draw: float, odds_b02: float,
+    odds_a20: float,
+    odds_draw: float,
+    odds_b02: float,
 ):
     """3-way decision for BO2. Returns dict with selected outcome/EV/prob/odds + reason."""
     eff_matches = min(n_matches_a, n_matches_b)
@@ -154,9 +166,11 @@ def decide_bo2_3way(
     if vals:
         inv = [1.0 / x for x in vals]
         s = sum(inv)
-        inv_map = {"A2-0": (1.0 / odds_a20) if odds_a20 > 1.0 else 0.0,
-                   "DRAW": (1.0 / odds_draw) if odds_draw > 1.0 else 0.0,
-                   "B0-2": (1.0 / odds_b02) if odds_b02 > 1.0 else 0.0}
+        inv_map = {
+            "A2-0": (1.0 / odds_a20) if odds_a20 > 1.0 else 0.0,
+            "DRAW": (1.0 / odds_draw) if odds_draw > 1.0 else 0.0,
+            "B0-2": (1.0 / odds_b02) if odds_b02 > 1.0 else 0.0,
+        }
         imp = {k: (v / s if s > 0 else 0.0) for k, v in inv_map.items()}
     p_mkt_sel = imp.get(sel_outcome, 0.0)
 
@@ -166,7 +180,7 @@ def decide_bo2_3way(
     if abs(sel_prob - p_mkt_sel) < (prob_gap_pp / 100.0):
         reasons.append(f"prob gap < {prob_gap_pp}pp")
 
-    ok = (len(reasons) == 0)
+    ok = len(reasons) == 0
     reason = " & ".join(reasons) if reasons else "passes filters"
 
     return {

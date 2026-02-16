@@ -1,16 +1,16 @@
 """Calibration loading and trainer runners."""
+
 import json
 import subprocess
 import sys
 from pathlib import Path
 
 from .paths import (
-    PROJECT_ROOT,
     KAPPA_CALIB_PATH,
     KAPPA_TRAIN_SCRIPT,
     P_CALIB_PATH,
-    P_CALIB_REPORT_PATH,
     P_TRAIN_SCRIPT,
+    PROJECT_ROOT,
 )
 
 
@@ -38,6 +38,7 @@ def apply_p_calibration(p_raw: float, p_calib: dict, game_key: str) -> float:
     """Apply piecewise-linear monotone map built by the prob trainer."""
     try:
         import numpy as np
+
         g = (game_key or "").lower().strip()
         if not p_calib or g not in p_calib:
             return float(p_raw)
@@ -69,7 +70,9 @@ def _phase_bucket(total_rounds: int, is_ot: bool) -> str:
     return "late"
 
 
-def get_kappa_multiplier(calib: dict, game_key: str, band_level: float, total_rounds: int, is_ot: bool) -> float:
+def get_kappa_multiplier(
+    calib: dict, game_key: str, band_level: float, total_rounds: int, is_ot: bool
+) -> float:
     if not calib:
         return 1.0
     g = calib.get(game_key.lower(), calib.get(game_key.upper(), {}))

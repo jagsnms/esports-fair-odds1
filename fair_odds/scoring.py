@@ -1,9 +1,8 @@
 """Match scoring with tier-based and recency adjustments."""
-from typing import Optional
 
 import pandas as pd
 
-from .data import piecewise_recent_weights, get_team_tier
+from .data import get_team_tier, piecewise_recent_weights
 
 USE_SERIES_SCORE_MOD = True
 SERIES_CLAMP = 1.25
@@ -51,7 +50,12 @@ def normalize_series_result_from_fields(match: dict) -> str:
     s = str(match.get("series", "") or match.get("series_result", "")).strip()
     if s in {"2-0", "2-1", "1-2", "0-2"}:
         return s
-    key_pairs = [("us", "them"), ("series_us", "series_them"), ("maps_us", "maps_them"), ("score_us", "score_them")]
+    key_pairs = [
+        ("us", "them"),
+        ("series_us", "series_them"),
+        ("maps_us", "maps_them"),
+        ("score_us", "score_them"),
+    ]
     us = them = None
     for a, b in key_pairs:
         if a in match or b in match:
@@ -74,7 +78,9 @@ def normalize_series_result_from_fields(match: dict) -> str:
 
 
 def series_score_modifier_5tier(
-    team_tier: float, opp_tier: float, result: str,
+    team_tier: float,
+    opp_tier: float,
+    result: str,
     clamp: float = SERIES_CLAMP,
     weights: dict = SERIES_WEIGHTS,
 ) -> float:
@@ -113,7 +119,7 @@ def calculate_score(
     floor: float = 0.6,
     newest_first: bool = True,
     draw_policy: str = "graded",
-    self_team_tier: Optional[float] = None,
+    self_team_tier: float | None = None,
     draw_gamma: float = 0.5,
     draw_gap_cap: float = 3.0,
     draw_gap_power: float = 1.0,
@@ -127,7 +133,9 @@ def calculate_score(
     breakdown = []
     n = len(matches)
     if weight_scheme == "piecewise":
-        weights = piecewise_recent_weights(n, K=K, decay=decay, floor=floor, newest_first=newest_first)
+        weights = piecewise_recent_weights(
+            n, K=K, decay=decay, floor=floor, newest_first=newest_first
+        )
     else:
         weights = [1.0] * n
 
@@ -156,15 +164,20 @@ def calculate_score(
                 points = sign * draw_gamma * base_mag * gap
                 base_txt = f"Draw (graded {points:+.2f}; rel_gap={rel:.1f})"
         else:
-            points = base_points_from_tier(True, tier) if win else base_points_from_tier(False, tier)
+            points = (
+                base_points_from_tier(True, tier) if win else base_points_from_tier(False, tier)
+            )
             base_txt = "Win" if win else "Loss"
             if use_series_mod:
                 series_res = normalize_series_result_from_fields(match)
                 if series_res in {"2-0", "2-1", "1-2", "0-2"}:
                     my_tier = float(self_team_tier) if self_team_tier is not None else 3.0
                     s_bump = series_score_modifier_5tier(
-                        team_tier=my_tier, opp_tier=tier, result=series_res,
-                        clamp=series_clamp, weights=series_weights,
+                        team_tier=my_tier,
+                        opp_tier=tier,
+                        result=series_res,
+                        clamp=series_clamp,
+                        weights=series_weights,
                     )
                     if s_bump:
                         pct_cap = series_pct_cap * max(0.5, abs(points))
@@ -178,9 +191,17 @@ def calculate_score(
             tier_gap = tier - current_opponent_tier
             positiveish = win or (draw_flag and draw_policy != "loss" and points >= 0)
             if positiveish:
-                weight_tier_old = 1 + min(0.4, abs(tier_gap) * 0.2) if tier_gap < 0 else 1 - min(0.3, tier_gap * 0.15)
+                weight_tier_old = (
+                    1 + min(0.4, abs(tier_gap) * 0.2)
+                    if tier_gap < 0
+                    else 1 - min(0.3, tier_gap * 0.15)
+                )
             else:
-                weight_tier_old = 1 - min(0.2, abs(tier_gap) * 0.1) if tier_gap < 0 else 1 + min(0.5, tier_gap * 0.25)
+                weight_tier_old = (
+                    1 - min(0.2, abs(tier_gap) * 0.1)
+                    if tier_gap < 0
+                    else 1 + min(0.5, tier_gap * 0.25)
+                )
             weight_tier_old = max(0.5, min(weight_tier_old, 1.5))
         else:
             tier_gap = 0.0

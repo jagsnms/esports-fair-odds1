@@ -2,30 +2,22 @@
 # app.py — Esports Fair Odds (CS2 + Dota2)
 # Run: streamlit run app.py
 
-import os
-import sys
-import re
+import asyncio
 import json
 import math
-import subprocess
-import asyncio
-from pathlib import Path
-from difflib import SequenceMatcher
-import unicodedata
-import string
+import re
+import sys
 from datetime import datetime
-import csv
-from typing import Optional  # 3.9-compatible Optional[...] for type hints
 
 import streamlit as st
 
 # Streamlit layout
 st.set_page_config(layout="wide", page_title="Esports Fair Odds")
 
-import pandas as pd
 import numpy as np
-from scipy.stats import beta as beta_dist
+import pandas as pd
 import requests
+from scipy.stats import beta as beta_dist
 
 # ---- Windows asyncio fix: ensure subprocess support for Playwright ----
 if sys.platform.startswith("win"):
@@ -37,40 +29,64 @@ if sys.platform.startswith("win"):
 # ==========================
 # Refactored modules
 # ==========================
-from fair_odds.paths import (
-    PROJECT_ROOT, APP_DIR, LOG_PATH, LOG_COLUMNS,
-    INPLAY_LOG_PATH, INPLAY_RESULTS_PATH, INPLAY_MAP_RESULTS_PATH,
-    INPLAY_LOG_COLUMNS, INPLAY_RESULTS_COLUMNS, INPLAY_MAP_RESULTS_COLUMNS,
-    KAPPA_CALIB_PATH, P_CALIB_PATH, P_CALIB_REPORT_PATH,
-)
-from fair_odds.odds import (
-    american_to_decimal, decimal_to_american, implied_prob_from_american,
-    calculate_fair_odds_curve, calculate_fair_odds_from_p, logistic_mapping,
-    color_ev, prob_to_fair_american, compute_bo2_probs, ev_pct_decimal,
-    decide_bet, decide_bo2_3way,
-)
 from fair_odds.calibration import (
-    load_kappa_calibration, load_p_calibration_json, load_p_calibration,
-    apply_p_calibration, get_kappa_multiplier,
-    run_kappa_trainer, run_prob_trainer,
+    apply_p_calibration,
+    get_kappa_multiplier,
+    load_kappa_calibration,
+    load_p_calibration_json,
+    run_kappa_trainer,
+    run_prob_trainer,
 )
 from fair_odds.data import (
-    load_cs2_teams, load_dota_teams, get_team_tier,
-    normalize_name, gosu_name_from_slug, read_csv_tolerant, sniff_bad_csv,
-    piecewise_recent_weights,
+    gosu_name_from_slug,
+    load_cs2_teams,
+    load_dota_teams,
+    read_csv_tolerant,
 )
 from fair_odds.logs import (
-    migrate_log_schema, recompute_metrics_from_logs, load_persisted_logs,
-    persist_log_row, init_metrics, update_metrics_binary, update_metrics_3way,
-    log_row, export_logs_df,
-    persist_inplay_row, persist_inplay_result, persist_inplay_map_result,
+    export_logs_df,
+    init_metrics,
+    log_row,
+    migrate_log_schema,
+    persist_inplay_map_result,
+    persist_inplay_result,
+    persist_inplay_row,
+    recompute_metrics_from_logs,
     show_inplay_log_paths,
+    update_metrics_3way,
+    update_metrics_binary,
 )
-from fair_odds.scrapers import scrape_cs2_matches, scrape_dota_matches_gosu_subprocess, fetch_dota_matches
+from fair_odds.odds import (
+    american_to_decimal,
+    calculate_fair_odds_curve,
+    calculate_fair_odds_from_p,
+    color_ev,
+    compute_bo2_probs,
+    decide_bet,
+    decide_bo2_3way,
+    decimal_to_american,
+    ev_pct_decimal,
+    logistic_mapping,
+    prob_to_fair_american,
+)
+from fair_odds.paths import (
+    APP_DIR,
+    KAPPA_CALIB_PATH,
+    LOG_COLUMNS,
+    LOG_PATH,
+    P_CALIB_REPORT_PATH,
+    PROJECT_ROOT,
+)
 from fair_odds.scoring import (
-    calculate_score, base_points_from_tier, normalize_series_result_from_fields,
-    series_score_modifier_5tier,
-    SERIES_CLAMP, SERIES_WEIGHTS, SERIES_PCT_OF_BASE_CAP,
+    SERIES_CLAMP,
+    SERIES_PCT_OF_BASE_CAP,
+    SERIES_WEIGHTS,
+    calculate_score,
+)
+from fair_odds.scrapers import (
+    fetch_dota_matches,
+    scrape_cs2_matches,
+    scrape_dota_matches_gosu_subprocess,
 )
 
 # ==========================
@@ -87,35 +103,59 @@ init_metrics()
 
 # Global calibration + decision controls (applies to both tabs)
 with st.expander("Calibration & Mapping (optional)"):
-    use_clip = st.checkbox("Clip extreme adjusted gaps before mapping", value=False,
-                           help="Prevents absurd probabilities on outlier gaps.")
+    use_clip = st.checkbox(
+        "Clip extreme adjusted gaps before mapping",
+        value=False,
+        help="Prevents absurd probabilities on outlier gaps.",
+    )
     clip_limit = st.slider("Clip limit (|gap|)", 10, 40, 25, 1)
-    use_logistic = st.checkbox("Use calibrated logistic mapping (gap → p)", value=False,
-                               help="OFF = original curve. ON = p = 1/(1+exp(-(a+b*gap))).")
+    use_logistic = st.checkbox(
+        "Use calibrated logistic mapping (gap → p)",
+        value=False,
+        help="OFF = original curve. ON = p = 1/(1+exp(-(a+b*gap))).",
+    )
     colA, colB = st.columns(2)
     with colA:
-        a_param = st.number_input("Logistic a (intercept)",
-                                  value=st.session_state.get("a_param", 0.0),
-                                  step=0.01, format="%.4f")
+        a_param = st.number_input(
+            "Logistic a (intercept)",
+            value=st.session_state.get("a_param", 0.0),
+            step=0.01,
+            format="%.4f",
+        )
     with colB:
-        b_param = st.number_input("Logistic b (slope)",
-                                  value=st.session_state.get("b_param", 0.18),
-                                  step=0.01, format="%.4f",
-                                  help="Fit this from your logged data later. Placeholder default.")
+        b_param = st.number_input(
+            "Logistic b (slope)",
+            value=st.session_state.get("b_param", 0.18),
+            step=0.01,
+            format="%.4f",
+            help="Fit this from your logged data later. Placeholder default.",
+        )
 
     st.markdown("---")
     # --- Decision layer controls ---
     min_edge_pct = st.slider(
-        "Minimum EV to bet (%)", 0, 15, 5, 1,
-        help="Edges below this are auto 'No bet' for logging/decision. Model EVs remain unchanged."
+        "Minimum EV to bet (%)",
+        0,
+        15,
+        5,
+        1,
+        help="Edges below this are auto 'No bet' for logging/decision. Model EVs remain unchanged.",
     )
     prob_gap_pp = st.slider(
-        "Minimum model vs market probability gap (percentage points)", 0, 5, 3, 1,
-        help="Require |p_model - p_market| ≥ this many percentage points to consider a bet."
+        "Minimum model vs market probability gap (percentage points)",
+        0,
+        5,
+        3,
+        1,
+        help="Require |p_model - p_market| ≥ this many percentage points to consider a bet.",
     )
     shrink_target_matches = st.slider(
-        "Effective matches for full confidence (shrinkage target)", 6, 20, 12, 1,
-        help="Blends model p toward 50% when data is thin. Set higher = stricter."
+        "Effective matches for full confidence (shrinkage target)",
+        6,
+        20,
+        12,
+        1,
+        help="Blends model p toward 50% when data is thin. Set higher = stricter.",
     )
 
     st.markdown("---")
@@ -123,10 +163,14 @@ with st.expander("Calibration & Mapping (optional)"):
     use_series_mod_ui = st.checkbox(
         "Use series score modifier (map-count aware, tier-adjusted)",
         value=True,
-        help="Rewards weaker teams when they take maps/wins; penalizes stronger teams for dropping maps. No bonuses for 0–2 losses."
+        help="Rewards weaker teams when they take maps/wins; penalizes stronger teams for dropping maps. No bonuses for 0–2 losses.",
     )
-    series_clamp_ui = st.slider("Series modifier absolute clamp (points)", 0.25, 2.00, float(SERIES_CLAMP), 0.05)
-    series_pct_cap_ui = st.slider("Series modifier cap as % of base", 0.10, 0.60, float(SERIES_PCT_OF_BASE_CAP), 0.05)
+    series_clamp_ui = st.slider(
+        "Series modifier absolute clamp (points)", 0.25, 2.00, float(SERIES_CLAMP), 0.05
+    )
+    series_pct_cap_ui = st.slider(
+        "Series modifier cap as % of base", 0.10, 0.60, float(SERIES_PCT_OF_BASE_CAP), 0.05
+    )
 
     # apply UI overrides to globals
     USE_SERIES_SCORE_MOD = bool(use_series_mod_ui)
@@ -137,7 +181,8 @@ with st.expander("Calibration & Mapping (optional)"):
 # ==========================
 # Market data helpers (Kalshi / Polymarket)
 # ==========================
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import parse_qs, urlparse
+
 
 def _try_extract_kalshi_ticker(raw: str) -> str:
     """
@@ -156,7 +201,7 @@ def _try_extract_kalshi_ticker(raw: str) -> str:
         # Common patterns: /markets/{TICKER} or /trade/{TICKER}
         for i, part in enumerate(path_parts[:-1]):
             if part.lower() in ("markets", "market", "trade", "event"):
-                cand = path_parts[i+1]
+                cand = path_parts[i + 1]
                 if re.fullmatch(r"[A-Z0-9_-]{3,64}", cand):
                     return cand
         # Fallback: last segment
@@ -167,6 +212,7 @@ def _try_extract_kalshi_ticker(raw: str) -> str:
     except Exception:
         pass
     return ""
+
 
 def _try_extract_polymarket_token_id(raw: str) -> str:
     """
@@ -188,6 +234,7 @@ def _try_extract_polymarket_token_id(raw: str) -> str:
     except Exception:
         pass
     return ""
+
 
 @st.cache_data(ttl=3, show_spinner=False)
 def fetch_kalshi_bid_ask(ticker: str):
@@ -270,8 +317,8 @@ def fetch_kalshi_bid_ask(ticker: str):
 
             yb = _to_int(market.get("yes_bid", market.get("yesBid")))
             ya = _to_int(market.get("yes_ask", market.get("yesAsk")))
-            nb = _to_int(market.get("no_bid",  market.get("noBid")))
-            na = _to_int(market.get("no_ask",  market.get("noAsk")))
+            nb = _to_int(market.get("no_bid", market.get("noBid")))
+            na = _to_int(market.get("no_ask", market.get("noAsk")))
             lp = _to_int(market.get("last_price", market.get("lastPrice")))
 
             # If one ask missing but opposite bid exists, imply it
@@ -307,10 +354,10 @@ def fetch_kalshi_bid_ask(ticker: str):
             ob = data.get("orderbook", data)
 
             yes_bids = ob.get("yes", []) or ob.get("yes_bids", []) or ob.get("yesOrders", [])
-            no_bids  = ob.get("no",  []) or ob.get("no_bids",  []) or ob.get("noOrders",  [])
+            no_bids = ob.get("no", []) or ob.get("no_bids", []) or ob.get("noOrders", [])
 
             best_yes_c, best_yes_sz = _best_bid(yes_bids)
-            best_no_c,  best_no_sz  = _best_bid(no_bids)
+            best_no_c, best_no_sz = _best_bid(no_bids)
 
             if best_yes_c is None and best_no_c is None:
                 raise RuntimeError("No orderbook levels returned")
@@ -334,7 +381,9 @@ def fetch_kalshi_bid_ask(ticker: str):
             continue
 
     raise RuntimeError(f"Kalshi fetch failed for {t}: {last_err}")
-def _kalshi_parse_event_ticker(url_or_ticker: str) -> Optional[str]:
+
+
+def _kalshi_parse_event_ticker(url_or_ticker: str) -> str | None:
     """Best-effort parse of a Kalshi *event_ticker* from a Kalshi page URL or ticker.
 
     - If given a Kalshi site URL like .../kxvalorantgame-26jan29blgfpx, returns KXVALORANTGAME-26JAN29BLGFPX.
@@ -350,6 +399,7 @@ def _kalshi_parse_event_ticker(url_or_ticker: str) -> Optional[str]:
     # If it's a URL, take the last path segment.
     try:
         from urllib.parse import urlparse
+
         if "://" in s:
             parsed = urlparse(s)
             path = (parsed.path or "").rstrip("/")
@@ -394,13 +444,15 @@ def kalshi_list_markets_for_event(event_ticker: str):
             markets = data.get("markets", []) or []
             out = []
             for m in markets:
-                out.append({
-                    "ticker": m.get("ticker"),
-                    "title": m.get("title") or "",
-                    "subtitle": m.get("subtitle") or "",
-                })
+                out.append(
+                    {
+                        "ticker": m.get("ticker"),
+                        "title": m.get("title") or "",
+                        "subtitle": m.get("subtitle") or "",
+                    }
+                )
             out = [x for x in out if x.get("ticker")]
-            out.sort(key=lambda x: (x["ticker"], x.get("title","")))
+            out.sort(key=lambda x: (x["ticker"], x.get("title", "")))
             if not out:
                 raise RuntimeError("No markets returned for that event_ticker")
             return out
@@ -408,6 +460,7 @@ def kalshi_list_markets_for_event(event_ticker: str):
             last_err = e
             continue
     raise RuntimeError(f"Kalshi market list failed: {last_err}")
+
 
 @st.cache_data(ttl=3, show_spinner=False)
 def fetch_polymarket_bid_ask(token_id: str):
@@ -471,7 +524,16 @@ def fetch_polymarket_bid_ask(token_id: str):
     return bid, ask, meta
 
 
-tabs = st.tabs(["CS2", "Dota2", "Diagnostics / Export", "CS2 In-Play Indicator (MVP)", "Valorant In-Play Indicator (MVP)", "Calibration"])
+tabs = st.tabs(
+    [
+        "CS2",
+        "Dota2",
+        "Diagnostics / Export",
+        "CS2 In-Play Indicator (MVP)",
+        "Valorant In-Play Indicator (MVP)",
+        "Calibration",
+    ]
+)
 
 # --------------------------
 # CS2 TAB
@@ -494,7 +556,9 @@ with tabs[0]:
         if st.button("Scrape Team A (CS2)"):
             if team_a_id is None or not isinstance(team_a_slug, str) or not team_a_slug:
                 st.error("Cannot scrape Team A: missing hltv_id or slug for this team.")
-                st.info("You can still Calculate using the tiers; scraping just won’t work for this team.")
+                st.info(
+                    "You can still Calculate using the tiers; scraping just won’t work for this team."
+                )
                 matches_a = []
             else:
                 matches_a = scrape_cs2_matches(team_a_id, team_a_slug)
@@ -515,7 +579,9 @@ with tabs[0]:
         if st.button("Scrape Team B (CS2)"):
             if team_b_id is None or not isinstance(team_b_slug, str) or not team_b_slug:
                 st.error("Cannot scrape Team B: missing hltv_id or slug for this team.")
-                st.info("You can still Calculate using the tiers; scraping just won’t work for this team.")
+                st.info(
+                    "You can still Calculate using the tiers; scraping just won’t work for this team."
+                )
                 matches_b = []
             else:
                 matches_b = scrape_cs2_matches(team_b_id, team_b_slug)
@@ -542,18 +608,36 @@ with tabs[0]:
             team_b_tier = float(row_b["tier"])
 
             raw_a, adj_a, breakdown_a = calculate_score(
-                matches_a, df_cs2, current_opponent_tier=team_b_tier,
-                weight_scheme="piecewise", K=K_cs2, decay=decay_cs2, floor=floor_cs2, newest_first=True,
-                draw_policy="loss", self_team_tier=team_a_tier,
-                use_series_mod=use_series_mod_ui, series_clamp=series_clamp_ui,
-                series_pct_cap=series_pct_cap_ui, series_weights=SERIES_WEIGHTS
+                matches_a,
+                df_cs2,
+                current_opponent_tier=team_b_tier,
+                weight_scheme="piecewise",
+                K=K_cs2,
+                decay=decay_cs2,
+                floor=floor_cs2,
+                newest_first=True,
+                draw_policy="loss",
+                self_team_tier=team_a_tier,
+                use_series_mod=use_series_mod_ui,
+                series_clamp=series_clamp_ui,
+                series_pct_cap=series_pct_cap_ui,
+                series_weights=SERIES_WEIGHTS,
             )
             raw_b, adj_b, breakdown_b = calculate_score(
-                matches_b, df_cs2, current_opponent_tier=team_a_tier,
-                weight_scheme="piecewise", K=K_cs2, decay=decay_cs2, floor=floor_cs2, newest_first=True,
-                draw_policy="loss", self_team_tier=team_b_tier,
-                use_series_mod=use_series_mod_ui, series_clamp=series_clamp_ui,
-                series_pct_cap=series_pct_cap_ui, series_weights=SERIES_WEIGHTS
+                matches_b,
+                df_cs2,
+                current_opponent_tier=team_a_tier,
+                weight_scheme="piecewise",
+                K=K_cs2,
+                decay=decay_cs2,
+                floor=floor_cs2,
+                newest_first=True,
+                draw_policy="loss",
+                self_team_tier=team_b_tier,
+                use_series_mod=use_series_mod_ui,
+                series_clamp=series_clamp_ui,
+                series_pct_cap=series_pct_cap_ui,
+                series_weights=SERIES_WEIGHTS,
             )
 
             raw_gap = raw_a - raw_b
@@ -561,8 +645,13 @@ with tabs[0]:
             if use_clip:
                 adj_gap = max(min(adj_gap, clip_limit), -clip_limit)
 
-            p = logistic_mapping(adj_gap, a_param, b_param) if use_logistic else calculate_fair_odds_curve(adj_gap)
-            dec_a = american_to_decimal(odds_a); dec_b = american_to_decimal(odds_b)
+            p = (
+                logistic_mapping(adj_gap, a_param, b_param)
+                if use_logistic
+                else calculate_fair_odds_curve(adj_gap)
+            )
+            dec_a = american_to_decimal(odds_a)
+            dec_b = american_to_decimal(odds_b)
             ev_a = ((p * dec_a) - 1) * 100
             ev_b = (((1 - p) * dec_b) - 1) * 100
             fair_a, fair_b = calculate_fair_odds_from_p(p)
@@ -578,14 +667,18 @@ with tabs[0]:
             st.text(f"Score Breakdown: Raw {raw_a:.2f}/{raw_b:.2f} | Adj {adj_a:.3f}/{adj_b:.3f}")
 
             st.subheader(f"{team_a} Breakdown")
-            for line in breakdown_a: st.text(line)
+            for line in breakdown_a:
+                st.text(line)
             st.subheader(f"{team_b} Breakdown")
-            for line in breakdown_b: st.text(line)
+            for line in breakdown_b:
+                st.text(line)
 
             decision = decide_bet(
                 p_model=p,
-                odds_a=odds_a, odds_b=odds_b,
-                n_matches_a=len(matches_a), n_matches_b=len(matches_b),
+                odds_a=odds_a,
+                odds_b=odds_b,
+                n_matches_a=len(matches_a),
+                n_matches_b=len(matches_b),
                 min_edge_pct=min_edge_pct,
                 prob_gap_pp=prob_gap_pp,
                 shrink_target=shrink_target_matches,
@@ -595,8 +688,12 @@ with tabs[0]:
                 ev_a_eff = ev_b_eff = None
             else:
                 pick_team = team_a if decision["choice"] == "A" else team_b
-                pick_ev = decision["ev_a_dec"] if decision["choice"] == "A" else decision["ev_b_dec"]
-                st.markdown(f"**Decision:** ✅ Bet **{pick_team}** ({pick_ev:+.2f}% EV) — {decision['reason']}")
+                pick_ev = (
+                    decision["ev_a_dec"] if decision["choice"] == "A" else decision["ev_b_dec"]
+                )
+                st.markdown(
+                    f"**Decision:** ✅ Bet **{pick_team}** ({pick_ev:+.2f}% EV) — {decision['reason']}"
+                )
                 ev_a_eff = decision["ev_a_dec"] if decision["choice"] == "A" else None
                 ev_b_eff = decision["ev_b_dec"] if decision["choice"] == "B" else None
 
@@ -606,17 +703,30 @@ with tabs[0]:
                 "game": "CS2",
                 "series_format": "BO3",
                 "market_type": "BINARY",
-                "team_a": team_a, "team_b": team_b,
-                "tier_a": team_a_tier, "tier_b": team_b_tier,
-                "K": K_cs2, "decay": decay_cs2, "floor": floor_cs2,
-                "raw_a": raw_a, "raw_b": raw_b,
-                "adj_a": adj_a, "adj_b": adj_b, "adj_gap": adj_gap,
-                "use_logistic": use_logistic, "a": a_param, "b": b_param,
-                "use_clip": use_clip, "clip_limit": clip_limit,
+                "team_a": team_a,
+                "team_b": team_b,
+                "tier_a": team_a_tier,
+                "tier_b": team_b_tier,
+                "K": K_cs2,
+                "decay": decay_cs2,
+                "floor": floor_cs2,
+                "raw_a": raw_a,
+                "raw_b": raw_b,
+                "adj_a": adj_a,
+                "adj_b": adj_b,
+                "adj_gap": adj_gap,
+                "use_logistic": use_logistic,
+                "a": a_param,
+                "b": b_param,
+                "use_clip": use_clip,
+                "clip_limit": clip_limit,
                 "p_model": p,
-                "odds_a": odds_a, "odds_b": odds_b,
-                "fair_a": fair_a, "fair_b": fair_b,
-                "ev_a_pct": ev_a, "ev_b_pct": ev_b,
+                "odds_a": odds_a,
+                "odds_b": odds_b,
+                "fair_a": fair_a,
+                "fair_b": fair_b,
+                "ev_a_pct": ev_a,
+                "ev_b_pct": ev_b,
                 "p_decide": decision["p_decide"],
                 "ev_a_dec": decision["ev_a_dec"],
                 "ev_b_dec": decision["ev_b_dec"],
@@ -625,12 +735,25 @@ with tabs[0]:
                 "min_edge_pct": min_edge_pct,
                 "prob_gap_pp": prob_gap_pp,
                 "shrink_target": shrink_target_matches,
-                "p_map_model":"", "p_map_decide":"", "draw_k":"",
-                "p_a20":"", "p_draw":"", "p_b02":"",
-                "odds_a20":"", "odds_draw":"", "odds_b02":"",
-                "ev_a20_pct":"", "ev_draw_pct":"", "ev_b02_pct":"",
-                "selected_outcome":"", "selected_prob":"", "selected_odds":"", "selected_ev_pct":"",
-                "fair_a20_us":"", "fair_draw_us":"", "fair_b02_us":""
+                "p_map_model": "",
+                "p_map_decide": "",
+                "draw_k": "",
+                "p_a20": "",
+                "p_draw": "",
+                "p_b02": "",
+                "odds_a20": "",
+                "odds_draw": "",
+                "odds_b02": "",
+                "ev_a20_pct": "",
+                "ev_draw_pct": "",
+                "ev_b02_pct": "",
+                "selected_outcome": "",
+                "selected_prob": "",
+                "selected_odds": "",
+                "selected_ev_pct": "",
+                "fair_a20_us": "",
+                "fair_draw_us": "",
+                "fair_b02_us": "",
             }
             log_row(entry)
         else:
@@ -649,19 +772,35 @@ with tabs[1]:
         options=["BO3 (binary win/lose)", "BO2 (3-way with draw)"],
         horizontal=True,
         index=0,
-        help="BO2 adds a proper 3-way (A 2–0 / Draw 1–1 / B 0–2) market."
+        help="BO2 adds a proper 3-way (A 2–0 / Draw 1–1 / B 0–2) market.",
     )
 
-    src = st.radio("Data source", ["OpenDota (API)", "GosuGamers (Scrape)"], horizontal=True, index=1)
-    headed_toggle = st.toggle("Show browser during Gosu scrape", value=True,
-                              help="Use a visible browser window for the scrape.")
-    browser_channel = st.selectbox("Browser for Gosu scrape",
-        options=["bundled", "chrome", "msedge"], index=0, key="dota_browser_channel",
+    src = st.radio(
+        "Data source", ["OpenDota (API)", "GosuGamers (Scrape)"], horizontal=True, index=1
+    )
+    headed_toggle = st.toggle(
+        "Show browser during Gosu scrape",
+        value=True,
+        help="Use a visible browser window for the scrape.",
+    )
+    browser_channel = st.selectbox(
+        "Browser for Gosu scrape",
+        options=["bundled", "chrome", "msedge"],
+        index=0,
+        key="dota_browser_channel",
         help="Use 'bundled' to mimic CLI (Playwright Chromium). Or force Chrome/Edge if installed.",
     )
-    zoom_pct = st.slider("Gosu page zoom (%)", min_value=60, max_value=110, value=80, step=5,
-                         help="Zoom out to keep the paginator in view.")
-    target_matches = st.slider("Matches to use (last N)", min_value=8, max_value=30, value=14, step=1)
+    zoom_pct = st.slider(
+        "Gosu page zoom (%)",
+        min_value=60,
+        max_value=110,
+        value=80,
+        step=5,
+        help="Zoom out to keep the paginator in view.",
+    )
+    target_matches = st.slider(
+        "Matches to use (last N)", min_value=8, max_value=30, value=14, step=1
+    )
 
     st.subheader("Recency Weighting (Dota2)")
     K_dota = st.slider("Full-weight recent matches (K)", 3, 12, 6, key="K_dota")
@@ -674,15 +813,37 @@ with tabs[1]:
         ["Graded by tier (recommended)", "Neutral (0 points)", "Legacy (treat as loss)"],
         horizontal=False,
         index=0,
-        help="Graded: + if draw vs stronger, − if draw vs weaker; scaled by tier gap."
+        help="Graded: + if draw vs stronger, − if draw vs weaker; scaled by tier gap.",
     )
-    draw_gamma = st.slider("Draw magnitude γ (0–1)", 0.00, 1.00, 0.50, 0.05,
-                           help="0 = ignore draws, 1 = half-way to a full win/loss at max gap.")
-    draw_gap_cap = st.slider("Tier gap cap for draws", 1.0, 4.0, 3.0, 0.5,
-                             help="How many tier steps until a draw is 'maximally' graded.")
-    draw_gap_power = st.slider("Tier gap curve (power)", 0.5, 2.0, 1.0, 0.1,
-                               help="<1 boosts small gaps; >1 emphasizes big gaps.")
-    draw_policy = "graded" if draw_mode.startswith("Graded") else ("neutral" if draw_mode.startswith("Neutral") else "loss")
+    draw_gamma = st.slider(
+        "Draw magnitude γ (0–1)",
+        0.00,
+        1.00,
+        0.50,
+        0.05,
+        help="0 = ignore draws, 1 = half-way to a full win/loss at max gap.",
+    )
+    draw_gap_cap = st.slider(
+        "Tier gap cap for draws",
+        1.0,
+        4.0,
+        3.0,
+        0.5,
+        help="How many tier steps until a draw is 'maximally' graded.",
+    )
+    draw_gap_power = st.slider(
+        "Tier gap curve (power)",
+        0.5,
+        2.0,
+        1.0,
+        0.1,
+        help="<1 boosts small gaps; >1 emphasizes big gaps.",
+    )
+    draw_policy = (
+        "graded"
+        if draw_mode.startswith("Graded")
+        else ("neutral" if draw_mode.startswith("Neutral") else "loss")
+    )
 
     col1, col2 = st.columns(2)
     with col1:
@@ -692,7 +853,11 @@ with tabs[1]:
 
         team_a_id = None
         try:
-            if "opendota_id" in row_a and pd.notna(row_a["opendota_id"]) and str(row_a["opendota_id"]).strip() != "":
+            if (
+                "opendota_id" in row_a
+                and pd.notna(row_a["opendota_id"])
+                and str(row_a["opendota_id"]).strip() != ""
+            ):
                 team_a_id = int(float(row_a["opendota_id"]))
         except Exception:
             team_a_id = None
@@ -703,18 +868,24 @@ with tabs[1]:
                     st.info("No OpenDota ID for this team — falling back to Gosu scraping.")
                     gosu_name_a = gosu_name_from_slug(team_a_slug)
                     matches_a = scrape_dota_matches_gosu_subprocess(
-                        team_slug=team_a_slug, team_name=gosu_name_a,
-                        target=target_matches, headed=headed_toggle,
-                        browser_channel=browser_channel, zoom=zoom_pct,
+                        team_slug=team_a_slug,
+                        team_name=gosu_name_a,
+                        target=target_matches,
+                        headed=headed_toggle,
+                        browser_channel=browser_channel,
+                        zoom=zoom_pct,
                     )
                 else:
                     matches_a = fetch_dota_matches(team_a_id, limit=target_matches)
             else:
                 gosu_name_a = gosu_name_from_slug(team_a_slug)
                 matches_a = scrape_dota_matches_gosu_subprocess(
-                    team_slug=team_a_slug, team_name=gosu_name_a,
-                    target=target_matches, headed=headed_toggle,
-                    browser_channel=browser_channel, zoom=zoom_pct,
+                    team_slug=team_a_slug,
+                    team_name=gosu_name_a,
+                    target=target_matches,
+                    headed=headed_toggle,
+                    browser_channel=browser_channel,
+                    zoom=zoom_pct,
                 )
             st.session_state["dota_matches_a"] = matches_a
         matches_a = st.session_state.get("dota_matches_a", [])
@@ -727,7 +898,11 @@ with tabs[1]:
 
         team_b_id = None
         try:
-            if "opendota_id" in row_b and pd.notna(row_b["opendota_id"]) and str(row_b["opendota_id"]).strip() != "":
+            if (
+                "opendota_id" in row_b
+                and pd.notna(row_b["opendota_id"])
+                and str(row_b["opendota_id"]).strip() != ""
+            ):
                 team_b_id = int(float(row_b["opendota_id"]))
         except Exception:
             team_b_id = None
@@ -738,26 +913,36 @@ with tabs[1]:
                     st.info("No OpenDota ID for this team — falling back to Gosu scraping.")
                     gosu_name_b = gosu_name_from_slug(team_b_slug)
                     matches_b = scrape_dota_matches_gosu_subprocess(
-                        team_slug=team_b_slug, team_name=gosu_name_b,
-                        target=target_matches, headed=headed_toggle,
-                        browser_channel=browser_channel, zoom=zoom_pct,
+                        team_slug=team_b_slug,
+                        team_name=gosu_name_b,
+                        target=target_matches,
+                        headed=headed_toggle,
+                        browser_channel=browser_channel,
+                        zoom=zoom_pct,
                     )
                 else:
                     matches_b = fetch_dota_matches(team_b_id, limit=target_matches)
             else:
                 gosu_name_b = gosu_name_from_slug(team_b_slug)
                 matches_b = scrape_dota_matches_gosu_subprocess(
-                    team_slug=team_b_slug, team_name=gosu_name_b,
-                    target=target_matches, headed=headed_toggle,
-                    browser_channel=browser_channel, zoom=zoom_pct,
+                    team_slug=team_b_slug,
+                    team_name=gosu_name_b,
+                    target=target_matches,
+                    headed=headed_toggle,
+                    browser_channel=browser_channel,
+                    zoom=zoom_pct,
                 )
             st.session_state["dota_matches_b"] = matches_b
         matches_b = st.session_state.get("dota_matches_b", [])
         st.write(matches_b)
 
     if series_format.startswith("BO3"):
-        odds_a = st.number_input("Team A Market Odds (BO3) — American", value=-140, key="dota_odds_a")
-        odds_b = st.number_input("Team B Market Odds (BO3) — American", value=+120, key="dota_odds_b")
+        odds_a = st.number_input(
+            "Team A Market Odds (BO3) — American", value=-140, key="dota_odds_a"
+        )
+        odds_b = st.number_input(
+            "Team B Market Odds (BO3) — American", value=+120, key="dota_odds_b"
+        )
     else:
         st.markdown("### BO2 — 3-Way Market (A 2–0 / Draw 1–1 / B 0–2)")
         draw_k = st.slider("Draw calibration k (fit later; 1.0 = neutral)", 0.50, 1.50, 1.00, 0.01)
@@ -766,7 +951,9 @@ with tabs[1]:
         with colA2:
             odds_a20_us = st.number_input("Odds: A 2–0 (American)", value=+220, step=1, format="%d")
         with colD:
-            odds_draw_us = st.number_input("Odds: Draw 1–1 (American)", value=+110, step=1, format="%d")
+            odds_draw_us = st.number_input(
+                "Odds: Draw 1–1 (American)", value=+110, step=1, format="%d"
+            )
         with colB2:
             odds_b02_us = st.number_input("Odds: B 0–2 (American)", value=+260, step=1, format="%d")
 
@@ -787,20 +974,42 @@ with tabs[1]:
                 team_b_tier = float(row_b["tier"])
 
                 raw_a, adj_a, breakdown_a = calculate_score(
-                    matches_a, df_dota, current_opponent_tier=team_b_tier,
-                    weight_scheme="piecewise", K=K_dota, decay=decay_dota, floor=floor_dota, newest_first=True,
-                    draw_policy=draw_policy, self_team_tier=team_a_tier,
-                    draw_gamma=draw_gamma, draw_gap_cap=draw_gap_cap, draw_gap_power=draw_gap_power,
-                    use_series_mod=use_series_mod_ui, series_clamp=series_clamp_ui,
-                    series_pct_cap=series_pct_cap_ui, series_weights=SERIES_WEIGHTS
+                    matches_a,
+                    df_dota,
+                    current_opponent_tier=team_b_tier,
+                    weight_scheme="piecewise",
+                    K=K_dota,
+                    decay=decay_dota,
+                    floor=floor_dota,
+                    newest_first=True,
+                    draw_policy=draw_policy,
+                    self_team_tier=team_a_tier,
+                    draw_gamma=draw_gamma,
+                    draw_gap_cap=draw_gap_cap,
+                    draw_gap_power=draw_gap_power,
+                    use_series_mod=use_series_mod_ui,
+                    series_clamp=series_clamp_ui,
+                    series_pct_cap=series_pct_cap_ui,
+                    series_weights=SERIES_WEIGHTS,
                 )
                 raw_b, adj_b, breakdown_b = calculate_score(
-                    matches_b, df_dota, current_opponent_tier=team_a_tier,
-                    weight_scheme="piecewise", K=K_dota, decay=decay_dota, floor=floor_dota, newest_first=True,
-                    draw_policy=draw_policy, self_team_tier=team_b_tier,
-                    draw_gamma=draw_gamma, draw_gap_cap=draw_gap_cap, draw_gap_power=draw_gap_power,
-                    use_series_mod=use_series_mod_ui, series_clamp=series_clamp_ui,
-                    series_pct_cap=series_pct_cap_ui, series_weights=SERIES_WEIGHTS
+                    matches_b,
+                    df_dota,
+                    current_opponent_tier=team_a_tier,
+                    weight_scheme="piecewise",
+                    K=K_dota,
+                    decay=decay_dota,
+                    floor=floor_dota,
+                    newest_first=True,
+                    draw_policy=draw_policy,
+                    self_team_tier=team_b_tier,
+                    draw_gamma=draw_gamma,
+                    draw_gap_cap=draw_gap_cap,
+                    draw_gap_power=draw_gap_power,
+                    use_series_mod=use_series_mod_ui,
+                    series_clamp=series_clamp_ui,
+                    series_pct_cap=series_pct_cap_ui,
+                    series_weights=SERIES_WEIGHTS,
                 )
 
                 raw_gap = raw_a - raw_b
@@ -808,10 +1017,15 @@ with tabs[1]:
                 if use_clip:
                     adj_gap = max(min(adj_gap, clip_limit), -clip_limit)
 
-                p_map = logistic_mapping(adj_gap, a_param, b_param) if use_logistic else calculate_fair_odds_curve(adj_gap)
+                p_map = (
+                    logistic_mapping(adj_gap, a_param, b_param)
+                    if use_logistic
+                    else calculate_fair_odds_curve(adj_gap)
+                )
 
                 if series_format.startswith("BO3"):
-                    dec_a = american_to_decimal(odds_a); dec_b = american_to_decimal(odds_b)
+                    dec_a = american_to_decimal(odds_a)
+                    dec_b = american_to_decimal(odds_b)
                     ev_a = ((p_map * dec_a) - 1) * 100
                     ev_b = (((1 - p_map) * dec_b) - 1) * 100
                     fair_a, fair_b = calculate_fair_odds_from_p(p_map)
@@ -824,17 +1038,23 @@ with tabs[1]:
                     st.text(f"Win Probability (series): {round(p_map * 100, 2)}%")
                     st.caption("EV below reflects raw model p (pre-decision filters).")
                     st.markdown(f"EV: {color_ev(ev_a)} / {color_ev(ev_b)}")
-                    st.text(f"Score Breakdown: Raw {raw_a:.2f}/{raw_b:.2f} | Adj {adj_a:.3f}/{adj_b:.3f}")
+                    st.text(
+                        f"Score Breakdown: Raw {raw_a:.2f}/{raw_b:.2f} | Adj {adj_a:.3f}/{adj_b:.3f}"
+                    )
 
                     st.subheader(f"{team_a} Breakdown")
-                    for line in breakdown_a: st.text(line)
+                    for line in breakdown_a:
+                        st.text(line)
                     st.subheader(f"{team_b} Breakdown")
-                    for line in breakdown_b: st.text(line)
+                    for line in breakdown_b:
+                        st.text(line)
 
                     decision = decide_bet(
                         p_model=p_map,
-                        odds_a=odds_a, odds_b=odds_b,
-                        n_matches_a=len(matches_a), n_matches_b=len(matches_b),
+                        odds_a=odds_a,
+                        odds_b=odds_b,
+                        n_matches_a=len(matches_a),
+                        n_matches_b=len(matches_b),
                         min_edge_pct=min_edge_pct,
                         prob_gap_pp=prob_gap_pp,
                         shrink_target=shrink_target_matches,
@@ -844,8 +1064,14 @@ with tabs[1]:
                         ev_a_eff = ev_b_eff = None
                     else:
                         pick_team = team_a if decision["choice"] == "A" else team_b
-                        pick_ev = decision["ev_a_dec"] if decision["choice"] == "A" else decision["ev_b_dec"]
-                        st.markdown(f"**Decision:** ✅ Bet **{pick_team}** ({pick_ev:+.2f}% EV) — {decision['reason']}")
+                        pick_ev = (
+                            decision["ev_a_dec"]
+                            if decision["choice"] == "A"
+                            else decision["ev_b_dec"]
+                        )
+                        st.markdown(
+                            f"**Decision:** ✅ Bet **{pick_team}** ({pick_ev:+.2f}% EV) — {decision['reason']}"
+                        )
                         ev_a_eff = decision["ev_a_dec"] if decision["choice"] == "A" else None
                         ev_b_eff = decision["ev_b_dec"] if decision["choice"] == "B" else None
 
@@ -855,17 +1081,30 @@ with tabs[1]:
                         "game": "Dota2",
                         "series_format": "BO3",
                         "market_type": "BINARY",
-                        "team_a": team_a, "team_b": team_b,
-                        "tier_a": team_a_tier, "tier_b": team_b_tier,
-                        "K": K_dota, "decay": decay_dota, "floor": floor_dota,
-                        "raw_a": raw_a, "raw_b": raw_b,
-                        "adj_a": adj_a, "adj_b": adj_b, "adj_gap": adj_gap,
-                        "use_logistic": use_logistic, "a": a_param, "b": b_param,
-                        "use_clip": use_clip, "clip_limit": clip_limit,
+                        "team_a": team_a,
+                        "team_b": team_b,
+                        "tier_a": team_a_tier,
+                        "tier_b": team_b_tier,
+                        "K": K_dota,
+                        "decay": decay_dota,
+                        "floor": floor_dota,
+                        "raw_a": raw_a,
+                        "raw_b": raw_b,
+                        "adj_a": adj_a,
+                        "adj_b": adj_b,
+                        "adj_gap": adj_gap,
+                        "use_logistic": use_logistic,
+                        "a": a_param,
+                        "b": b_param,
+                        "use_clip": use_clip,
+                        "clip_limit": clip_limit,
                         "p_model": p_map,
-                        "odds_a": odds_a, "odds_b": odds_b,
-                        "fair_a": fair_a, "fair_b": fair_b,
-                        "ev_a_pct": ev_a, "ev_b_pct": ev_b,
+                        "odds_a": odds_a,
+                        "odds_b": odds_b,
+                        "fair_a": fair_a,
+                        "fair_b": fair_b,
+                        "ev_a_pct": ev_a,
+                        "ev_b_pct": ev_b,
                         "p_decide": decision["p_decide"],
                         "ev_a_dec": decision["ev_a_dec"],
                         "ev_b_dec": decision["ev_b_dec"],
@@ -874,12 +1113,25 @@ with tabs[1]:
                         "min_edge_pct": min_edge_pct,
                         "prob_gap_pp": prob_gap_pp,
                         "shrink_target": shrink_target_matches,
-                        "p_map_model":"", "p_map_decide":"", "draw_k":"",
-                        "p_a20":"", "p_draw":"", "p_b02":"",
-                        "odds_a20":"", "odds_draw":"", "odds_b02":"",
-                        "ev_a20_pct":"", "ev_draw_pct":"", "ev_b02_pct":"",
-                        "selected_outcome":"", "selected_prob":"", "selected_odds":"", "selected_ev_pct":"",
-                        "fair_a20_us":"", "fair_draw_us":"", "fair_b02_us":""
+                        "p_map_model": "",
+                        "p_map_decide": "",
+                        "draw_k": "",
+                        "p_a20": "",
+                        "p_draw": "",
+                        "p_b02": "",
+                        "odds_a20": "",
+                        "odds_draw": "",
+                        "odds_b02": "",
+                        "ev_a20_pct": "",
+                        "ev_draw_pct": "",
+                        "ev_b02_pct": "",
+                        "selected_outcome": "",
+                        "selected_prob": "",
+                        "selected_odds": "",
+                        "selected_ev_pct": "",
+                        "fair_a20_us": "",
+                        "fair_draw_us": "",
+                        "fair_b02_us": "",
                     }
                     log_row(entry)
 
@@ -895,26 +1147,51 @@ with tabs[1]:
                         "DRAW": ev_pct_decimal(probs_model["DRAW"], odds_draw),
                         "B0-2": ev_pct_decimal(probs_model["B0-2"], odds_b02),
                     }
-                    fair_a20_us  = prob_to_fair_american(probs_model["A2-0"])
+                    fair_a20_us = prob_to_fair_american(probs_model["A2-0"])
                     fair_draw_us = prob_to_fair_american(probs_model["DRAW"])
-                    fair_b02_us  = prob_to_fair_american(probs_model["B0-2"])
+                    fair_b02_us = prob_to_fair_american(probs_model["B0-2"])
 
-                    df_preview = pd.DataFrame([
-                        {"Outcome":"A 2–0","Prob%":round(probs_model["A2-0"]*100,2),"Odds (US)": int(odds_a20_us),"Fair (US)": int(fair_a20_us),"EV%":round(evs_model["A2-0"],2)},
-                        {"Outcome":"Draw 1–1","Prob%":round(probs_model["DRAW"]*100,2),"Odds (US)": int(odds_draw_us),"Fair (US)": int(fair_draw_us),"EV%":round(evs_model["DRAW"],2)},
-                        {"Outcome":"B 0–2","Prob%":round(probs_model["B0-2"]*100,2),"Odds (US)": int(odds_b02_us),"Fair (US)": int(fair_b02_us),"EV%":round(evs_model["B0-2"],2)},
-                    ])
+                    df_preview = pd.DataFrame(
+                        [
+                            {
+                                "Outcome": "A 2–0",
+                                "Prob%": round(probs_model["A2-0"] * 100, 2),
+                                "Odds (US)": int(odds_a20_us),
+                                "Fair (US)": int(fair_a20_us),
+                                "EV%": round(evs_model["A2-0"], 2),
+                            },
+                            {
+                                "Outcome": "Draw 1–1",
+                                "Prob%": round(probs_model["DRAW"] * 100, 2),
+                                "Odds (US)": int(odds_draw_us),
+                                "Fair (US)": int(fair_draw_us),
+                                "EV%": round(evs_model["DRAW"], 2),
+                            },
+                            {
+                                "Outcome": "B 0–2",
+                                "Prob%": round(probs_model["B0-2"] * 100, 2),
+                                "Odds (US)": int(odds_b02_us),
+                                "Fair (US)": int(fair_b02_us),
+                                "EV%": round(evs_model["B0-2"], 2),
+                            },
+                        ]
+                    )
                     st.dataframe(df_preview, use_container_width=True)
-                    st.text(f"Fair (US): A2–0 {fair_a20_us:+d} | Draw {fair_draw_us:+d} | B0–2 {fair_b02_us:+d}")
+                    st.text(
+                        f"Fair (US): A2–0 {fair_a20_us:+d} | Draw {fair_draw_us:+d} | B0–2 {fair_b02_us:+d}"
+                    )
 
                     dec3 = decide_bo2_3way(
                         p_map_model=p_map,
-                        n_matches_a=len(matches_a), n_matches_b=len(matches_b),
+                        n_matches_a=len(matches_a),
+                        n_matches_b=len(matches_b),
                         min_edge_pct=min_edge_pct,
                         prob_gap_pp=prob_gap_pp,
                         shrink_target=shrink_target_matches,
                         draw_k=draw_k,
-                        odds_a20=odds_a20, odds_draw=odds_draw, odds_b02=odds_b02,
+                        odds_a20=odds_a20,
+                        odds_draw=odds_draw,
+                        odds_b02=odds_b02,
                     )
 
                     if dec3["selected_outcome"] is None:
@@ -927,23 +1204,46 @@ with tabs[1]:
                             f"(EV {dec3['selected_ev_pct']:+.2f}%, Prob {dec3['selected_prob']*100:.2f}%, "
                             f"Odds {sel_us:+d}) — {dec3['reason']}"
                         )
-                        update_metrics_3way(dec3["selected_ev_pct"], dec3["selected_outcome"],
-                                            odds_a20, odds_draw, odds_b02)
+                        update_metrics_3way(
+                            dec3["selected_ev_pct"],
+                            dec3["selected_outcome"],
+                            odds_a20,
+                            odds_draw,
+                            odds_b02,
+                        )
 
                     entry = {
                         "timestamp": datetime.utcnow().isoformat(),
                         "game": "Dota2",
                         "series_format": "BO2",
                         "market_type": "3WAY",
-                        "team_a": team_a, "team_b": team_b,
-                        "tier_a": team_a_tier, "tier_b": team_b_tier,
-                        "K": K_dota, "decay": decay_dota, "floor": floor_dota,
-                        "raw_a": raw_a, "raw_b": raw_b,
-                        "adj_a": adj_a, "adj_b": adj_b, "adj_gap": adj_gap,
-                        "use_logistic": use_logistic, "a": a_param, "b": b_param,
-                        "use_clip": use_clip, "clip_limit": clip_limit,
-                        "p_model": "", "odds_a": "", "odds_b": "", "fair_a": "", "fair_b": "", "ev_a_pct": "", "ev_b_pct": "",
-                        "p_decide": "", "ev_a_dec": "", "ev_b_dec": "",
+                        "team_a": team_a,
+                        "team_b": team_b,
+                        "tier_a": team_a_tier,
+                        "tier_b": team_b_tier,
+                        "K": K_dota,
+                        "decay": decay_dota,
+                        "floor": floor_dota,
+                        "raw_a": raw_a,
+                        "raw_b": raw_b,
+                        "adj_a": adj_a,
+                        "adj_b": adj_b,
+                        "adj_gap": adj_gap,
+                        "use_logistic": use_logistic,
+                        "a": a_param,
+                        "b": b_param,
+                        "use_clip": use_clip,
+                        "clip_limit": clip_limit,
+                        "p_model": "",
+                        "odds_a": "",
+                        "odds_b": "",
+                        "fair_a": "",
+                        "fair_b": "",
+                        "ev_a_pct": "",
+                        "ev_b_pct": "",
+                        "p_decide": "",
+                        "ev_a_dec": "",
+                        "ev_b_dec": "",
                         "decision": (dec3["selected_outcome"] or "NO_BET"),
                         "decision_reason": dec3["reason"],
                         "min_edge_pct": min_edge_pct,
@@ -952,14 +1252,22 @@ with tabs[1]:
                         "p_map_model": p_map,
                         "p_map_decide": dec3["p_map_decide"],
                         "draw_k": draw_k,
-                        "p_a20": probs_model["A2-0"], "p_draw": probs_model["DRAW"], "p_b02": probs_model["B0-2"],
-                        "odds_a20": odds_a20, "odds_draw": odds_draw, "odds_b02": odds_b02,
-                        "ev_a20_pct": evs_model["A2-0"], "ev_draw_pct": evs_model["DRAW"], "ev_b02_pct": evs_model["B0-2"],
+                        "p_a20": probs_model["A2-0"],
+                        "p_draw": probs_model["DRAW"],
+                        "p_b02": probs_model["B0-2"],
+                        "odds_a20": odds_a20,
+                        "odds_draw": odds_draw,
+                        "odds_b02": odds_b02,
+                        "ev_a20_pct": evs_model["A2-0"],
+                        "ev_draw_pct": evs_model["DRAW"],
+                        "ev_b02_pct": evs_model["B0-2"],
                         "selected_outcome": dec3["selected_outcome"] or "",
                         "selected_prob": dec3["selected_prob"] or "",
                         "selected_odds": dec3["selected_odds"] or "",
                         "selected_ev_pct": dec3["selected_ev_pct"] or "",
-                        "fair_a20_us": fair_a20_us, "fair_draw_us": fair_draw_us, "fair_b02_us": fair_b02_us,
+                        "fair_a20_us": fair_a20_us,
+                        "fair_draw_us": fair_draw_us,
+                        "fair_b02_us": fair_b02_us,
                     }
                     log_row(entry)
         else:
@@ -986,7 +1294,9 @@ with tabs[2]:
 
     if st.button("Overwrite on-disk log with current in-memory logs"):
         try:
-            pd.DataFrame(st.session_state["logs"], columns=LOG_COLUMNS).to_csv(LOG_PATH, index=False, line_terminator="\n")
+            pd.DataFrame(st.session_state["logs"], columns=LOG_COLUMNS).to_csv(
+                LOG_PATH, index=False, line_terminator="\n"
+            )
             st.success("Log file overwritten.")
         except Exception as e:
             st.error(f"Failed to write log file: {e}")
@@ -998,11 +1308,14 @@ with tabs[2]:
         dedup_key = st.selectbox(
             "De-duplication key",
             ["timestamp,game,team_a,team_b,adj_gap", "timestamp", "team_a,team_b,adj_gap"],
-            help="Used to drop duplicates when merging"
+            help="Used to drop duplicates when merging",
         )
     with merge_col2:
-        overwrite_disk = st.checkbox("Overwrite on-disk log with merged result", value=True,
-                                     help="If off, we append only new, non-duplicate rows.")
+        overwrite_disk = st.checkbox(
+            "Overwrite on-disk log with merged result",
+            value=True,
+            help="If off, we append only new, non-duplicate rows.",
+        )
 
     if uploaded is not None:
         try:
@@ -1034,12 +1347,22 @@ with tabs[2]:
                 merged[LOG_COLUMNS] = merged.reindex(columns=LOG_COLUMNS, fill_value="")
                 merged.to_csv(LOG_PATH, index=False, line_terminator="\n")
             else:
-                on_disk = pd.read_csv(LOG_PATH) if LOG_PATH.exists() else pd.DataFrame(columns=merged.columns)
+                on_disk = (
+                    pd.read_csv(LOG_PATH)
+                    if LOG_PATH.exists()
+                    else pd.DataFrame(columns=merged.columns)
+                )
                 on_disk = keyify(on_disk, dedup_key)
-                only_new = merged[~merged["_key"].isin(on_disk["_key"])] if not on_disk.empty else merged
-                only_new.drop(columns=["_key"]).to_csv(LOG_PATH, mode="a", index=False, header=not LOG_PATH.exists())
+                only_new = (
+                    merged[~merged["_key"].isin(on_disk["_key"])] if not on_disk.empty else merged
+                )
+                only_new.drop(columns=["_key"]).to_csv(
+                    LOG_PATH, mode="a", index=False, header=not LOG_PATH.exists()
+                )
 
-            st.success(f"Merged {len(new_df)} rows; total history is now {len(st.session_state['logs'])} rows.")
+            st.success(
+                f"Merged {len(new_df)} rows; total history is now {len(st.session_state['logs'])} rows."
+            )
         except Exception as e:
             st.error(f"Failed to import CSV: {e}")
 
@@ -1079,13 +1402,13 @@ with tabs[2]:
     st.caption(f"Persistent log file: {LOG_PATH}")
 
 
-
 # --------------------------
 # CS2 IN-PLAY INDICATOR (MVP)
 # --------------------------
 def _logit(p: float) -> float:
     p = min(max(p, 1e-6), 1 - 1e-6)
     return float(np.log(p / (1 - p)))
+
 
 def _sigmoid(x: float) -> float:
     return float(1.0 / (1.0 + np.exp(-x)))
@@ -1115,25 +1438,26 @@ CS2_MAP_CT_RATE = {
 CS2_CT_RATE_AVG = float(np.mean(list(CS2_MAP_CT_RATE.values()))) if CS2_MAP_CT_RATE else 0.50
 
 
-
-def estimate_inplay_prob(p0: float,
-                         rounds_a: int,
-                         rounds_b: int,
-                         econ_a: float = 0.0,
-                         econ_b: float = 0.0,
-                         pistol_a: Optional[bool] = None,
-                         pistol_b: Optional[bool] = None,
-                         beta_score: float = 0.22,
-                         beta_econ: float = 0.06,
-                         beta_pistol: float = 0.35,
-                         map_name: Optional[str] = None,
-                         a_side: Optional[str] = None,
-                         pistol_decay: float = 0.30,
-                         beta_side: float = 0.85,
-                         beta_lock: float = 0.90,
-                         lock_start_offset: int = 3,
-                         lock_ramp: int = 3,
-                         win_target: int = 13) -> float:
+def estimate_inplay_prob(
+    p0: float,
+    rounds_a: int,
+    rounds_b: int,
+    econ_a: float = 0.0,
+    econ_b: float = 0.0,
+    pistol_a: bool | None = None,
+    pistol_b: bool | None = None,
+    beta_score: float = 0.22,
+    beta_econ: float = 0.06,
+    beta_pistol: float = 0.35,
+    map_name: str | None = None,
+    a_side: str | None = None,
+    pistol_decay: float = 0.30,
+    beta_side: float = 0.85,
+    beta_lock: float = 0.90,
+    lock_start_offset: int = 3,
+    lock_ramp: int = 3,
+    win_target: int = 13,
+) -> float:
     """
     In-play updater (indicator heuristic):
 
@@ -1216,16 +1540,14 @@ def estimate_inplay_prob(p0: float,
         start_at = int(win_target) - lso
         closeness = (float(leading_rounds) - float(start_at)) / float(lr)
         closeness = float(np.clip(closeness, 0.0, 1.0))
-        x += beta_lock * (closeness ** 2) * float(lead_sign)
+        x += beta_lock * (closeness**2) * float(lead_sign)
 
     return _sigmoid(x)
 
 
-
-def cs2_current_win_target(rounds_a: int,
-                           rounds_b: int,
-                           regulation_target: int = 13,
-                           ot_block: int = 3) -> int:
+def cs2_current_win_target(
+    rounds_a: int, rounds_b: int, regulation_target: int = 13, ot_block: int = 3
+) -> int:
     """Return the current win target for CS2 map given score.
     - Regulation: first to 13.
     - Overtime (approx): if 12-12 or beyond, targets are 16, 19, 22, ... (MR3 blocks).
@@ -1238,10 +1560,7 @@ def cs2_current_win_target(rounds_a: int,
     return int(regulation_target + int(ot_block) * (sets_completed + 1))
 
 
-def cs2_soft_lock_map_prob(p_map: float,
-                           rounds_a: int,
-                           rounds_b: int,
-                           win_target: int) -> float:
+def cs2_soft_lock_map_prob(p_map: float, rounds_a: int, rounds_b: int, win_target: int) -> float:
     """Blend p_map with a near-end state-lock so map→series doesn't cliff
     when you mark the map complete.
 
@@ -1272,16 +1591,13 @@ def cs2_soft_lock_map_prob(p_map: float,
     else:
         p_state = series_prob_needed(int(wa), int(wb), 0.5)
 
-    alpha = float(closeness ** 2)
+    alpha = float(closeness**2)
     return float((1.0 - alpha) * p_map + alpha * float(p_state))
-
-
-
-
 
 
 # --------------------------
 # Valorant IN-PLAY (MVP) helpers
+
 
 # --------------------------
 # Kappa (K) confidence band helpers (ported from app22)
@@ -1331,7 +1647,6 @@ def beta_credible_interval(p: float, kappa: float, level: float = 0.80) -> tuple
     return lo, hi
 
 
-
 def update_round_stream(prefix: str, rounds_a: int, rounds_b: int) -> dict:
     """Infer streak/reversal/gaps from score updates (no per-round clicking).
 
@@ -1373,7 +1688,7 @@ def update_round_stream(prefix: str, rounds_a: int, rounds_b: int) -> dict:
         if winner is not None:
             prev_last = wins[-1] if wins else None
             wins.append(winner)
-            reversal = (prev_last is not None and winner != prev_last)
+            reversal = prev_last is not None and winner != prev_last
         else:
             # weird inconsistent single-step update; treat as gap
             gap_delta = 1
@@ -1407,20 +1722,21 @@ def update_round_stream(prefix: str, rounds_a: int, rounds_b: int) -> dict:
     }
 
 
-
-def compute_kappa_cs2(p0: float,
-                     rounds_a: int,
-                     rounds_b: int,
-                     econ_missing: bool = False,
-                     econ_fragile: bool = False,
-                     pistol_a: bool = False,
-                     pistol_b: bool = False,
-                     streak_len: int = 0,
-                     streak_winner: Optional[str] = None,
-                     reversal: bool = False,
-                     gap_delta: int = 0,
-                     chaos_boost: float = 0.0,
-                     total_rounds: int = 24) -> float:
+def compute_kappa_cs2(
+    p0: float,
+    rounds_a: int,
+    rounds_b: int,
+    econ_missing: bool = False,
+    econ_fragile: bool = False,
+    pistol_a: bool = False,
+    pistol_b: bool = False,
+    streak_len: int = 0,
+    streak_winner: str | None = None,
+    reversal: bool = False,
+    gap_delta: int = 0,
+    chaos_boost: float = 0.0,
+    total_rounds: int = 24,
+) -> float:
     """Heuristic concentration parameter K for CS2 bands.
 
     Higher K = tighter credible interval around p_hat.
@@ -1456,12 +1772,12 @@ def compute_kappa_cs2(p0: float,
 
     # Progress: slowly tighten as info accrues.
     frac = min(1.0, float(rp) / float(tr))
-    k += 45.0 * (frac ** 1.25)
+    k += 45.0 * (frac**1.25)
 
     # Lock: tighten hard when a team is near 13.
     lead = max(ra, rb)
     lock = float(np.clip((lead - 6) / 7.0, 0.0, 1.0))  # starts contributing after round ~6
-    k += 70.0 * (lock ** 2.0)
+    k += 70.0 * (lock**2.0)
 
     # Dominance: score diff scaled by how many rounds we actually observed.
     dom = abs(ra - rb) / max(1.0, float(rp))
@@ -1482,7 +1798,7 @@ def compute_kappa_cs2(p0: float,
         k *= 0.85  # reversal = volatility spike
 
     # Pistol effect (small): favored pistol/conversion usually stabilizes.
-    fav_is_a = (p0 >= 0.5)
+    fav_is_a = p0 >= 0.5
     if pistol_a or pistol_b:
         if fav_is_a:
             if pistol_a:
@@ -1513,24 +1829,25 @@ def compute_kappa_cs2(p0: float,
     return float(np.clip(k, 8.0, 240.0))
 
 
-
-def compute_kappa_valorant(p0: float,
-                          rounds_a: int,
-                          rounds_b: int,
-                          eco_a_level: str = "Light",
-                          eco_b_level: str = "Light",
-                          ults_diff: int = 0,
-                          op_diff: int = 0,
-                          a_on_defense: Optional[bool] = None,
-                          limited_context: bool = False,
-                          pistol_a: bool = False,
-                          pistol_b: bool = False,
-                          streak_len: int = 0,
-                          streak_winner: Optional[str] = None,
-                          reversal: bool = False,
-                          gap_delta: int = 0,
-                          chaos_boost: float = 0.0,
-                          total_rounds: int = 24) -> float:
+def compute_kappa_valorant(
+    p0: float,
+    rounds_a: int,
+    rounds_b: int,
+    eco_a_level: str = "Light",
+    eco_b_level: str = "Light",
+    ults_diff: int = 0,
+    op_diff: int = 0,
+    a_on_defense: bool | None = None,
+    limited_context: bool = False,
+    pistol_a: bool = False,
+    pistol_b: bool = False,
+    streak_len: int = 0,
+    streak_winner: str | None = None,
+    reversal: bool = False,
+    gap_delta: int = 0,
+    chaos_boost: float = 0.0,
+    total_rounds: int = 24,
+) -> float:
     """Heuristic concentration K for Valorant bands (same philosophy as CS2).
 
     Adds two Valorant-specific wideners:
@@ -1561,11 +1878,11 @@ def compute_kappa_valorant(p0: float,
         return float(np.clip(k, 12.0, 160.0))
 
     frac = min(1.0, float(rp) / float(tr))
-    k += 42.0 * (frac ** 1.20)
+    k += 42.0 * (frac**1.20)
 
     lead = max(ra, rb)
     lock = float(np.clip((lead - 6) / 7.0, 0.0, 1.0))
-    k += 65.0 * (lock ** 2.0)
+    k += 65.0 * (lock**2.0)
 
     dom = abs(ra - rb) / max(1.0, float(rp))
     k += 32.0 * dom
@@ -1604,14 +1921,18 @@ def compute_kappa_valorant(p0: float,
         k *= 0.90
 
     # Pistol effect small
-    fav_is_a = (p0 >= 0.5)
+    fav_is_a = p0 >= 0.5
     if pistol_a or pistol_b:
         if fav_is_a:
-            if pistol_a: k += 6.0
-            if pistol_b: k *= 0.94
+            if pistol_a:
+                k += 6.0
+            if pistol_b:
+                k *= 0.94
         else:
-            if pistol_b: k += 6.0
-            if pistol_a: k *= 0.94
+            if pistol_b:
+                k += 6.0
+            if pistol_a:
+                k *= 0.94
 
     gd = int(gap_delta or 0)
     if gd > 1:
@@ -1634,6 +1955,7 @@ _VAL_ECO_MAP = {
     "Full": 1.0,
 }
 
+
 def _eco_to_pseudo_cash(eco_level: str) -> float:
     """Map coarse Valorant buy states to pseudo 'team economy' dollars so we can reuse sigma logic."""
     lvl = str(eco_level or "Light")
@@ -1643,26 +1965,29 @@ def _eco_to_pseudo_cash(eco_level: str) -> float:
         return 3000.0
     return 6000.0  # Light
 
-def estimate_inplay_prob_valorant(p0: float,
-                                 rounds_a: int,
-                                 rounds_b: int,
-                                 eco_a_level: str = "Light",
-                                 eco_b_level: str = "Light",
-                                 pistol_a: Optional[bool] = None,
-                                 pistol_b: Optional[bool] = None,
-                                 ults_diff: int = 0,
-                                 op_diff: int = 0,
-                                 a_on_defense: Optional[bool] = None,
-                                 beta_score: float = 0.18,
-                                 beta_eco: float = 0.20,
-                                 beta_pistol: float = 0.28,
-                                 beta_ults: float = 0.06,
-                                 beta_op: float = 0.08,
-                                 beta_side: float = 0.06,
-                                 beta_lock: float = 0.90,
-                                 lock_start_offset: int = 3,
-                                 lock_ramp: int = 3,
-                                 win_target: int = 13) -> float:
+
+def estimate_inplay_prob_valorant(
+    p0: float,
+    rounds_a: int,
+    rounds_b: int,
+    eco_a_level: str = "Light",
+    eco_b_level: str = "Light",
+    pistol_a: bool | None = None,
+    pistol_b: bool | None = None,
+    ults_diff: int = 0,
+    op_diff: int = 0,
+    a_on_defense: bool | None = None,
+    beta_score: float = 0.18,
+    beta_eco: float = 0.20,
+    beta_pistol: float = 0.28,
+    beta_ults: float = 0.06,
+    beta_op: float = 0.08,
+    beta_side: float = 0.06,
+    beta_lock: float = 0.90,
+    lock_start_offset: int = 3,
+    lock_ramp: int = 3,
+    win_target: int = 13,
+) -> float:
     """Valorant in-play updater (MVP).
 
     - Keeps the same structure as CS2 (prior -> live fair -> compare to market).
@@ -1706,7 +2031,6 @@ def estimate_inplay_prob_valorant(p0: float,
     elif a_on_defense is False:
         x -= beta_side
 
-
     # Late-game lock (match point snap): once a team is near closing (e.g., 12+),
     # reduce spurious swings from small score/econ changes.
     lead_sign = 1 if score_diff > 0 else (-1 if score_diff < 0 else 0)
@@ -1723,18 +2047,21 @@ def estimate_inplay_prob_valorant(p0: float,
         start_at = int(win_target) - lso
         closeness = (float(leading_rounds) - float(start_at)) / float(lr)
         closeness = float(np.clip(closeness, 0.0, 1.0))
-        x += beta_lock * (closeness ** 2) * float(lead_sign)
+        x += beta_lock * (closeness**2) * float(lead_sign)
 
     return _sigmoid(x)
 
-def estimate_sigma_valorant(p0: float,
-                           rounds_a: int,
-                           rounds_b: int,
-                           eco_a_level: str = "Light",
-                           eco_b_level: str = "Light",
-                           chaos_boost: float = 0.0,
-                           missing_context_widen: float = 0.0,
-                           total_rounds: int = 24) -> float:
+
+def estimate_sigma_valorant(
+    p0: float,
+    rounds_a: int,
+    rounds_b: int,
+    eco_a_level: str = "Light",
+    eco_b_level: str = "Light",
+    chaos_boost: float = 0.0,
+    missing_context_widen: float = 0.0,
+    total_rounds: int = 24,
+) -> float:
     """Certainty band width for Valorant (MVP).
 
     Reuses the CS2 sigma shape (time decay + lock tightening + econ instability),
@@ -1753,17 +2080,20 @@ def estimate_sigma_valorant(p0: float,
         total_rounds=int(total_rounds),
     )
 
-def estimate_sigma(p0: float,
-                   rounds_a: int,
-                   rounds_b: int,
-                   econ_a: float = 0.0,
-                   econ_b: float = 0.0,
-                   econ_missing: bool = False,
-                   chaos_boost: float = 0.0,
-                   total_rounds: int = 24,
-                   base: float = 0.22,
-                   min_sigma: float = 0.02,
-                   max_sigma: float = 0.30) -> float:
+
+def estimate_sigma(
+    p0: float,
+    rounds_a: int,
+    rounds_b: int,
+    econ_a: float = 0.0,
+    econ_b: float = 0.0,
+    econ_missing: bool = False,
+    chaos_boost: float = 0.0,
+    total_rounds: int = 24,
+    base: float = 0.22,
+    min_sigma: float = 0.02,
+    max_sigma: float = 0.30,
+) -> float:
     """
     'Certainty band' width (probability-space).
 
@@ -1805,13 +2135,18 @@ def estimate_sigma(p0: float,
     econ_stability = float(min(1.0, max(0.0, econ_stability)))
     econ_unc = 0.10 * (1.0 - econ_stability) * (0.55 + 0.45 * time_term)
 
-
     # If economy inputs are missing/unknown, widen bands (avoid false precision).
     missing_unc = (0.06 * (0.55 + 0.45 * time_term)) if bool(econ_missing) else 0.0
     # Base sigma shrinks with time and a bit with pre-match confidence
-    sigma = (base * time_term * (1.0 - 0.30 * conf0)) * lock_term + econ_unc + float(missing_unc) + float(chaos_boost)
+    sigma = (
+        (base * time_term * (1.0 - 0.30 * conf0)) * lock_term
+        + econ_unc
+        + float(missing_unc)
+        + float(chaos_boost)
+    )
 
     return float(min(max_sigma, max(min_sigma, sigma)))
+
 
 # --------------------------
 # NEW — Series/Map probability helpers for in-play indicator
@@ -1819,13 +2154,14 @@ def estimate_sigma(p0: float,
 def _bestof_target(n_maps: int) -> int:
     return int(n_maps // 2 + 1)
 
+
 def series_prob_needed(wins_needed: int, losses_allowed_plus1: int, p: float) -> float:
     """Probability to reach 'wins_needed' wins before reaching 'losses_allowed_plus1' losses
     in independent Bernoulli trials with win prob p.
     losses_allowed_plus1 = losses_needed (i.e., max losses before losing series) + 1.
     For best-of-(2t-1): wins_needed=t, losses_allowed_plus1=t.
     """
-    p = float(min(1-1e-9, max(1e-9, p)))
+    p = float(min(1 - 1e-9, max(1e-9, p)))
     w = int(max(0, wins_needed))
     l_lim = int(max(0, losses_allowed_plus1))
     if w == 0:
@@ -1837,14 +2173,13 @@ def series_prob_needed(wins_needed: int, losses_allowed_plus1: int, p: float) ->
     q = 1.0 - p
     out = 0.0
     for k in range(0, l_lim):
-        out += math.comb(w + k - 1, k) * (p ** w) * (q ** k)
+        out += math.comb(w + k - 1, k) * (p**w) * (q**k)
     return float(min(1.0, max(0.0, out)))
 
-def series_win_prob_live(n_maps: int,
-                         maps_a_won: int,
-                         maps_b_won: int,
-                         p_current_map: float,
-                         p_future_map: float) -> float:
+
+def series_win_prob_live(
+    n_maps: int, maps_a_won: int, maps_b_won: int, p_current_map: float, p_future_map: float
+) -> float:
     """Series win probability for Team A in a best-of-n_maps series, given current series score
     (maps_a_won, maps_b_won) and probability Team A wins the *current* map (p_current_map).
     Future maps after the current one are assumed i.i.d with win prob p_future_map.
@@ -1861,8 +2196,8 @@ def series_win_prob_live(n_maps: int,
 
     ra = target - a  # wins still needed for A including current map
     rb = target - b  # wins still needed for B including current map
-    pc = float(min(1-1e-9, max(1e-9, p_current_map)))
-    pf = float(min(1-1e-9, max(1e-9, p_future_map)))
+    pc = float(min(1 - 1e-9, max(1e-9, p_current_map)))
+    pf = float(min(1 - 1e-9, max(1e-9, p_future_map)))
 
     # If A wins current map -> needs (ra-1) more wins before rb losses
     win_branch = series_prob_needed(max(0, ra - 1), rb, pf)
@@ -1870,6 +2205,7 @@ def series_win_prob_live(n_maps: int,
     lose_branch = series_prob_needed(ra, max(0, rb - 1), pf)
 
     return float(pc * win_branch + (1.0 - pc) * lose_branch)
+
 
 def invert_series_to_map_prob(p_series: float, n_maps: int) -> float:
     """Given a pre-match series win probability p_series for best-of-n_maps,
@@ -1900,9 +2236,12 @@ def invert_series_to_map_prob(p_series: float, n_maps: int) -> float:
             lo = mid
     return float(0.5 * (lo + hi))
 
+
 with tabs[3]:
     st.header("CS2 In-Play Indicator (MVP)")
-    st.caption("Fair probability line + certainty bands. Supports BO1 / BO3 / BO5 and map-vs-series markets. MVP = manual match inputs + manual/auto market bid-ask.")
+    st.caption(
+        "Fair probability line + certainty bands. Supports BO1 / BO3 / BO5 and map-vs-series markets. MVP = manual match inputs + manual/auto market bid-ask."
+    )
 
     st.markdown("### K-bands + calibration logging (always visible)")
     l1, l2, l3, l4 = st.columns([1.35, 1.10, 1.05, 1.20])
@@ -1912,12 +2251,28 @@ with tabs[3]:
             st.session_state["cs2_inplay_map_index"] = 0
             st.session_state["cs2_inplay_last_total_rounds"] = None
     with l2:
-        cs2_inplay_persist = st.checkbox("Persist snapshots + results", value=bool(st.session_state.get("cs2_inplay_persist", False)), key="cs2_inplay_persist")
+        cs2_inplay_persist = st.checkbox(
+            "Persist snapshots + results",
+            value=bool(st.session_state.get("cs2_inplay_persist", False)),
+            key="cs2_inplay_persist",
+        )
     with l3:
-        cs2_band_level = st.selectbox("Band level", options=[0.68, 0.75, 0.80, 0.90, 0.95], index=2,
-                                     format_func=lambda x: f"{int(x*100)}%", key="cs2_inplay_band_level")
+        cs2_band_level = st.selectbox(
+            "Band level",
+            options=[0.68, 0.75, 0.80, 0.90, 0.95],
+            index=2,
+            format_func=lambda x: f"{int(x*100)}%",
+            key="cs2_inplay_band_level",
+        )
     with l4:
-        cs2_k_scale = st.slider("K scale", 0.50, 2.00, float(st.session_state.get("cs2_inplay_k_scale", 1.00)), 0.05, key="cs2_inplay_k_scale")
+        cs2_k_scale = st.slider(
+            "K scale",
+            0.50,
+            2.00,
+            float(st.session_state.get("cs2_inplay_k_scale", 1.00)),
+            0.05,
+            key="cs2_inplay_k_scale",
+        )
     cs2_inplay_notes = st.text_input("Notes (optional)", key="cs2_inplay_notes")
     show_inplay_log_paths()
 
@@ -1925,7 +2280,11 @@ with tabs[3]:
     calib = load_kappa_calibration()
     ccal1, ccal2, ccal3 = st.columns([1.2, 1.0, 1.8])
     with ccal1:
-        cs2_use_calib = st.checkbox("Use calibrated K multiplier", value=bool(st.session_state.get("cs2_use_calib", False)), key="cs2_use_calib")
+        cs2_use_calib = st.checkbox(
+            "Use calibrated K multiplier",
+            value=bool(st.session_state.get("cs2_use_calib", False)),
+            key="cs2_use_calib",
+        )
     with ccal2:
         if st.button("Train calibration (clean logs)", key="cs2_train_calib_btn"):
             ok, out = run_kappa_trainer()
@@ -1936,12 +2295,14 @@ with tabs[3]:
             st.session_state["kappa_train_last_out"] = out
     with ccal3:
         if st.session_state.get("kappa_train_last_out"):
-            st.caption(str(st.session_state.get("kappa_train_last_out"))[:240] + ("…" if len(str(st.session_state.get("kappa_train_last_out"))) > 240 else ""))
+            st.caption(
+                str(st.session_state.get("kappa_train_last_out"))[:240]
+                + ("…" if len(str(st.session_state.get("kappa_train_last_out"))) > 240 else "")
+            )
         elif calib:
             st.caption(f"Calibration loaded: {KAPPA_CALIB_PATH.name}")
         else:
             st.caption("No calibration loaded yet.")
-
 
     # Team names (typed input so logs reflect exactly what you enter)
     # (We still load the teams list in case you want to use it elsewhere, but we don't force a dropdown here.)
@@ -1950,10 +2311,14 @@ with tabs[3]:
     colA, colB = st.columns(2)
     with colA:
         st.session_state.setdefault("cs2_live_team_a", st.session_state.get("cs2_live_team_a", ""))
-        team_a = st.text_input("Team A", value=st.session_state.get("cs2_live_team_a", ""), key="cs2_live_team_a")
+        team_a = st.text_input(
+            "Team A", value=st.session_state.get("cs2_live_team_a", ""), key="cs2_live_team_a"
+        )
     with colB:
         st.session_state.setdefault("cs2_live_team_b", st.session_state.get("cs2_live_team_b", ""))
-        team_b = st.text_input("Team B", value=st.session_state.get("cs2_live_team_b", ""), key="cs2_live_team_b")
+        team_b = st.text_input(
+            "Team B", value=st.session_state.get("cs2_live_team_b", ""), key="cs2_live_team_b"
+        )
 
     # Back-compat aliases (some downstream code expects these names)
     team_a_live = team_a
@@ -1962,22 +2327,45 @@ with tabs[3]:
     st.markdown("### Context — series format and what the contract represents")
     cctx1, cctx2, cctx3, cctx4 = st.columns([1.0, 1.5, 1.0, 1.0])
     with cctx1:
-        series_fmt = st.selectbox("Series format", ["BO1", "BO3", "BO5"], index=int(st.session_state.get("cs2_live_series_fmt_idx", 1)))
+        series_fmt = st.selectbox(
+            "Series format",
+            ["BO1", "BO3", "BO5"],
+            index=int(st.session_state.get("cs2_live_series_fmt_idx", 1)),
+        )
     with cctx2:
-        contract_scope = st.selectbox("Contract priced on", ["Map winner (this map)", "Series winner"], index=int(st.session_state.get("cs2_live_contract_scope_idx", 0)))
+        contract_scope = st.selectbox(
+            "Contract priced on",
+            ["Map winner (this map)", "Series winner"],
+            index=int(st.session_state.get("cs2_live_contract_scope_idx", 0)),
+        )
     with cctx3:
-        st.session_state.setdefault("cs2_live_maps_a_won", int(st.session_state.get("cs2_live_maps_a_won", 0)))
-        maps_a_won = st.number_input("Maps A won", min_value=0, max_value=4, step=1, key="cs2_live_maps_a_won")
+        st.session_state.setdefault(
+            "cs2_live_maps_a_won", int(st.session_state.get("cs2_live_maps_a_won", 0))
+        )
+        maps_a_won = st.number_input(
+            "Maps A won", min_value=0, max_value=4, step=1, key="cs2_live_maps_a_won"
+        )
     with cctx4:
-        st.session_state.setdefault("cs2_live_maps_b_won", int(st.session_state.get("cs2_live_maps_b_won", 0)))
-        maps_b_won = st.number_input("Maps B won", min_value=0, max_value=4, step=1, key="cs2_live_maps_b_won")
-        st.session_state.setdefault("cs2_prev_maps_a_won", int(st.session_state.get("cs2_live_maps_a_won", 0)))
-        st.session_state.setdefault("cs2_prev_maps_b_won", int(st.session_state.get("cs2_live_maps_b_won", 0)))
+        st.session_state.setdefault(
+            "cs2_live_maps_b_won", int(st.session_state.get("cs2_live_maps_b_won", 0))
+        )
+        maps_b_won = st.number_input(
+            "Maps B won", min_value=0, max_value=4, step=1, key="cs2_live_maps_b_won"
+        )
+        st.session_state.setdefault(
+            "cs2_prev_maps_a_won", int(st.session_state.get("cs2_live_maps_a_won", 0))
+        )
+        st.session_state.setdefault(
+            "cs2_prev_maps_b_won", int(st.session_state.get("cs2_live_maps_b_won", 0))
+        )
 
-    st.session_state["cs2_live_series_fmt_idx"] = ["BO1","BO3","BO5"].index(series_fmt)
-    st.session_state["cs2_live_contract_scope_idx"] = ["Map winner (this map)","Series winner"].index(contract_scope)
+    st.session_state["cs2_live_series_fmt_idx"] = ["BO1", "BO3", "BO5"].index(series_fmt)
+    st.session_state["cs2_live_contract_scope_idx"] = [
+        "Map winner (this map)",
+        "Series winner",
+    ].index(contract_scope)
 
-    n_maps = int(series_fmt.replace("BO",""))
+    n_maps = int(series_fmt.replace("BO", ""))
     # Hide/ignore map-score inputs when they don't apply
     if contract_scope == "Map winner (this map)" or n_maps == 1:
         maps_a_won = 0
@@ -1985,22 +2373,42 @@ with tabs[3]:
 
     if contract_scope == "Series winner" and n_maps > 1:
         current_map_num = int(maps_a_won) + int(maps_b_won) + 1
-        st.caption(f"Series score: A {int(maps_a_won)} – {int(maps_b_won)} B (currently Map {current_map_num} of up to {n_maps}).")
+        st.caption(
+            f"Series score: A {int(maps_a_won)} – {int(maps_b_won)} B (currently Map {current_map_num} of up to {n_maps})."
+        )
 
     st.markdown("### Step 1 — Pre-match fair probability (from your model)")
     if contract_scope == "Series winner" and n_maps > 1:
-        st.caption("Paste your **pre-match series win%** for Team A here (0–1). We'll infer the implied per-map prior for the in-map updater.")
-        st.session_state.setdefault("cs2_live_p0_series", float(st.session_state.get("cs2_live_p0_series", 0.55)))
-        p0_series = st.number_input("Pre-match fair series win% for Team A (0–1)", min_value=0.01, max_value=0.99,
-                                    step=0.01, format="%.2f", key="cs2_live_p0_series")
+        st.caption(
+            "Paste your **pre-match series win%** for Team A here (0–1). We'll infer the implied per-map prior for the in-map updater."
+        )
+        st.session_state.setdefault(
+            "cs2_live_p0_series", float(st.session_state.get("cs2_live_p0_series", 0.55))
+        )
+        p0_series = st.number_input(
+            "Pre-match fair series win% for Team A (0–1)",
+            min_value=0.01,
+            max_value=0.99,
+            step=0.01,
+            format="%.2f",
+            key="cs2_live_p0_series",
+        )
 
         p0_map = invert_series_to_map_prob(float(p0_series), int(n_maps))
         st.info(f"Implied per-map prior from series (i.i.d approx): p_map ≈ {p0_map*100:.1f}%")
     else:
         st.caption("Paste your **pre-match map win%** for Team A here (0–1).")
-        st.session_state.setdefault("cs2_live_p0_map", float(st.session_state.get("cs2_live_p0_map", 0.60)))
-        p0_map = st.number_input("Pre-match fair win% for Team A (0–1)", min_value=0.01, max_value=0.99,
-                                 step=0.01, format="%.2f", key="cs2_live_p0_map")
+        st.session_state.setdefault(
+            "cs2_live_p0_map", float(st.session_state.get("cs2_live_p0_map", 0.60))
+        )
+        p0_map = st.number_input(
+            "Pre-match fair win% for Team A (0–1)",
+            min_value=0.01,
+            max_value=0.99,
+            step=0.01,
+            format="%.2f",
+            key="cs2_live_p0_map",
+        )
         p0_series = float(p0_map)  # placeholder for display
 
     st.markdown("### Step 2 — Live map inputs (update whenever you want)")
@@ -2009,26 +2417,40 @@ with tabs[3]:
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        st.session_state.setdefault("cs2_live_rounds_a", int(st.session_state.get("cs2_live_rounds_a", 0)))
-        rounds_a = st.number_input("Rounds A", min_value=0, max_value=30, step=1, key="cs2_live_rounds_a")
+        st.session_state.setdefault(
+            "cs2_live_rounds_a", int(st.session_state.get("cs2_live_rounds_a", 0))
+        )
+        rounds_a = st.number_input(
+            "Rounds A", min_value=0, max_value=30, step=1, key="cs2_live_rounds_a"
+        )
     with c2:
-        st.session_state.setdefault("cs2_live_rounds_b", int(st.session_state.get("cs2_live_rounds_b", 0)))
-        rounds_b = st.number_input("Rounds B", min_value=0, max_value=30, step=1, key="cs2_live_rounds_b")
-
-
+        st.session_state.setdefault(
+            "cs2_live_rounds_b", int(st.session_state.get("cs2_live_rounds_b", 0))
+        )
+        rounds_b = st.number_input(
+            "Rounds B", min_value=0, max_value=30, step=1, key="cs2_live_rounds_b"
+        )
 
     # Optional: map/side context for CT/T bias (skip if unknown)
     MAP_OPTIONS = ["Average (no map)"] + list(CS2_MAP_CT_RATE.keys())
     cM1, cM2 = st.columns([1.3, 1.0])
     with cM1:
-        st.session_state.setdefault("cs2_live_map_name", st.session_state.get("cs2_live_map_name", "Average (no map)"))
+        st.session_state.setdefault(
+            "cs2_live_map_name", st.session_state.get("cs2_live_map_name", "Average (no map)")
+        )
         map_sel = st.selectbox("Map (for CT/T bias)", MAP_OPTIONS, key="cs2_live_map_name")
     with cM2:
-        st.session_state.setdefault("cs2_live_a_side", st.session_state.get("cs2_live_a_side", "Unknown"))
-        a_side_sel = st.radio("Team A side now", options=["Unknown", "CT", "T"], horizontal=True, key="cs2_live_a_side")
+        st.session_state.setdefault(
+            "cs2_live_a_side", st.session_state.get("cs2_live_a_side", "Unknown")
+        )
+        a_side_sel = st.radio(
+            "Team A side now",
+            options=["Unknown", "CT", "T"],
+            horizontal=True,
+            key="cs2_live_a_side",
+        )
     map_name = None if str(map_sel) == "Average (no map)" else str(map_sel)
     a_side = None if str(a_side_sel) == "Unknown" else str(a_side_sel)
-
 
     # Faster economy input (buy state) — avoids typing exact $ totals during buy time.
     BUY_STATES = ["Skip/Unknown", "Eco", "Light", "Full (fragile)", "Full", "Full+Save"]
@@ -2060,39 +2482,67 @@ with tabs[3]:
     st.session_state["cs2_live_econ_a"] = int(econ_a)
     st.session_state["cs2_live_econ_b"] = int(econ_b)
 
-    st.caption(f"Econ proxy (from buy states): A=${econ_a:,.0f}, B=${econ_b:,.0f} — set Skip/Unknown to widen bands and avoid false precision.")
+    st.caption(
+        f"Econ proxy (from buy states): A=${econ_a:,.0f}, B=${econ_b:,.0f} — set Skip/Unknown to widen bands and avoid false precision."
+    )
 
     colP1, colP2, colChaos = st.columns(3)
     with colP1:
-        pistol_a = st.checkbox("A won most recent pistol?", value=bool(st.session_state.get("cs2_live_pistol_a", False)), key="cs2_live_pistol_a")
+        pistol_a = st.checkbox(
+            "A won most recent pistol?",
+            value=bool(st.session_state.get("cs2_live_pistol_a", False)),
+            key="cs2_live_pistol_a",
+        )
     with colP2:
-        pistol_b = st.checkbox("B won most recent pistol?", value=bool(st.session_state.get("cs2_live_pistol_b", False)), key="cs2_live_pistol_b")
+        pistol_b = st.checkbox(
+            "B won most recent pistol?",
+            value=bool(st.session_state.get("cs2_live_pistol_b", False)),
+            key="cs2_live_pistol_b",
+        )
     with colChaos:
-        chaos_boost = st.slider("Chaos widen (manual)", 0.00, 0.25, float(st.session_state.get("cs2_live_chaos", 0.00)), 0.01)
+        chaos_boost = st.slider(
+            "Chaos widen (manual)",
+            0.00,
+            0.25,
+            float(st.session_state.get("cs2_live_chaos", 0.00)),
+            0.01,
+        )
     st.session_state["cs2_live_chaos"] = float(chaos_boost)
 
     st.markdown("### Step 3 — Market bid/ask input")
     if contract_scope == "Series winner" and n_maps > 1:
-        st.caption("Enter executable prices for **Team A to win the SERIES** (bid = sell YES, ask = buy YES).")
+        st.caption(
+            "Enter executable prices for **Team A to win the SERIES** (bid = sell YES, ask = buy YES)."
+        )
     else:
-        st.caption("Enter executable prices for **Team A to win THIS MAP** (bid = sell YES, ask = buy YES).")
+        st.caption(
+            "Enter executable prices for **Team A to win THIS MAP** (bid = sell YES, ask = buy YES)."
+        )
 
     st.markdown("#### Optional — Fetch bid/ask from an exchange API")
 
     # Persisted Kalshi URL + selected team market (so you paste/select once, then just refresh).
     colF1, colF2, colF3 = st.columns([1.05, 2.35, 1.10])
     with colF1:
-        venue = st.selectbox("Venue", ["Manual", "Kalshi", "Polymarket"], index=0, key="cs2_mkt_fetch_venue")
+        venue = st.selectbox(
+            "Venue", ["Manual", "Kalshi", "Polymarket"], index=0, key="cs2_mkt_fetch_venue"
+        )
 
     # NOTE: We deliberately keep Kalshi's "URL -> choose team market" flow separate from the generic ident field,
     # because Streamlit does not allow us to mutate a widget's key after it is instantiated.
     if venue == "Kalshi":
         with colF2:
-            st.session_state.setdefault("cs2_kalshi_url", st.session_state.get("cs2_kalshi_url", ""))
-            kalshi_url = st.text_input("Kalshi URL (paste once; event/game page)", key="cs2_kalshi_url")
+            st.session_state.setdefault(
+                "cs2_kalshi_url", st.session_state.get("cs2_kalshi_url", "")
+            )
+            kalshi_url = st.text_input(
+                "Kalshi URL (paste once; event/game page)", key="cs2_kalshi_url"
+            )
         with colF3:
             load_markets = st.button("Load teams", key="cs2_kalshi_load", use_container_width=True)
-            refresh_prices = st.button("Refresh bid/ask", key="cs2_kalshi_refresh", use_container_width=True)
+            refresh_prices = st.button(
+                "Refresh bid/ask", key="cs2_kalshi_refresh", use_container_width=True
+            )
 
         # Load markets (team contracts) for the event ticker derived from the URL.
         if load_markets:
@@ -2142,7 +2592,9 @@ with tabs[3]:
                             st.session_state["cs2_kalshi_market"] = markets2[0]["ticker"]
                             tkr = markets2[0]["ticker"]
                     if not tkr:
-                        raise ValueError("Paste a Kalshi URL, click Load teams, then pick a team market.")
+                        raise ValueError(
+                            "Paste a Kalshi URL, click Load teams, then pick a team market."
+                        )
                 bid_f, ask_f, meta = fetch_kalshi_bid_ask(tkr)
 
                 if bid_f is not None:
@@ -2187,20 +2639,35 @@ with tabs[3]:
 
     colBid, colAsk = st.columns(2)
     with colBid:
-        st.session_state.setdefault("cs2_live_market_bid", float(st.session_state.get("cs2_live_market_bid", 0.48)))
-        market_bid = st.number_input("Best bid (Sell) for Team A (0–1)", min_value=0.01, max_value=0.99,
-                                     step=0.01, format="%.2f", key="cs2_live_market_bid")
+        st.session_state.setdefault(
+            "cs2_live_market_bid", float(st.session_state.get("cs2_live_market_bid", 0.48))
+        )
+        market_bid = st.number_input(
+            "Best bid (Sell) for Team A (0–1)",
+            min_value=0.01,
+            max_value=0.99,
+            step=0.01,
+            format="%.2f",
+            key="cs2_live_market_bid",
+        )
     with colAsk:
-        st.session_state.setdefault("cs2_live_market_ask", float(st.session_state.get("cs2_live_market_ask", 0.52)))
-        market_ask = st.number_input("Best ask (Buy) for Team A (0–1)", min_value=0.01, max_value=0.99,
-                                     step=0.01, format="%.2f", key="cs2_live_market_ask")
+        st.session_state.setdefault(
+            "cs2_live_market_ask", float(st.session_state.get("cs2_live_market_ask", 0.52))
+        )
+        market_ask = st.number_input(
+            "Best ask (Buy) for Team A (0–1)",
+            min_value=0.01,
+            max_value=0.99,
+            step=0.01,
+            format="%.2f",
+            key="cs2_live_market_ask",
+        )
 
     bid = float(market_bid)
     ask = float(market_ask)
     if ask < bid:
         st.warning("Ask < bid (inverted). Using ask = bid for calculations.")
         ask = bid
-
 
     market_mid = 0.5 * (bid + ask)
     spread = ask - bid
@@ -2209,19 +2676,35 @@ with tabs[3]:
     st.markdown("### Model knobs (MVP)")
     colB1, colB2, colB3 = st.columns(3)
     with colB1:
-        beta_score = st.slider("β score", 0.05, 0.60, float(st.session_state.get("beta_score", 0.22)), 0.01)
+        beta_score = st.slider(
+            "β score", 0.05, 0.60, float(st.session_state.get("beta_score", 0.22)), 0.01
+        )
     with colB2:
-        beta_econ = st.slider("β econ", 0.00, 0.20, float(st.session_state.get("beta_econ", 0.06)), 0.01)
+        beta_econ = st.slider(
+            "β econ", 0.00, 0.20, float(st.session_state.get("beta_econ", 0.06)), 0.01
+        )
     with colB3:
-        beta_pistol = st.slider("β pistol", 0.00, 0.80, float(st.session_state.get("beta_pistol", 0.35)), 0.01)
+        beta_pistol = st.slider(
+            "β pistol", 0.00, 0.80, float(st.session_state.get("beta_pistol", 0.35)), 0.01
+        )
     # Closeout lock knobs (reduce swinginess near map closeout)
     colL1, colL2, colL3 = st.columns(3)
     with colL1:
-        beta_lock = st.slider("β lock", 0.00, 3.00, float(st.session_state.get("beta_lock", 0.90)), 0.05)
+        beta_lock = st.slider(
+            "β lock", 0.00, 3.00, float(st.session_state.get("beta_lock", 0.90)), 0.05
+        )
     with colL2:
-        lock_start_offset = st.slider("Lock starts (win_target - N)", 1, 7, int(st.session_state.get("lock_start_offset", 3)), 1)
+        lock_start_offset = st.slider(
+            "Lock starts (win_target - N)",
+            1,
+            7,
+            int(st.session_state.get("lock_start_offset", 3)),
+            1,
+        )
     with colL3:
-        lock_ramp = st.slider("Lock ramp (rounds)", 1, 8, int(st.session_state.get("lock_ramp", 3)), 1)
+        lock_ramp = st.slider(
+            "Lock ramp (rounds)", 1, 8, int(st.session_state.get("lock_ramp", 3)), 1
+        )
 
     st.session_state["beta_score"] = float(beta_score)
     st.session_state["beta_econ"] = float(beta_econ)
@@ -2231,7 +2714,7 @@ with tabs[3]:
     st.session_state["lock_ramp"] = int(lock_ramp)
 
     # ---- Compute fair probability (map) + K-based credible bands (map) ----
-    
+
     # Dynamic win target / total rounds (regulation vs OT approximation)
     win_target = cs2_current_win_target(int(rounds_a), int(rounds_b))
     total_rounds = int(2 * win_target - 2)
@@ -2277,23 +2760,36 @@ with tabs[3]:
     )
     calib = load_kappa_calibration()
     total_r = int(int(rounds_a) + int(rounds_b))
-    is_ot = (int(rounds_a) >= int(win_target) - 1 and int(rounds_b) >= int(win_target) - 1)
-    mult = get_kappa_multiplier(calib, "cs2", float(cs2_band_level), total_r, is_ot) if bool(st.session_state.get("cs2_use_calib", False)) else 1.0
+    is_ot = int(rounds_a) >= int(win_target) - 1 and int(rounds_b) >= int(win_target) - 1
+    mult = (
+        get_kappa_multiplier(calib, "cs2", float(cs2_band_level), total_r, is_ot)
+        if bool(st.session_state.get("cs2_use_calib", False))
+        else 1.0
+    )
     kappa_map = float(kappa_map) * float(cs2_k_scale) * float(mult)
-    lo_map, hi_map = beta_credible_interval(float(p_hat_map), float(kappa_map), level=float(cs2_band_level))
+    lo_map, hi_map = beta_credible_interval(
+        float(p_hat_map), float(kappa_map), level=float(cs2_band_level)
+    )
 
     # Near-end continuity: soften map→series cliffs by "soft locking" map odds
     # as the score approaches the win target (especially helpful around 12-x).
-    p_hat_map = cs2_soft_lock_map_prob(float(p_hat_map), int(rounds_a), int(rounds_b), int(win_target))
+    p_hat_map = cs2_soft_lock_map_prob(
+        float(p_hat_map), int(rounds_a), int(rounds_b), int(win_target)
+    )
     lo_map = cs2_soft_lock_map_prob(float(lo_map), int(rounds_a), int(rounds_b), int(win_target))
     hi_map = cs2_soft_lock_map_prob(float(hi_map), int(rounds_a), int(rounds_b), int(win_target))
 
-
     # ---- If the market is SERIES, convert fair/map-bands to SERIES fair/bands ----
     if contract_scope == "Series winner" and n_maps > 1:
-        p_hat = series_win_prob_live(int(n_maps), int(maps_a_won), int(maps_b_won), float(p_hat_map), float(p0_map))
-        lo = series_win_prob_live(int(n_maps), int(maps_a_won), int(maps_b_won), float(lo_map), float(p0_map))
-        hi = series_win_prob_live(int(n_maps), int(maps_a_won), int(maps_b_won), float(hi_map), float(p0_map))
+        p_hat = series_win_prob_live(
+            int(n_maps), int(maps_a_won), int(maps_b_won), float(p_hat_map), float(p0_map)
+        )
+        lo = series_win_prob_live(
+            int(n_maps), int(maps_a_won), int(maps_b_won), float(lo_map), float(p0_map)
+        )
+        hi = series_win_prob_live(
+            int(n_maps), int(maps_a_won), int(maps_b_won), float(hi_map), float(p0_map)
+        )
         line_label = "Series fair p(A)"
     else:
         p_hat = float(p_hat_map)
@@ -2322,15 +2818,17 @@ with tabs[3]:
 
     # Optional: show underlying map-fair too (helps sanity-check series math)
     with st.expander("Show underlying MAP fair (debug)"):
-        st.write({
-            "p0_map": float(p0_map),
-            "p_hat_map": float(p_hat_map),
-            "band_map": [float(lo_map), float(hi_map)],
-            "series_fmt": series_fmt,
-            "maps_a_won": int(maps_a_won),
-            "maps_b_won": int(maps_b_won),
-            "note": "Series conversion assumes future maps i.i.d with p_future = p0_map (MVP)."
-        })
+        st.write(
+            {
+                "p0_map": float(p0_map),
+                "p_hat_map": float(p_hat_map),
+                "band_map": [float(lo_map), float(hi_map)],
+                "series_fmt": series_fmt,
+                "maps_a_won": int(maps_a_won),
+                "maps_b_won": int(maps_b_won),
+                "note": "Series conversion assumes future maps i.i.d with p_future = p0_map (MVP).",
+            }
+        )
 
     colAdd, colClear, colExport = st.columns(3)
     with colAdd:
@@ -2346,103 +2844,134 @@ with tabs[3]:
                     gap_rounds = int(expected_total - total_rounds_logged)
             st.session_state["cs2_inplay_last_total_rounds"] = int(total_rounds_logged)
             if gap_rounds > 0 and prev_total is not None:
-                st.warning(f"Gap detected: expected total rounds {int(prev_total)+1}, got {total_rounds_logged} (gap {gap_rounds}).")
+                st.warning(
+                    f"Gap detected: expected total rounds {int(prev_total)+1}, got {total_rounds_logged} (gap {gap_rounds})."
+                )
             map_index = int(st.session_state.get("cs2_inplay_map_index", 0))
 
-            st.session_state["cs2_live_rows"].append({
-                "t": len(st.session_state["cs2_live_rows"]),
-                "series_fmt": series_fmt,
-                "contract_scope": contract_scope,
-                "maps_a_won": int(maps_a_won),
-                "maps_b_won": int(maps_b_won),
-                "rounds_a": int(rounds_a),
-                "rounds_b": int(rounds_b),
-                        "map_index": int(map_index),
-                        "total_rounds": int(total_rounds_logged),
-                        "prev_total_rounds": int(prev_total) if prev_total is not None else "",
-                        "gap_rounds": int(gap_rounds),
-                        "gap_flag": bool(gap_rounds > 0),
-                        "gap_reason": "",
-                "map_index": int(map_index),
-                "total_rounds": int(total_rounds_logged),
-                "prev_total_rounds": int(prev_total) if prev_total is not None else "",
-                "gap_rounds": int(gap_rounds),
-                "econ_a": float(econ_a),
-                "econ_b": float(econ_b),
-                "p0_series": float(p0_series) if 'p0_series' in locals() else float(p0_map),
-                "p0_map": float(p0_map),
-                "p_hat_map": float(p_hat_map),
-                "p_hat": float(p_hat),
-                "band_lo": float(lo),
-                "band_hi": float(hi),
-                "band_lo_map": float(lo_map),
-                "band_hi_map": float(hi_map),
-                "market_bid": float(bid),
-                "market_ask": float(ask),
-                "market_mid": float(market_mid),
-                "spread": float(spread),
-                "rel_spread": float(rel_spread),
-                "dev_mid_pp": float((market_mid - p_hat)*100.0),
-                "buy_edge_pp": float((p_hat - ask)*100.0),
-                "sell_edge_pp": float((bid - p_hat)*100.0),
-            })
+            st.session_state["cs2_live_rows"].append(
+                {
+                    "t": len(st.session_state["cs2_live_rows"]),
+                    "series_fmt": series_fmt,
+                    "contract_scope": contract_scope,
+                    "maps_a_won": int(maps_a_won),
+                    "maps_b_won": int(maps_b_won),
+                    "rounds_a": int(rounds_a),
+                    "rounds_b": int(rounds_b),
+                    "map_index": int(map_index),
+                    "total_rounds": int(total_rounds_logged),
+                    "prev_total_rounds": int(prev_total) if prev_total is not None else "",
+                    "gap_rounds": int(gap_rounds),
+                    "gap_flag": bool(gap_rounds > 0),
+                    "gap_reason": "",
+                    "econ_a": float(econ_a),
+                    "econ_b": float(econ_b),
+                    "p0_series": float(p0_series) if "p0_series" in locals() else float(p0_map),
+                    "p0_map": float(p0_map),
+                    "p_hat_map": float(p_hat_map),
+                    "p_hat": float(p_hat),
+                    "band_lo": float(lo),
+                    "band_hi": float(hi),
+                    "band_lo_map": float(lo_map),
+                    "band_hi_map": float(hi_map),
+                    "market_bid": float(bid),
+                    "market_ask": float(ask),
+                    "market_mid": float(market_mid),
+                    "spread": float(spread),
+                    "rel_spread": float(rel_spread),
+                    "dev_mid_pp": float((market_mid - p_hat) * 100.0),
+                    "buy_edge_pp": float((p_hat - ask) * 100.0),
+                    "sell_edge_pp": float((bid - p_hat) * 100.0),
+                }
+            )
 
             # Optional: persist this snapshot to CSV for K calibration
-            if bool(st.session_state.get("cs2_inplay_persist", False)) and str(st.session_state.get("cs2_inplay_match_id", "")).strip():
+            if (
+                bool(st.session_state.get("cs2_inplay_persist", False))
+                and str(st.session_state.get("cs2_inplay_match_id", "")).strip()
+            ):
                 try:
-                    persist_inplay_row({
-                        "timestamp": datetime.now().isoformat(timespec="seconds"),
-                        "game": "CS2",
-                        "match_id": str(st.session_state.get("cs2_inplay_match_id")).strip(),
-                        "contract_scope": str(contract_scope),
-                        "series_format": str(series_fmt),
-                        "maps_a_won": int(maps_a_won),
-                        "maps_b_won": int(maps_b_won),
-                        "team_a": str(team_a),
-                        "team_b": str(team_b),
-                        "map_name": str(st.session_state.get("cs2_live_map_name", "")),
-                        "a_side_now": str(st.session_state.get("cs2_live_a_side", "")),
-                        "rounds_a": int(rounds_a),
-                        "rounds_b": int(rounds_b),
-                        "map_index": int(map_index),
-                        "total_rounds": int(total_rounds_logged),
-                        "prev_total_rounds": int(prev_total) if prev_total is not None else "",
-                        "gap_rounds": int(gap_rounds),
-                        "gap_flag": bool(gap_rounds > 0) if prev_total is not None else False,
-                        "gap_reason": "",
-                        "buy_state_a": str(buy_a),
-                        "buy_state_b": str(buy_b),
-                        "econ_missing": bool(econ_missing),
-                        "econ_fragile": bool(econ_fragile),
-                        "pistol_a": bool(pistol_a),
-                        "pistol_b": bool(pistol_b),
-                        "gap_delta": int(stream.get("gap_delta", 0)) if 'stream' in locals() else 0,
-                        "streak_winner": stream.get("streak_winner", "") if 'stream' in locals() else "",
-                        "streak_len": int(stream.get("streak_len", 0)) if 'stream' in locals() else 0,
-                        "reversal": bool(stream.get("reversal", False)) if 'stream' in locals() else False,
-                        "n_tracked": int(stream.get("n_tracked", 0)) if 'stream' in locals() else 0,
-                        "p0_map": float(p0_map),
-                        "p_fair_map": float(p_hat_map),
-                        "kappa_map": float(kappa_map) if 'kappa_map' in locals() else "",
-                        "p_fair": float(p_hat),
-                        "band_level": float(st.session_state.get("cs2_inplay_band_level", 0.80)),
-                        "band_lo": float(lo),
-                        "band_hi": float(hi),
-                        "bid": float(bid),
-                        "ask": float(ask),
-                        "mid": float(market_mid),
-                        "spread_abs": float(spread),
-                        "spread_rel": float(rel_spread),
-                        "notes": str(st.session_state.get("cs2_inplay_notes", "")),
-                        "snapshot_idx": int(total_rounds_logged),
-                        "half": ("1" if int(total_rounds_logged) <= 12 else ("2" if int(total_rounds_logged) <= 24 else "OT")),
-                        "round_in_half": (int(total_rounds_logged) if int(total_rounds_logged) <= 12 else (int(total_rounds_logged)-12 if int(total_rounds_logged) <= 24 else int(total_rounds_logged)-24)),
-                        "is_ot": bool(int(total_rounds_logged) > 24),
-                        "round_in_map": int(total_rounds_logged),
-                    })
+                    persist_inplay_row(
+                        {
+                            "timestamp": datetime.now().isoformat(timespec="seconds"),
+                            "game": "CS2",
+                            "match_id": str(st.session_state.get("cs2_inplay_match_id")).strip(),
+                            "contract_scope": str(contract_scope),
+                            "series_format": str(series_fmt),
+                            "maps_a_won": int(maps_a_won),
+                            "maps_b_won": int(maps_b_won),
+                            "team_a": str(team_a),
+                            "team_b": str(team_b),
+                            "map_name": str(st.session_state.get("cs2_live_map_name", "")),
+                            "a_side_now": str(st.session_state.get("cs2_live_a_side", "")),
+                            "rounds_a": int(rounds_a),
+                            "rounds_b": int(rounds_b),
+                            "map_index": int(map_index),
+                            "total_rounds": int(total_rounds_logged),
+                            "prev_total_rounds": int(prev_total) if prev_total is not None else "",
+                            "gap_rounds": int(gap_rounds),
+                            "gap_flag": bool(gap_rounds > 0) if prev_total is not None else False,
+                            "gap_reason": "",
+                            "buy_state_a": str(buy_a),
+                            "buy_state_b": str(buy_b),
+                            "econ_missing": bool(econ_missing),
+                            "econ_fragile": bool(econ_fragile),
+                            "pistol_a": bool(pistol_a),
+                            "pistol_b": bool(pistol_b),
+                            "gap_delta": (
+                                int(stream.get("gap_delta", 0)) if "stream" in locals() else 0
+                            ),
+                            "streak_winner": (
+                                stream.get("streak_winner", "") if "stream" in locals() else ""
+                            ),
+                            "streak_len": (
+                                int(stream.get("streak_len", 0)) if "stream" in locals() else 0
+                            ),
+                            "reversal": (
+                                bool(stream.get("reversal", False))
+                                if "stream" in locals()
+                                else False
+                            ),
+                            "n_tracked": (
+                                int(stream.get("n_tracked", 0)) if "stream" in locals() else 0
+                            ),
+                            "p0_map": float(p0_map),
+                            "p_fair_map": float(p_hat_map),
+                            "kappa_map": float(kappa_map) if "kappa_map" in locals() else "",
+                            "p_fair": float(p_hat),
+                            "band_level": float(
+                                st.session_state.get("cs2_inplay_band_level", 0.80)
+                            ),
+                            "band_lo": float(lo),
+                            "band_hi": float(hi),
+                            "bid": float(bid),
+                            "ask": float(ask),
+                            "mid": float(market_mid),
+                            "spread_abs": float(spread),
+                            "spread_rel": float(rel_spread),
+                            "notes": str(st.session_state.get("cs2_inplay_notes", "")),
+                            "snapshot_idx": int(total_rounds_logged),
+                            "half": (
+                                "1"
+                                if int(total_rounds_logged) <= 12
+                                else ("2" if int(total_rounds_logged) <= 24 else "OT")
+                            ),
+                            "round_in_half": (
+                                int(total_rounds_logged)
+                                if int(total_rounds_logged) <= 12
+                                else (
+                                    int(total_rounds_logged) - 12
+                                    if int(total_rounds_logged) <= 24
+                                    else int(total_rounds_logged) - 24
+                                )
+                            ),
+                            "is_ot": bool(int(total_rounds_logged) > 24),
+                            "round_in_map": int(total_rounds_logged),
+                        }
+                    )
                 except Exception as e:
                     st.warning(f"Snapshot not persisted: {e}")
-    
+
 
 def _cs2_start_next_half():
     # Half-time resets (pistol + economy context), keep score
@@ -2484,7 +3013,9 @@ def _cs2_start_next_map():
                     winner = team_b
 
                 if winner and team_a and team_b:
-                    persist_inplay_map_result(_mid, "CS2", cur_map_index, cur_map_name, team_a, team_b, winner)
+                    persist_inplay_map_result(
+                        _mid, "CS2", cur_map_index, cur_map_name, team_a, team_b, winner
+                    )
 
                 # Update prev counters for the next map
                 st.session_state["cs2_prev_maps_a_won"] = now_a
@@ -2508,7 +3039,9 @@ def _cs2_start_next_map():
     st.session_state["cs2_live_a_side"] = "Unknown"
 
     # Advance map index + reset “missed rounds” tracking
-    st.session_state["cs2_inplay_map_index"] = int(st.session_state.get("cs2_inplay_map_index", 0)) + 1
+    st.session_state["cs2_inplay_map_index"] = (
+        int(st.session_state.get("cs2_inplay_map_index", 0)) + 1
+    )
     st.session_state["cs2_inplay_last_total_rounds"] = None
 
 
@@ -2534,9 +3067,11 @@ with colClear:
         pcal = load_p_calibration_json(APP_DIR)
         show_pcal = st.checkbox("Show p_calibrated overlay", value=False, key="cs2_show_pcal")
 
-        plot_df = chart_df[["t","p_hat","band_lo","band_hi","market_mid"]].copy()
+        plot_df = chart_df[["t", "p_hat", "band_lo", "band_hi", "market_mid"]].copy()
         if show_pcal and pcal:
-            plot_df["p_hat_cal"] = plot_df["p_hat"].apply(lambda x: apply_p_calibration(x, pcal, "cs2"))
+            plot_df["p_hat_cal"] = plot_df["p_hat"].apply(
+                lambda x: apply_p_calibration(x, pcal, "cs2")
+            )
         plot_df = plot_df.set_index("t")
         st.line_chart(plot_df, use_container_width=True, height=420)
 
@@ -2557,7 +3092,9 @@ with colClear:
                 _cs2_default_winner_idx = 1
         except Exception:
             pass
-        cs2_winner_sel = st.selectbox("Winner", [team_a, team_b], index=_cs2_default_winner_idx, key="cs2_inplay_winner_sel")
+        cs2_winner_sel = st.selectbox(
+            "Winner", [team_a, team_b], index=_cs2_default_winner_idx, key="cs2_inplay_winner_sel"
+        )
     with rcol2:
         if st.button("Save result", key="cs2_inplay_save_result"):
             _mid = str(st.session_state.get("cs2_inplay_match_id", "")).strip()
@@ -2568,12 +3105,12 @@ with colClear:
                 st.success("Result saved to inplay_match_results_clean.csv")
 
 
-
 with tabs[4]:
     st.header("Valorant In-Play Indicator (MVP)")
-    st.caption("Same idea as CS2: fair probability line + certainty bands vs market bid/ask. "
-               "Valorant MVP adds ult advantage + operator presence. Economy is coarse (Eco/Light/Full).")
-
+    st.caption(
+        "Same idea as CS2: fair probability line + certainty bands vs market bid/ask. "
+        "Valorant MVP adds ult advantage + operator presence. Economy is coarse (Eco/Light/Full)."
+    )
 
     st.markdown("### K-bands + calibration logging (always visible)")
     l1, l2, l3, l4 = st.columns([1.35, 1.10, 1.05, 1.20])
@@ -2583,12 +3120,28 @@ with tabs[4]:
             st.session_state["val_inplay_map_index"] = 0
             st.session_state["val_inplay_last_total_rounds"] = None
     with l2:
-        val_inplay_persist = st.checkbox("Persist snapshots + results", value=bool(st.session_state.get("val_inplay_persist", False)), key="val_inplay_persist")
+        val_inplay_persist = st.checkbox(
+            "Persist snapshots + results",
+            value=bool(st.session_state.get("val_inplay_persist", False)),
+            key="val_inplay_persist",
+        )
     with l3:
-        val_band_level = st.selectbox("Band level", options=[0.68, 0.75, 0.80, 0.90, 0.95], index=2,
-                                     format_func=lambda x: f"{int(x*100)}%", key="val_inplay_band_level")
+        val_band_level = st.selectbox(
+            "Band level",
+            options=[0.68, 0.75, 0.80, 0.90, 0.95],
+            index=2,
+            format_func=lambda x: f"{int(x*100)}%",
+            key="val_inplay_band_level",
+        )
     with l4:
-        val_k_scale = st.slider("K scale", 0.50, 2.00, float(st.session_state.get("val_inplay_k_scale", 1.00)), 0.05, key="val_inplay_k_scale")
+        val_k_scale = st.slider(
+            "K scale",
+            0.50,
+            2.00,
+            float(st.session_state.get("val_inplay_k_scale", 1.00)),
+            0.05,
+            key="val_inplay_k_scale",
+        )
     val_inplay_notes = st.text_input("Notes (optional)", key="val_inplay_notes")
     show_inplay_log_paths()
 
@@ -2596,7 +3149,11 @@ with tabs[4]:
     calib = load_kappa_calibration()
     vcal1, vcal2, vcal3 = st.columns([1.2, 1.0, 1.8])
     with vcal1:
-        val_use_calib = st.checkbox("Use calibrated K multiplier", value=bool(st.session_state.get("val_use_calib", False)), key="val_use_calib")
+        val_use_calib = st.checkbox(
+            "Use calibrated K multiplier",
+            value=bool(st.session_state.get("val_use_calib", False)),
+            key="val_use_calib",
+        )
     with vcal2:
         if st.button("Train calibration (clean logs)", key="val_train_calib_btn"):
             ok, out = run_kappa_trainer()
@@ -2607,7 +3164,10 @@ with tabs[4]:
             st.session_state["kappa_train_last_out"] = out
     with vcal3:
         if st.session_state.get("kappa_train_last_out"):
-            st.caption(str(st.session_state.get("kappa_train_last_out"))[:240] + ("…" if len(str(st.session_state.get("kappa_train_last_out"))) > 240 else ""))
+            st.caption(
+                str(st.session_state.get("kappa_train_last_out"))[:240]
+                + ("…" if len(str(st.session_state.get("kappa_train_last_out"))) > 240 else "")
+            )
         elif calib:
             st.caption(f"Calibration loaded: {KAPPA_CALIB_PATH.name}")
         else:
@@ -2615,58 +3175,104 @@ with tabs[4]:
 
     colA, colB = st.columns(2)
     with colA:
-        val_team_a = st.text_input("Team A", value=str(st.session_state.get("val_team_a", "Team A")))
+        val_team_a = st.text_input(
+            "Team A", value=str(st.session_state.get("val_team_a", "Team A"))
+        )
     with colB:
-        val_team_b = st.text_input("Team B", value=str(st.session_state.get("val_team_b", "Team B")))
+        val_team_b = st.text_input(
+            "Team B", value=str(st.session_state.get("val_team_b", "Team B"))
+        )
     st.session_state["val_team_a"] = val_team_a
     st.session_state["val_team_b"] = val_team_b
 
-
     # Optional: map name (useful for per-map priors / ML)
     # Widget with key="val_map_name" automatically updates st.session_state; do not assign manually
-    val_map_name = st.text_input("Map name (optional)", value=str(st.session_state.get("val_map_name", "")), key="val_map_name")
+    val_map_name = st.text_input(
+        "Map name (optional)",
+        value=str(st.session_state.get("val_map_name", "")),
+        key="val_map_name",
+    )
 
     st.markdown("### Context — series format and what the contract represents")
     cctx1, cctx2, cctx3, cctx4 = st.columns([1.0, 1.5, 1.0, 1.0])
     with cctx1:
-        val_series_fmt = st.selectbox("Series format", ["BO1", "BO3", "BO5"],
-                                      index=int(st.session_state.get("val_series_fmt_idx", 1)),
-                                      key="val_series_fmt")
+        val_series_fmt = st.selectbox(
+            "Series format",
+            ["BO1", "BO3", "BO5"],
+            index=int(st.session_state.get("val_series_fmt_idx", 1)),
+            key="val_series_fmt",
+        )
     with cctx2:
-        val_contract_scope = st.selectbox("Contract priced on", ["Map winner (this map)", "Series winner"],
-                                          index=int(st.session_state.get("val_contract_scope_idx", 0)),
-                                          key="val_contract_scope")
+        val_contract_scope = st.selectbox(
+            "Contract priced on",
+            ["Map winner (this map)", "Series winner"],
+            index=int(st.session_state.get("val_contract_scope_idx", 0)),
+            key="val_contract_scope",
+        )
     with cctx3:
-        val_maps_a_won = st.number_input("Maps A won", 0, 4, int(st.session_state.get("val_maps_a_won", 0)), 1, key="val_maps_a_won")
+        val_maps_a_won = st.number_input(
+            "Maps A won",
+            0,
+            4,
+            int(st.session_state.get("val_maps_a_won", 0)),
+            1,
+            key="val_maps_a_won",
+        )
     with cctx4:
-        val_maps_b_won = st.number_input("Maps B won", 0, 4, int(st.session_state.get("val_maps_b_won", 0)), 1, key="val_maps_b_won")
-        st.session_state.setdefault("val_prev_maps_a_won", int(st.session_state.get("val_maps_a_won", 0)))
-        st.session_state.setdefault("val_prev_maps_b_won", int(st.session_state.get("val_maps_b_won", 0)))
+        val_maps_b_won = st.number_input(
+            "Maps B won",
+            0,
+            4,
+            int(st.session_state.get("val_maps_b_won", 0)),
+            1,
+            key="val_maps_b_won",
+        )
+        st.session_state.setdefault(
+            "val_prev_maps_a_won", int(st.session_state.get("val_maps_a_won", 0))
+        )
+        st.session_state.setdefault(
+            "val_prev_maps_b_won", int(st.session_state.get("val_maps_b_won", 0))
+        )
 
-    st.session_state["val_series_fmt_idx"] = ["BO1","BO3","BO5"].index(val_series_fmt)
-    st.session_state["val_contract_scope_idx"] = ["Map winner (this map)","Series winner"].index(val_contract_scope)
+    st.session_state["val_series_fmt_idx"] = ["BO1", "BO3", "BO5"].index(val_series_fmt)
+    st.session_state["val_contract_scope_idx"] = ["Map winner (this map)", "Series winner"].index(
+        val_contract_scope
+    )
 
-    val_n_maps = int(str(val_series_fmt).replace("BO",""))
+    val_n_maps = int(str(val_series_fmt).replace("BO", ""))
     if val_contract_scope == "Map winner (this map)" or val_n_maps == 1:
         val_maps_a_won = 0
         val_maps_b_won = 0
 
     if val_contract_scope == "Series winner" and val_n_maps > 1:
         val_current_map_num = int(val_maps_a_won) + int(val_maps_b_won) + 1
-        st.caption(f"Series score: A {int(val_maps_a_won)} – {int(val_maps_b_won)} B (currently Map {val_current_map_num} of up to {val_n_maps}).")
+        st.caption(
+            f"Series score: A {int(val_maps_a_won)} – {int(val_maps_b_won)} B (currently Map {val_current_map_num} of up to {val_n_maps})."
+        )
 
     st.markdown("### Step 1 — Pre-match fair probability (from your source/model)")
     if val_contract_scope == "Series winner" and val_n_maps > 1:
-        p0_series = st.number_input("Pre-match fair series win% for Team A (0–1)",
-                                    min_value=0.01, max_value=0.99,
-                                    value=float(st.session_state.get("val_p0_series", 0.55)),
-                                    step=0.01, format="%.2f", key="val_p0_series")
+        p0_series = st.number_input(
+            "Pre-match fair series win% for Team A (0–1)",
+            min_value=0.01,
+            max_value=0.99,
+            value=float(st.session_state.get("val_p0_series", 0.55)),
+            step=0.01,
+            format="%.2f",
+            key="val_p0_series",
+        )
         p0_map = invert_series_to_map_prob(float(p0_series), int(val_n_maps))
         st.info(f"Implied per-map prior from series (i.i.d approx): p_map ≈ {p0_map*100:.1f}%")
     else:
-        p0_map = st.number_input("Pre-match fair win% for Team A (0–1)", min_value=0.01, max_value=0.99,
-                                 value=float(st.session_state.get("val_p0_map", 0.55)),
-                                 step=0.01, format="%.2f", key="val_p0_map")
+        p0_map = st.number_input(
+            "Pre-match fair win% for Team A (0–1)",
+            min_value=0.01,
+            max_value=0.99,
+            value=float(st.session_state.get("val_p0_map", 0.55)),
+            step=0.01,
+            format="%.2f",
+            key="val_p0_map",
+        )
         p0_series = float(p0_map)
 
     st.markdown("### Step 2 — Live map inputs")
@@ -2675,40 +3281,87 @@ with tabs[4]:
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        val_rounds_a = st.number_input("Rounds A", 0, 30, int(st.session_state.get("val_rounds_a", 0)), 1, key="val_rounds_a")
+        val_rounds_a = st.number_input(
+            "Rounds A", 0, 30, int(st.session_state.get("val_rounds_a", 0)), 1, key="val_rounds_a"
+        )
     with c2:
-        val_rounds_b = st.number_input("Rounds B", 0, 30, int(st.session_state.get("val_rounds_b", 0)), 1, key="val_rounds_b")
+        val_rounds_b = st.number_input(
+            "Rounds B", 0, 30, int(st.session_state.get("val_rounds_b", 0)), 1, key="val_rounds_b"
+        )
     with c3:
-        val_eco_a = st.selectbox("A buy state", ["Eco","Light","Full"],
-                                 index=int(st.session_state.get("val_eco_a_idx", 1)), key="val_eco_a")
+        val_eco_a = st.selectbox(
+            "A buy state",
+            ["Eco", "Light", "Full"],
+            index=int(st.session_state.get("val_eco_a_idx", 1)),
+            key="val_eco_a",
+        )
     with c4:
-        val_eco_b = st.selectbox("B buy state", ["Eco","Light","Full"],
-                                 index=int(st.session_state.get("val_eco_b_idx", 1)), key="val_eco_b")
-    st.session_state["val_eco_a_idx"] = ["Eco","Light","Full"].index(val_eco_a)
-    st.session_state["val_eco_b_idx"] = ["Eco","Light","Full"].index(val_eco_b)
+        val_eco_b = st.selectbox(
+            "B buy state",
+            ["Eco", "Light", "Full"],
+            index=int(st.session_state.get("val_eco_b_idx", 1)),
+            key="val_eco_b",
+        )
+    st.session_state["val_eco_a_idx"] = ["Eco", "Light", "Full"].index(val_eco_a)
+    st.session_state["val_eco_b_idx"] = ["Eco", "Light", "Full"].index(val_eco_b)
 
     c5, c6, c7, c8 = st.columns(4)
     with c5:
-        val_pistol_a = st.checkbox("A won most recent pistol?", value=bool(st.session_state.get("val_pistol_a", False)), key="val_pistol_a")
+        val_pistol_a = st.checkbox(
+            "A won most recent pistol?",
+            value=bool(st.session_state.get("val_pistol_a", False)),
+            key="val_pistol_a",
+        )
     with c6:
-        val_pistol_b = st.checkbox("B won most recent pistol?", value=bool(st.session_state.get("val_pistol_b", False)), key="val_pistol_b")
+        val_pistol_b = st.checkbox(
+            "B won most recent pistol?",
+            value=bool(st.session_state.get("val_pistol_b", False)),
+            key="val_pistol_b",
+        )
     with c7:
-        val_ults_diff = st.number_input("Ults online diff (A − B)", min_value=-6, max_value=6,
-                                        value=int(st.session_state.get("val_ults_diff", 0)), step=1, key="val_ults_diff")
+        val_ults_diff = st.number_input(
+            "Ults online diff (A − B)",
+            min_value=-6,
+            max_value=6,
+            value=int(st.session_state.get("val_ults_diff", 0)),
+            step=1,
+            key="val_ults_diff",
+        )
     with c8:
-        val_op_diff = st.number_input("Op diff (A − B)", min_value=-3, max_value=3,
-                                      value=int(st.session_state.get("val_op_diff", 0)), step=1, key="val_op_diff")
+        val_op_diff = st.number_input(
+            "Op diff (A − B)",
+            min_value=-3,
+            max_value=3,
+            value=int(st.session_state.get("val_op_diff", 0)),
+            step=1,
+            key="val_op_diff",
+        )
 
     colSide, colChaos, colCtx = st.columns([1.2, 1.0, 1.3])
     with colSide:
-        side_sel = st.selectbox("A currently on", ["Unknown","Attack","Defense"],
-                                index=int(st.session_state.get("val_side_idx", 0)), key="val_side")
+        side_sel = st.selectbox(
+            "A currently on",
+            ["Unknown", "Attack", "Defense"],
+            index=int(st.session_state.get("val_side_idx", 0)),
+            key="val_side",
+        )
     with colChaos:
-        val_chaos = st.slider("Chaos widen (manual)", 0.00, 0.25, float(st.session_state.get("val_chaos", 0.00)), 0.01, key="val_chaos")
+        val_chaos = st.slider(
+            "Chaos widen (manual)",
+            0.00,
+            0.25,
+            float(st.session_state.get("val_chaos", 0.00)),
+            0.01,
+            key="val_chaos",
+        )
     with colCtx:
-        limited_context = st.checkbox("Limited context mode (widen bands)", value=bool(st.session_state.get("val_limited_ctx", False)), key="val_limited_ctx")
+        limited_context = st.checkbox(
+            "Limited context mode (widen bands)",
+            value=bool(st.session_state.get("val_limited_ctx", False)),
+            key="val_limited_ctx",
+        )
 
-    st.session_state["val_side_idx"] = ["Unknown","Attack","Defense"].index(side_sel)
+    st.session_state["val_side_idx"] = ["Unknown", "Attack", "Defense"].index(side_sel)
 
     if side_sel == "Defense":
         a_on_def = True
@@ -2723,25 +3376,39 @@ with tabs[4]:
 
     st.markdown("### Step 3 — Market bid/ask input")
     if val_contract_scope == "Series winner" and val_n_maps > 1:
-        st.caption("Enter executable prices for **Team A to win the SERIES** (bid=sell YES, ask=buy YES).\n"
-                   "If you’re trading the map market instead, set Contract priced on = Map winner.")
+        st.caption(
+            "Enter executable prices for **Team A to win the SERIES** (bid=sell YES, ask=buy YES).\n"
+            "If you’re trading the map market instead, set Contract priced on = Map winner."
+        )
     else:
-        st.caption("Enter executable prices for **Team A to win THIS MAP** (bid=sell YES, ask=buy YES).")
+        st.caption(
+            "Enter executable prices for **Team A to win THIS MAP** (bid=sell YES, ask=buy YES)."
+        )
 
     st.markdown("#### Optional — Fetch bid/ask from an exchange API")
 
     # Persisted Kalshi URL + selected team market (paste/select once, then just refresh).
     colF1, colF2, colF3 = st.columns([1.05, 2.35, 1.10])
     with colF1:
-        val_venue = st.selectbox("Venue", ["Manual", "Kalshi", "Polymarket"], index=0, key="val_mkt_fetch_venue")
+        val_venue = st.selectbox(
+            "Venue", ["Manual", "Kalshi", "Polymarket"], index=0, key="val_mkt_fetch_venue"
+        )
 
     if val_venue == "Kalshi":
         with colF2:
-            st.session_state.setdefault("val_kalshi_url", st.session_state.get("val_kalshi_url", ""))
-            val_kalshi_url = st.text_input("Kalshi URL (paste once; event/game page)", key="val_kalshi_url")
+            st.session_state.setdefault(
+                "val_kalshi_url", st.session_state.get("val_kalshi_url", "")
+            )
+            val_kalshi_url = st.text_input(
+                "Kalshi URL (paste once; event/game page)", key="val_kalshi_url"
+            )
         with colF3:
-            val_load_markets = st.button("Load teams", key="val_kalshi_load", use_container_width=True)
-            val_refresh_prices = st.button("Refresh bid/ask", key="val_kalshi_refresh", use_container_width=True)
+            val_load_markets = st.button(
+                "Load teams", key="val_kalshi_load", use_container_width=True
+            )
+            val_refresh_prices = st.button(
+                "Refresh bid/ask", key="val_kalshi_refresh", use_container_width=True
+            )
 
         if val_load_markets:
             try:
@@ -2786,7 +3453,9 @@ with tabs[4]:
                             st.session_state["val_kalshi_market"] = markets2[0]["ticker"]
                             tkr = markets2[0]["ticker"]
                     if not tkr:
-                        raise ValueError("Paste a Kalshi URL, click Load teams, then pick a team market.")
+                        raise ValueError(
+                            "Paste a Kalshi URL, click Load teams, then pick a team market."
+                        )
                 bid_f, ask_f, meta = fetch_kalshi_bid_ask(tkr)
 
                 if bid_f is not None:
@@ -2834,13 +3503,25 @@ with tabs[4]:
 
     colBid, colAsk = st.columns(2)
     with colBid:
-        val_bid = st.number_input("Best bid (Sell) for Team A (0–1)", min_value=0.01, max_value=0.99,
-                                  value=float(st.session_state.get("val_market_bid", 0.48)),
-                                  step=0.01, format="%.2f", key="val_market_bid_input")
+        val_bid = st.number_input(
+            "Best bid (Sell) for Team A (0–1)",
+            min_value=0.01,
+            max_value=0.99,
+            value=float(st.session_state.get("val_market_bid", 0.48)),
+            step=0.01,
+            format="%.2f",
+            key="val_market_bid_input",
+        )
     with colAsk:
-        val_ask = st.number_input("Best ask (Buy) for Team A (0–1)", min_value=0.01, max_value=0.99,
-                                  value=float(st.session_state.get("val_market_ask", 0.52)),
-                                  step=0.01, format="%.2f", key="val_market_ask_input")
+        val_ask = st.number_input(
+            "Best ask (Buy) for Team A (0–1)",
+            min_value=0.01,
+            max_value=0.99,
+            value=float(st.session_state.get("val_market_ask", 0.52)),
+            step=0.01,
+            format="%.2f",
+            key="val_market_ask_input",
+        )
 
     bid = float(val_bid)
     ask = float(val_ask)
@@ -2858,29 +3539,91 @@ with tabs[4]:
     st.markdown("### Model knobs (Valorant MVP)")
     kb1, kb2, kb3 = st.columns(3)
     with kb1:
-        v_beta_score = st.slider("β score", 0.05, 0.50, float(st.session_state.get("v_beta_score", 0.18)), 0.01, key="v_beta_score")
+        v_beta_score = st.slider(
+            "β score",
+            0.05,
+            0.50,
+            float(st.session_state.get("v_beta_score", 0.18)),
+            0.01,
+            key="v_beta_score",
+        )
     with kb2:
-        v_beta_eco = st.slider("β eco (state)", 0.00, 0.60, float(st.session_state.get("v_beta_eco", 0.20)), 0.01, key="v_beta_eco")
+        v_beta_eco = st.slider(
+            "β eco (state)",
+            0.00,
+            0.60,
+            float(st.session_state.get("v_beta_eco", 0.20)),
+            0.01,
+            key="v_beta_eco",
+        )
     with kb3:
-        v_beta_pistol = st.slider("β pistol", 0.00, 0.60, float(st.session_state.get("v_beta_pistol", 0.28)), 0.01, key="v_beta_pistol")
+        v_beta_pistol = st.slider(
+            "β pistol",
+            0.00,
+            0.60,
+            float(st.session_state.get("v_beta_pistol", 0.28)),
+            0.01,
+            key="v_beta_pistol",
+        )
 
     kb4, kb5, kb6 = st.columns(3)
     with kb4:
-        v_beta_ults = st.slider("β ults", 0.00, 0.15, float(st.session_state.get("v_beta_ults", 0.06)), 0.01, key="v_beta_ults")
+        v_beta_ults = st.slider(
+            "β ults",
+            0.00,
+            0.15,
+            float(st.session_state.get("v_beta_ults", 0.06)),
+            0.01,
+            key="v_beta_ults",
+        )
     with kb5:
-        v_beta_op = st.slider("β operator", 0.00, 0.20, float(st.session_state.get("v_beta_op", 0.08)), 0.01, key="v_beta_op")
+        v_beta_op = st.slider(
+            "β operator",
+            0.00,
+            0.20,
+            float(st.session_state.get("v_beta_op", 0.08)),
+            0.01,
+            key="v_beta_op",
+        )
     with kb6:
-        v_beta_side = st.slider("β side", 0.00, 0.20, float(st.session_state.get("v_beta_side", 0.06)), 0.01, key="v_beta_side")
+        v_beta_side = st.slider(
+            "β side",
+            0.00,
+            0.20,
+            float(st.session_state.get("v_beta_side", 0.06)),
+            0.01,
+            key="v_beta_side",
+        )
 
     # Closeout lock knobs (reduce swinginess near map closeout)
     kl1, kl2, kl3 = st.columns(3)
     with kl1:
-        v_beta_lock = st.slider("β lock", 0.00, 3.00, float(st.session_state.get("v_beta_lock", 0.90)), 0.05, key="v_beta_lock")
+        v_beta_lock = st.slider(
+            "β lock",
+            0.00,
+            3.00,
+            float(st.session_state.get("v_beta_lock", 0.90)),
+            0.05,
+            key="v_beta_lock",
+        )
     with kl2:
-        v_lock_start_offset = st.slider("Lock starts (win_target - N)", 1, 7, int(st.session_state.get("v_lock_start_offset", 3)), 1, key="v_lock_start_offset")
+        v_lock_start_offset = st.slider(
+            "Lock starts (win_target - N)",
+            1,
+            7,
+            int(st.session_state.get("v_lock_start_offset", 3)),
+            1,
+            key="v_lock_start_offset",
+        )
     with kl3:
-        v_lock_ramp = st.slider("Lock ramp (rounds)", 1, 8, int(st.session_state.get("v_lock_ramp", 3)), 1, key="v_lock_ramp")
-
+        v_lock_ramp = st.slider(
+            "Lock ramp (rounds)",
+            1,
+            8,
+            int(st.session_state.get("v_lock_ramp", 3)),
+            1,
+            key="v_lock_ramp",
+        )
 
     # ---- Compute fair probability (map) + K-based credible bands (map) ----
     p_hat_map = estimate_inplay_prob_valorant(
@@ -2912,7 +3655,6 @@ with tabs[4]:
         p0=float(p0_map),
         rounds_a=int(val_rounds_a),
         rounds_b=int(val_rounds_b),
-
         op_diff=int(val_op_diff),
         a_on_defense=a_on_def,
         limited_context=bool(limited_context),
@@ -2928,15 +3670,31 @@ with tabs[4]:
     calib = load_kappa_calibration()
     total_r = int(int(val_rounds_a) + int(val_rounds_b))
     # Valorant OT: treat 12-12+ as OT-ish; keep simple
-    is_ot = (int(val_rounds_a) >= 12 and int(val_rounds_b) >= 12)
-    mult = get_kappa_multiplier(calib, "valorant", float(val_band_level), total_r, is_ot) if bool(st.session_state.get("val_use_calib", False)) else 1.0
+    is_ot = int(val_rounds_a) >= 12 and int(val_rounds_b) >= 12
+    mult = (
+        get_kappa_multiplier(calib, "valorant", float(val_band_level), total_r, is_ot)
+        if bool(st.session_state.get("val_use_calib", False))
+        else 1.0
+    )
     kappa_map = float(kappa_map) * float(val_k_scale) * float(mult)
-    lo_map, hi_map = beta_credible_interval(float(p_hat_map), float(kappa_map), level=float(val_band_level))
+    lo_map, hi_map = beta_credible_interval(
+        float(p_hat_map), float(kappa_map), level=float(val_band_level)
+    )
 
     if val_contract_scope == "Series winner" and val_n_maps > 1:
-        p_hat = series_win_prob_live(int(val_n_maps), int(val_maps_a_won), int(val_maps_b_won), float(p_hat_map), float(p0_map))
-        lo = series_win_prob_live(int(val_n_maps), int(val_maps_a_won), int(val_maps_b_won), float(lo_map), float(p0_map))
-        hi = series_win_prob_live(int(val_n_maps), int(val_maps_a_won), int(val_maps_b_won), float(hi_map), float(p0_map))
+        p_hat = series_win_prob_live(
+            int(val_n_maps),
+            int(val_maps_a_won),
+            int(val_maps_b_won),
+            float(p_hat_map),
+            float(p0_map),
+        )
+        lo = series_win_prob_live(
+            int(val_n_maps), int(val_maps_a_won), int(val_maps_b_won), float(lo_map), float(p0_map)
+        )
+        hi = series_win_prob_live(
+            int(val_n_maps), int(val_maps_a_won), int(val_maps_b_won), float(hi_map), float(p0_map)
+        )
         line_label = "Series fair p(A)"
     else:
         p_hat = float(p_hat_map)
@@ -2963,20 +3721,22 @@ with tabs[4]:
         st.metric("Bid - Fair (sell edge)", f"{(bid - p_hat)*100:+.1f} pp")
 
     with st.expander("Show underlying MAP fair (debug)"):
-        st.write({
-            "p0_map": float(p0_map),
-            "p_hat_map": float(p_hat_map),
-            "band_map": [float(lo_map), float(hi_map)],
-            "series_fmt": str(val_series_fmt),
-            "maps_a_won": int(val_maps_a_won),
-            "maps_b_won": int(val_maps_b_won),
-            "eco_a": str(val_eco_a),
-            "eco_b": str(val_eco_b),
-            "ults_diff": int(val_ults_diff),
-            "op_diff": int(val_op_diff),
-            "side": str(side_sel),
-            "note": "Series conversion assumes future maps i.i.d with p_future = p0_map (MVP)."
-        })
+        st.write(
+            {
+                "p0_map": float(p0_map),
+                "p_hat_map": float(p_hat_map),
+                "band_map": [float(lo_map), float(hi_map)],
+                "series_fmt": str(val_series_fmt),
+                "maps_a_won": int(val_maps_a_won),
+                "maps_b_won": int(val_maps_b_won),
+                "eco_a": str(val_eco_a),
+                "eco_b": str(val_eco_b),
+                "ults_diff": int(val_ults_diff),
+                "op_diff": int(val_op_diff),
+                "side": str(side_sel),
+                "note": "Series conversion assumes future maps i.i.d with p_future = p0_map (MVP).",
+            }
+        )
 
     colAdd, colClear, colExport = st.columns(3)
     with colAdd:
@@ -2992,106 +3752,138 @@ with tabs[4]:
                     gap_rounds = int(expected_total - total_rounds_logged)
             st.session_state["val_inplay_last_total_rounds"] = int(total_rounds_logged)
             if gap_rounds > 0 and prev_total is not None:
-                st.warning(f"Gap detected: expected total rounds {int(prev_total)+1}, got {total_rounds_logged} (gap {gap_rounds}).")
+                st.warning(
+                    f"Gap detected: expected total rounds {int(prev_total)+1}, got {total_rounds_logged} (gap {gap_rounds})."
+                )
             map_index = int(st.session_state.get("val_inplay_map_index", 0))
 
-            st.session_state["val_rows"].append({
-                "t": len(st.session_state["val_rows"]),
-                "series_fmt": str(val_series_fmt),
-                "contract_scope": str(val_contract_scope),
-                "maps_a_won": int(val_maps_a_won),
-                "maps_b_won": int(val_maps_b_won),
-                "rounds_a": int(val_rounds_a),
-                "rounds_b": int(val_rounds_b),
-                        "map_index": int(map_index),
-                        "total_rounds": int(total_rounds_logged),
-                        "prev_total_rounds": int(prev_total) if prev_total is not None else "",
-                        "gap_rounds": int(gap_rounds),
-                        "gap_flag": bool(gap_rounds > 0),
-                        "gap_reason": "",
-                "map_index": int(map_index),
-                "total_rounds": int(total_rounds_logged),
-                "prev_total_rounds": int(prev_total) if prev_total is not None else "",
-                "gap_rounds": int(gap_rounds),
-                "eco_a": str(val_eco_a),
-                "eco_b": str(val_eco_b),
-                "ults_diff": int(val_ults_diff),
-                "op_diff": int(val_op_diff),
-                "side": str(side_sel),
-                "p0_series": float(p0_series),
-                "p0_map": float(p0_map),
-                "p_hat_map": float(p_hat_map),
-                "p_hat": float(p_hat),
-                "band_lo": float(lo),
-                "band_hi": float(hi),
-                "band_lo_map": float(lo_map),
-                "band_hi_map": float(hi_map),
-                "market_bid": float(bid),
-                "market_ask": float(ask),
-                "market_mid": float(val_mid),
-                "spread": float(val_spread),
-                "rel_spread": float(val_rel_spread),
-                "dev_mid_pp": float((val_mid - p_hat)*100.0),
-                "buy_edge_pp": float((p_hat - ask)*100.0),
-                "sell_edge_pp": float((bid - p_hat)*100.0),
-            })
+            st.session_state["val_rows"].append(
+                {
+                    "t": len(st.session_state["val_rows"]),
+                    "series_fmt": str(val_series_fmt),
+                    "contract_scope": str(val_contract_scope),
+                    "maps_a_won": int(val_maps_a_won),
+                    "maps_b_won": int(val_maps_b_won),
+                    "rounds_a": int(val_rounds_a),
+                    "rounds_b": int(val_rounds_b),
+                    "map_index": int(map_index),
+                    "total_rounds": int(total_rounds_logged),
+                    "prev_total_rounds": int(prev_total) if prev_total is not None else "",
+                    "gap_rounds": int(gap_rounds),
+                    "gap_flag": bool(gap_rounds > 0),
+                    "gap_reason": "",
+                    "eco_a": str(val_eco_a),
+                    "eco_b": str(val_eco_b),
+                    "ults_diff": int(val_ults_diff),
+                    "op_diff": int(val_op_diff),
+                    "side": str(side_sel),
+                    "p0_series": float(p0_series),
+                    "p0_map": float(p0_map),
+                    "p_hat_map": float(p_hat_map),
+                    "p_hat": float(p_hat),
+                    "band_lo": float(lo),
+                    "band_hi": float(hi),
+                    "band_lo_map": float(lo_map),
+                    "band_hi_map": float(hi_map),
+                    "market_bid": float(bid),
+                    "market_ask": float(ask),
+                    "market_mid": float(val_mid),
+                    "spread": float(val_spread),
+                    "rel_spread": float(val_rel_spread),
+                    "dev_mid_pp": float((val_mid - p_hat) * 100.0),
+                    "buy_edge_pp": float((p_hat - ask) * 100.0),
+                    "sell_edge_pp": float((bid - p_hat) * 100.0),
+                }
+            )
 
             # Optional: persist this snapshot to CSV for K calibration
-            if bool(st.session_state.get("val_inplay_persist", False)) and str(st.session_state.get("val_inplay_match_id", "")).strip():
+            if (
+                bool(st.session_state.get("val_inplay_persist", False))
+                and str(st.session_state.get("val_inplay_match_id", "")).strip()
+            ):
                 try:
-                    persist_inplay_row({
-                        "timestamp": datetime.now().isoformat(timespec="seconds"),
-                        "game": "VALORANT",
-                        "match_id": str(st.session_state.get("val_inplay_match_id")).strip(),
-                        "contract_scope": str(val_contract_scope),
-                        "series_format": str(val_series_fmt),
-                        "maps_a_won": int(val_maps_a_won),
-                        "maps_b_won": int(val_maps_b_won),
-                        "team_a": str(val_team_a),
-                        "team_b": str(val_team_b),
-                        "map_name": str(st.session_state.get("val_map_name", "")),
-                        "a_side_now": str(side_sel),
-                        "rounds_a": int(val_rounds_a),
-                        "rounds_b": int(val_rounds_b),
-                        "map_index": int(map_index),
-                        "total_rounds": int(total_rounds_logged),
-                        "prev_total_rounds": int(prev_total) if prev_total is not None else "",
-                        "gap_rounds": int(gap_rounds),
-                        "gap_flag": bool(gap_rounds > 0) if prev_total is not None else False,
-                        "gap_reason": "",
-                        "buy_state_a": str(val_eco_a),
-                        "buy_state_b": str(val_eco_b),
-                        "econ_missing": False,
-                        "econ_fragile": False,
-                        "pistol_a": bool(val_pistol_a),
-                        "pistol_b": bool(val_pistol_b),
-                        "gap_delta": int(stream.get("gap_delta", 0)) if 'stream' in locals() else 0,
-                        "streak_winner": stream.get("streak_winner", "") if 'stream' in locals() else "",
-                        "streak_len": int(stream.get("streak_len", 0)) if 'stream' in locals() else 0,
-                        "reversal": bool(stream.get("reversal", False)) if 'stream' in locals() else False,
-                        "n_tracked": int(stream.get("n_tracked", 0)) if 'stream' in locals() else 0,
-                        "p0_map": float(p0_map),
-                        "p_fair_map": float(p_hat_map),
-                        "kappa_map": float(kappa_map) if 'kappa_map' in locals() else "",
-                        "p_fair": float(p_hat),
-                        "band_level": float(st.session_state.get("val_inplay_band_level", 0.80)),
-                        "band_lo": float(lo),
-                        "band_hi": float(hi),
-                        "bid": float(bid),
-                        "ask": float(ask),
-                        "mid": float(val_mid),
-                        "spread_abs": float(val_spread),
-                        "spread_rel": float(val_rel_spread),
-                        "notes": str(st.session_state.get("val_inplay_notes", "")),
-                        "snapshot_idx": int(total_rounds_logged),
-                        "half": ("1" if int(total_rounds_logged) <= 12 else ("2" if int(total_rounds_logged) <= 24 else "OT")),
-                        "round_in_half": (int(total_rounds_logged) if int(total_rounds_logged) <= 12 else (int(total_rounds_logged)-12 if int(total_rounds_logged) <= 24 else int(total_rounds_logged)-24)),
-                        "is_ot": bool(int(total_rounds_logged) > 24),
-                        "round_in_map": int(total_rounds_logged),
-                    })
+                    persist_inplay_row(
+                        {
+                            "timestamp": datetime.now().isoformat(timespec="seconds"),
+                            "game": "VALORANT",
+                            "match_id": str(st.session_state.get("val_inplay_match_id")).strip(),
+                            "contract_scope": str(val_contract_scope),
+                            "series_format": str(val_series_fmt),
+                            "maps_a_won": int(val_maps_a_won),
+                            "maps_b_won": int(val_maps_b_won),
+                            "team_a": str(val_team_a),
+                            "team_b": str(val_team_b),
+                            "map_name": str(st.session_state.get("val_map_name", "")),
+                            "a_side_now": str(side_sel),
+                            "rounds_a": int(val_rounds_a),
+                            "rounds_b": int(val_rounds_b),
+                            "map_index": int(map_index),
+                            "total_rounds": int(total_rounds_logged),
+                            "prev_total_rounds": int(prev_total) if prev_total is not None else "",
+                            "gap_rounds": int(gap_rounds),
+                            "gap_flag": bool(gap_rounds > 0) if prev_total is not None else False,
+                            "gap_reason": "",
+                            "buy_state_a": str(val_eco_a),
+                            "buy_state_b": str(val_eco_b),
+                            "econ_missing": False,
+                            "econ_fragile": False,
+                            "pistol_a": bool(val_pistol_a),
+                            "pistol_b": bool(val_pistol_b),
+                            "gap_delta": (
+                                int(stream.get("gap_delta", 0)) if "stream" in locals() else 0
+                            ),
+                            "streak_winner": (
+                                stream.get("streak_winner", "") if "stream" in locals() else ""
+                            ),
+                            "streak_len": (
+                                int(stream.get("streak_len", 0)) if "stream" in locals() else 0
+                            ),
+                            "reversal": (
+                                bool(stream.get("reversal", False))
+                                if "stream" in locals()
+                                else False
+                            ),
+                            "n_tracked": (
+                                int(stream.get("n_tracked", 0)) if "stream" in locals() else 0
+                            ),
+                            "p0_map": float(p0_map),
+                            "p_fair_map": float(p_hat_map),
+                            "kappa_map": float(kappa_map) if "kappa_map" in locals() else "",
+                            "p_fair": float(p_hat),
+                            "band_level": float(
+                                st.session_state.get("val_inplay_band_level", 0.80)
+                            ),
+                            "band_lo": float(lo),
+                            "band_hi": float(hi),
+                            "bid": float(bid),
+                            "ask": float(ask),
+                            "mid": float(val_mid),
+                            "spread_abs": float(val_spread),
+                            "spread_rel": float(val_rel_spread),
+                            "notes": str(st.session_state.get("val_inplay_notes", "")),
+                            "snapshot_idx": int(total_rounds_logged),
+                            "half": (
+                                "1"
+                                if int(total_rounds_logged) <= 12
+                                else ("2" if int(total_rounds_logged) <= 24 else "OT")
+                            ),
+                            "round_in_half": (
+                                int(total_rounds_logged)
+                                if int(total_rounds_logged) <= 12
+                                else (
+                                    int(total_rounds_logged) - 12
+                                    if int(total_rounds_logged) <= 24
+                                    else int(total_rounds_logged) - 24
+                                )
+                            ),
+                            "is_ot": bool(int(total_rounds_logged) > 24),
+                            "round_in_map": int(total_rounds_logged),
+                        }
+                    )
                 except Exception as e:
                     st.warning(f"Snapshot not persisted: {e}")
-    
+
+
 def _val_start_next_half():
     # Half-time resets (pistol + econ context), keep score
     cur_side = str(st.session_state.get("val_side", "Unknown"))
@@ -3116,6 +3908,7 @@ def _val_start_next_half():
     st.session_state["val_ults_diff"] = 0
     st.session_state["val_op_diff"] = 0
 
+
 def _val_start_next_map():
 
     # If operator is persisting, log the *completed* map winner before resetting for the next map.
@@ -3124,7 +3917,9 @@ def _val_start_next_map():
             _mid = str(st.session_state.get("val_inplay_match_id", "")).strip()
             if _mid:
                 cur_map_index = int(st.session_state.get("val_inplay_map_index", 0))
-                cur_map_name = str(st.session_state.get("val_map_name", ""))  # may be blank if not in UI
+                cur_map_name = str(
+                    st.session_state.get("val_map_name", "")
+                )  # may be blank if not in UI
                 team_a = str(st.session_state.get("val_team_a", "")).strip()
                 team_b = str(st.session_state.get("val_team_b", "")).strip()
 
@@ -3140,7 +3935,9 @@ def _val_start_next_map():
                     winner = team_b
 
                 if winner and team_a and team_b:
-                    persist_inplay_map_result(_mid, "VALORANT", cur_map_index, cur_map_name, team_a, team_b, winner)
+                    persist_inplay_map_result(
+                        _mid, "VALORANT", cur_map_index, cur_map_name, team_a, team_b, winner
+                    )
 
                 st.session_state["val_prev_maps_a_won"] = now_a
                 st.session_state["val_prev_maps_b_won"] = now_b
@@ -3164,7 +3961,9 @@ def _val_start_next_map():
     st.session_state["val_side_idx"] = 0
     st.session_state["val_chaos"] = 0.00
 
-    st.session_state["val_inplay_map_index"] = int(st.session_state.get("val_inplay_map_index", 0)) + 1
+    st.session_state["val_inplay_map_index"] = (
+        int(st.session_state.get("val_inplay_map_index", 0)) + 1
+    )
     st.session_state["val_inplay_last_total_rounds"] = None
 
 
@@ -3183,14 +3982,20 @@ with colClear:
 
     st.markdown("### Chart")
     pcal = load_p_calibration_json(APP_DIR)
-    show_pcal = st.checkbox("Show p_calibrated overlay", value=False, key="val_show_pcal",
-                            help="Overlays calibrated win prob from p_calibration.json (for inspection; not used for decisions unless you wire it in).")
+    show_pcal = st.checkbox(
+        "Show p_calibrated overlay",
+        value=False,
+        key="val_show_pcal",
+        help="Overlays calibrated win prob from p_calibration.json (for inspection; not used for decisions unless you wire it in).",
+    )
 
     if len(st.session_state["val_rows"]) > 0:
         chart_df = pd.DataFrame(st.session_state["val_rows"])
-        plot_df = chart_df[["t","p_hat","band_lo","band_hi","market_mid"]].copy()
+        plot_df = chart_df[["t", "p_hat", "band_lo", "band_hi", "market_mid"]].copy()
         if show_pcal and pcal:
-            plot_df["p_hat_cal"] = plot_df["p_hat"].apply(lambda x: apply_p_calibration(x, pcal, "valorant"))
+            plot_df["p_hat_cal"] = plot_df["p_hat"].apply(
+                lambda x: apply_p_calibration(x, pcal, "valorant")
+            )
         st.line_chart(plot_df.set_index("t"), use_container_width=True, height=420)
         st.dataframe(chart_df, use_container_width=True)
     else:
@@ -3208,23 +4013,30 @@ with colClear:
                 _val_default_winner_idx = 1
         except Exception:
             pass
-        val_winner_sel = st.selectbox("Winner", [val_team_a, val_team_b], index=_val_default_winner_idx, key="val_inplay_winner_sel")
+        val_winner_sel = st.selectbox(
+            "Winner",
+            [val_team_a, val_team_b],
+            index=_val_default_winner_idx,
+            key="val_inplay_winner_sel",
+        )
     with rcol2:
         if st.button("Save result", key="val_inplay_save_result"):
             _mid = str(st.session_state.get("val_inplay_match_id", "")).strip()
             if not _mid:
                 st.error("Set a Match ID above before saving a result.")
             else:
-                persist_inplay_result(_mid, "VALORANT", str(val_team_a), str(val_team_b), str(val_winner_sel))
+                persist_inplay_result(
+                    _mid, "VALORANT", str(val_team_a), str(val_team_b), str(val_winner_sel)
+                )
                 st.success("Result saved to inplay_match_results_clean.csv")
-
-
 
 
 with tabs[5]:
     st.header("Calibration")
-    st.caption("Dashboards for (1) Kappa band coverage vs market and (2) p_fair outcome calibration. "
-               "Training runs write JSON reports to disk; this tab reads and visualizes them.")
+    st.caption(
+        "Dashboards for (1) Kappa band coverage vs market and (2) p_fair outcome calibration. "
+        "Training runs write JSON reports to disk; this tab reads and visualizes them."
+    )
 
     st.markdown("## 1) Kappa band calibration (containment vs market mid)")
     kc1, kc2, kc3 = st.columns([1.2, 1.0, 2.0])
@@ -3248,12 +4060,14 @@ with tabs[5]:
         try:
             krep = json.loads(kappa_report_path.read_text())
             st.caption(f"Kappa report updated: {krep.get('ran_at','unknown')}")
-            games = krep.get('games', {})
+            games = krep.get("games", {})
             if games:
                 for game_key, g in games.items():
                     st.subheader(f"{game_key.upper()} — Kappa bands")
-                    st.write(f"Matches: **{g.get('match_id',{}).get('unique',0)}** | Rows: **{g.get('rows_usable',0)}**")
-                    st.write("Buckets:", g.get('buckets',{}))
+                    st.write(
+                        f"Matches: **{g.get('match_id',{}).get('unique',0)}** | Rows: **{g.get('rows_usable',0)}**"
+                    )
+                    st.write("Buckets:", g.get("buckets", {}))
             with st.expander("Raw kappa calibration report JSON"):
                 st.json(krep)
         except Exception as e:
@@ -3282,20 +4096,23 @@ with tabs[5]:
         try:
             prep = json.loads(P_CALIB_REPORT_PATH.read_text())
             st.caption(f"Probability report updated: {prep.get('ran_at','unknown')}")
-            pgames = prep.get('games', {})
+            pgames = prep.get("games", {})
             if pgames:
                 for game_key, g in pgames.items():
                     st.subheader(f"{game_key.upper()} — Probability calibration")
-                    lvl = g.get('level', {})
-                    matches = int(g.get('matches',0))
-                    target = int(lvl.get('target',0) or 0)
-                    prog = float(lvl.get('progress',0.0) or 0.0)
+                    lvl = g.get("level", {})
+                    matches = int(g.get("matches", 0))
+                    target = int(lvl.get("target", 0) or 0)
+                    prog = float(lvl.get("progress", 0.0) or 0.0)
                     st.write(f"Matches: **{matches}** | Rows: **{g.get('rows',0)}**")
                     if target > 0:
-                        st.progress(min(max(prog,0.0),1.0), text=f"{matches}/{target} ({prog*100:.1f}%) — {lvl.get('name','')}")
-                    mb = g.get('metrics_before', {})
-                    ma = g.get('metrics_after', {})
-                    cA,cB,cC = st.columns(3)
+                        st.progress(
+                            min(max(prog, 0.0), 1.0),
+                            text=f"{matches}/{target} ({prog*100:.1f}%) — {lvl.get('name','')}",
+                        )
+                    mb = g.get("metrics_before", {})
+                    ma = g.get("metrics_after", {})
+                    cA, cB, cC = st.columns(3)
                     cA.metric("ECE", f"{mb.get('ece',0):.4f} → {ma.get('ece',0):.4f}")
                     cB.metric("Brier", f"{mb.get('brier',0):.4f} → {ma.get('brier',0):.4f}")
                     cC.metric("LogLoss", f"{mb.get('logloss',0):.4f} → {ma.get('logloss',0):.4f}")
@@ -3304,4 +4121,6 @@ with tabs[5]:
         except Exception as e:
             st.warning(f"Could not read probability report: {e}")
     else:
-        st.info("No probability report found yet. Requires inplay_match_results_clean.csv with winners logged.")
+        st.info(
+            "No probability report found yet. Requires inplay_match_results_clean.csv with winners logged."
+        )

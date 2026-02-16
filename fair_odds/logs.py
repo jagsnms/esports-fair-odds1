@@ -1,23 +1,27 @@
 """Log persistence, schema migration, in-play persistence, and metrics."""
+
 import csv
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 import pandas as pd
 import streamlit as st
 
-from .paths import (
-    LOG_PATH, LOG_COLUMNS,
-    INPLAY_LOG_PATH, INPLAY_LOG_COLUMNS,
-    INPLAY_RESULTS_PATH, INPLAY_RESULTS_COLUMNS,
-    INPLAY_MAP_RESULTS_PATH, INPLAY_MAP_RESULTS_COLUMNS,
-)
+from .data import read_csv_tolerant, sniff_bad_csv
 from .odds import implied_prob_from_american
-from .data import sniff_bad_csv, read_csv_tolerant
+from .paths import (
+    INPLAY_LOG_COLUMNS,
+    INPLAY_LOG_PATH,
+    INPLAY_MAP_RESULTS_COLUMNS,
+    INPLAY_MAP_RESULTS_PATH,
+    INPLAY_RESULTS_COLUMNS,
+    INPLAY_RESULTS_PATH,
+    LOG_COLUMNS,
+    LOG_PATH,
+)
 
 
-def migrate_log_schema(path: Path, out_path: Optional[Path] = None) -> int:
+def migrate_log_schema(path: Path, out_path: Path | None = None) -> int:
     if out_path is None:
         out_path = path
     rows = []
@@ -28,16 +32,22 @@ def migrate_log_schema(path: Path, out_path: Optional[Path] = None) -> int:
         new_len = len(LOG_COLUMNS)
         for row in rdr:
             if len(row) == new_len:
-                d = dict(zip(LOG_COLUMNS, row))
+                d = dict(zip(LOG_COLUMNS, row, strict=True))
             elif len(row) == old_len:
-                d = dict(zip(file_header, row))
+                d = dict(zip(file_header, row, strict=True))
             else:
                 continue
             rows.append({k: d.get(k, "") for k in LOG_COLUMNS})
     seen = set()
     deduped = []
     for d in rows:
-        key = (d.get("timestamp", ""), d.get("game", ""), d.get("team_a", ""), d.get("team_b", ""), d.get("adj_gap", ""))
+        key = (
+            d.get("timestamp", ""),
+            d.get("game", ""),
+            d.get("team_a", ""),
+            d.get("team_b", ""),
+            d.get("adj_gap", ""),
+        )
         if key in seen:
             continue
         seen.add(key)
@@ -71,9 +81,11 @@ def recompute_metrics_from_logs(rows: list) -> dict:
                 oa = float(r.get("odds_a20", 0) or 0)
                 od = float(r.get("odds_draw", 0) or 0)
                 ob = float(r.get("odds_b02", 0) or 0)
-                inv_map = {"A2-0": (1.0 / oa) if oa > 1.0 else 0.0,
-                           "DRAW": (1.0 / od) if od > 1.0 else 0.0,
-                           "B0-2": (1.0 / ob) if ob > 1.0 else 0.0}
+                inv_map = {
+                    "A2-0": (1.0 / oa) if oa > 1.0 else 0.0,
+                    "DRAW": (1.0 / od) if od > 1.0 else 0.0,
+                    "B0-2": (1.0 / ob) if ob > 1.0 else 0.0,
+                }
                 vals = [x for x in [oa, od, ob] if x and x > 1.0]
                 s = sum(1.0 / x for x in vals) if vals else 1.0
                 imp = {k: (v / s if s > 0 else 0.0) for k, v in inv_map.items()}
@@ -167,8 +179,11 @@ def update_metrics_binary(ev_a: float, ev_b: float, odds_a: int, odds_b: int):
 
 
 def update_metrics_3way(
-    selected_ev_pct: Optional[float], selected_outcome: Optional[str],
-    odds_a20: float, odds_draw: float, odds_b02: float
+    selected_ev_pct: float | None,
+    selected_outcome: str | None,
+    odds_a20: float,
+    odds_draw: float,
+    odds_b02: float,
 ):
     m = st.session_state.get("metrics", {"total": 0, "fav_value": 0, "dog_value": 0, "no_bet": 0})
     m["total"] += 1
@@ -176,9 +191,11 @@ def update_metrics_3way(
         m["no_bet"] += 1
     else:
         oa, od, ob = odds_a20, odds_draw, odds_b02
-        inv_map = {"A2-0": (1.0 / oa) if oa and oa > 1 else 0.0,
-                   "DRAW": (1.0 / od) if od and od > 1 else 0.0,
-                   "B0-2": (1.0 / ob) if ob and ob > 1 else 0.0}
+        inv_map = {
+            "A2-0": (1.0 / oa) if oa and oa > 1 else 0.0,
+            "DRAW": (1.0 / od) if od and od > 1 else 0.0,
+            "B0-2": (1.0 / ob) if ob and ob > 1 else 0.0,
+        }
         s = sum(inv_map.values()) or 1.0
         imp = {k: v / s for k, v in inv_map.items()}
         fav_outcome = max(imp.items(), key=lambda kv: kv[1])[0]
@@ -235,8 +252,12 @@ def persist_inplay_row(entry: dict):
 def persist_inplay_result(match_id: str, game: str, team_a: str, team_b: str, winner: str):
     _ensure_csv(INPLAY_RESULTS_PATH, INPLAY_RESULTS_COLUMNS)
     row = {
-        "match_id": match_id, "game": game, "team_a": team_a, "team_b": team_b,
-        "winner": winner, "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "match_id": match_id,
+        "game": game,
+        "team_a": team_a,
+        "team_b": team_b,
+        "winner": winner,
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
     }
     pd.DataFrame([row], columns=INPLAY_RESULTS_COLUMNS).to_csv(
         INPLAY_RESULTS_PATH, mode="a", header=False, index=False
@@ -244,13 +265,17 @@ def persist_inplay_result(match_id: str, game: str, team_a: str, team_b: str, wi
 
 
 def persist_inplay_map_result(
-    match_id: str, game: str, map_index: int, map_name: str,
-    team_a: str, team_b: str, winner: str
+    match_id: str, game: str, map_index: int, map_name: str, team_a: str, team_b: str, winner: str
 ):
     _ensure_csv(INPLAY_MAP_RESULTS_PATH, INPLAY_MAP_RESULTS_COLUMNS)
     row = {
-        "match_id": match_id, "game": game, "map_index": int(map_index), "map_name": str(map_name or ""),
-        "team_a": team_a, "team_b": team_b, "winner": winner,
+        "match_id": match_id,
+        "game": game,
+        "map_index": int(map_index),
+        "map_name": str(map_name or ""),
+        "team_a": team_a,
+        "team_b": team_b,
+        "winner": winner,
         "timestamp": datetime.now().isoformat(timespec="seconds"),
     }
     pd.DataFrame([row], columns=INPLAY_MAP_RESULTS_COLUMNS).to_csv(
