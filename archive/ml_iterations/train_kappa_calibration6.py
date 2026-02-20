@@ -63,7 +63,7 @@ BUCKETS = [
     ("early", 0, 8),
     ("mid", 9, 18),
     ("late", 19, 23),
-    ("ot", 25, 10_000),
+    ("ot", 24, 10_000),
 ]
 
 # "Unlock" thresholds (unique match_id count per game)
@@ -121,16 +121,10 @@ def bucket_for_row(row: pd.Series) -> str:
     if "is_ot" in row.index:
         try:
             v = row["is_ot"]
-            # Treat missing/NaN as not-OT (avoid bool(np.nan) == True)
-            if pd.isna(v):
-                pass
-            elif isinstance(v, str):
-                if v.strip().lower() in ("1", "true", "yes", "y", "t"):
-                    return "ot"
-            else:
-                # numeric/bool-like
-                if int(v) == 1:
-                    return "ot"
+            if isinstance(v, str):
+                v = v.strip().lower() in ("1","true","yes","y","t")
+            if bool(v):
+                return "ot"
         except Exception:
             pass
     if "half" in row.index:

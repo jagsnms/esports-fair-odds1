@@ -1,0 +1,41 @@
+{
+  "S1_mr_to_entry_fair": {
+    "trades": 29,
+    "total_pnl_$": 318.0,
+    "end_bankroll": 2318.0,
+    "total_return_pct": 0.159,
+    "win_rate": 0.7241379310344828,
+    "avg_pnl_$": 10.96551724137931,
+    "median_pnl_$": 19.0,
+    "best_trade_$": 67.0,
+    "worst_trade_$": -53.0,
+    "avg_hold_minutes": 25.4,
+    "max_drawdown_pct": -0.03095684803001876
+  },
+  "S2_mr_to_current_fair": {
+    "trades": 23,
+    "total_pnl_$": 233.0,
+    "end_bankroll": 2233.0,
+    "total_return_pct": 0.1165,
+    "win_rate": 0.6086956521739131,
+    "avg_pnl_$": 10.130434782608695,
+    "median_pnl_$": 20.0,
+    "best_trade_$": 58.00000000000001,
+    "worst_trade_$": -46.0,
+    "avg_hold_minutes": 14.605072463768114,
+    "max_drawdown_pct": -0.02036299247454626
+  },
+  "S3_mr_inside_band": {
+    "trades": 33,
+    "total_pnl_$": 211.0,
+    "end_bankroll": 2211.0,
+    "total_return_pct": 0.1055,
+    "win_rate": 0.5151515151515151,
+    "avg_pnl_$": 6.393939393939394,
+    "median_pnl_$": 7.9999999999999964,
+    "best_trade_$": 58.00000000000001,
+    "worst_trade_$": -46.0,
+    "avg_hold_minutes": 13.047979797979798,
+    "max_drawdown_pct": -0.025340215861098078
+  }
+}

@@ -131,6 +131,7 @@ def run_backtest(
     df = df.sort_values(ts_col)
 
     summary = {}
+    backtest_state = {"strategies": {}}
 
     for strat in strategies:
         strategy_id = strat["id"]
@@ -138,6 +139,7 @@ def run_backtest(
         spread_abs_max = float(strat.get("spread_abs_max", 0.06))
         max_hold_minutes = float(strat.get("max_hold_minutes", 45))
         exit_mode = str(strat.get("exit_mode", "to_entry_fair"))
+        entry_mode = str(strat.get("entry_mode", "edge"))  # "edge" = only on crossing; "level" = whenever flat and signal true
 
         all_trades = []
         # One open position per strategy globally (not per match)
@@ -213,36 +215,7 @@ def run_backtest(
                     prev_short_signal[match_id] = short_signal
                     # Fall through to entry check for current row (new match)
                 else:
-                    # Same match: check timeout first
-                    entry_ts = position["entry_ts"]
-                    hold_min = (ts - entry_ts).total_seconds() / 60.0
-                    if hold_min >= max_hold_minutes:
-                        exit_bid = bid
-                        exit_ask = ask
-                        if position["side"] == "LONG":
-                            exit_px = exit_bid
-                        else:
-                            exit_px = exit_ask
-                        pnl_price = (
-                            exit_px - position["entry_ask"]
-                            if position["side"] == "LONG"
-                            else position["entry_bid"] - exit_ask
-                        )
-                        all_trades.append({
-                            **position,
-                            "exit_ts": ts,
-                            "exit_px": exit_px,
-                            "exit_reason": "timeout",
-                            "hold_minutes": hold_min,
-                            "contracts": contracts,
-                            "pnl_price": pnl_price,
-                            "pnl_$": pnl_price * contracts,
-                        })
-                        position = None
-                        prev_long_signal[match_id] = long_signal
-                        prev_short_signal[match_id] = short_signal
-                        continue
-                    # Regular exit checks (same match, in position)
+                    # Same match: exit only on rule (no time-based exit)
                     exit_ts = None
                     exit_px = None
                     exit_reason = None
@@ -298,10 +271,12 @@ def run_backtest(
                     prev_short_signal[match_id] = short_signal
                     continue
 
-            # ---- Flat: entry only if edge-triggered for this match ----
+            # ---- Flat: entry (edge = on crossing; level = whenever flat and signal true) ----
             pl = prev_long_signal.get(match_id, False)
             ps = prev_short_signal.get(match_id, False)
-            if long_signal and not pl:
+            long_edge = long_signal and (not pl if entry_mode == "edge" else True)
+            short_edge = short_signal and (not ps if entry_mode == "edge" else True)
+            if long_signal and long_edge:
                 position = {
                     "strategy_id": strategy_id,
                     "match_id": match_id,
@@ -318,7 +293,7 @@ def run_backtest(
                     "last_ts": ts,
                     "last_mid": mid,
                 }
-            elif short_signal and not ps:
+            elif short_signal and short_edge:
                 position = {
                     "strategy_id": strategy_id,
                     "match_id": match_id,
@@ -463,10 +438,29 @@ def run_backtest(
         else:
             pd.DataFrame(columns=trade_columns).to_csv(trades_path, index=False)
 
+        # Collect state for incremental updates (serialize datetimes for JSON)
+        pos_ser = None
+        if position is not None:
+            pos_ser = {**position}
+            for k in ("entry_ts", "last_ts"):
+                if k in pos_ser and hasattr(pos_ser[k], "isoformat"):
+                    pos_ser[k] = pos_ser[k].isoformat()
+        backtest_state["strategies"][strategy_id] = {
+            "position": pos_ser,
+            "prev_long_signal": {str(k): bool(v) for k, v in prev_long_signal.items()},
+            "prev_short_signal": {str(k): bool(v) for k, v in prev_short_signal.items()},
+            "bankroll": float(bankroll),
+        }
+
     # Write summary JSON
     summary_path = outdir / "inplay_backtest_summary.json"
     with open(summary_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)
+
+    # Write state for incremental updates
+    state_path = outdir / "inplay_backtest_state.json"
+    with open(state_path, "w", encoding="utf-8") as f:
+        json.dump(backtest_state, f, indent=2)
 
 
 def main() -> None:

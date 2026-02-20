@@ -1,0 +1,8 @@
+match_id,game,map_index,map_name,team_a,team_b,winner,timestamp
+24,CS2,3,Mirage,mongolz,b8,b8,2026-02-16T05:20:02
+25,CS2,6,Inferno,furia,falcons,falcons,2026-02-16T11:10:39
+26,CS2,0,Mirage,fut,mouz,mouz,2026-02-17T02:53:25
+28,CS2,4,Inferno,parivision,furia,furia,2026-02-17T09:57:10
+29,CS2,0,Average (no map),falcons,parivision,parivision,2026-02-20T01:15:10
+29,CS2,1,Mirage,falcons,parivision,falcons,2026-02-20T02:17:03
+30,CS2,4,Inferno,mouz,navi,mouz,2026-02-20T06:00:39

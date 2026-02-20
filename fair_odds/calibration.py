@@ -35,26 +35,96 @@ def load_p_calibration_json(project_dir: Path) -> dict:
 
 
 def apply_p_calibration(p_raw: float, p_calib: dict, game_key: str) -> float:
-    """Apply piecewise-linear monotone map built by the prob trainer."""
+    """Apply probability calibration using knots stored in p_calibration.json.
+
+    Robust to BOTH knot formats:
+      1) [{"x": 0.2, "y": 0.25}, ...]
+      2) [[0.2, 0.25], ...]   (current trainer output)
+
+    Returns p_raw unchanged if calibration is missing/invalid.
+    """
     try:
-        import numpy as np
-        g = (game_key or "").lower().strip()
-        if not p_calib or g not in p_calib:
+        import bisect
+
+        # Parse/clamp input
+        try:
+            p = float(p_raw)
+        except Exception:
             return float(p_raw)
-        knots = p_calib[g].get("knots") or []
-        if not knots:
-            return float(p_raw)
-        xs = [float(k.get("x")) for k in knots if "x" in k and "y" in k]
-        ys = [float(k.get("y")) for k in knots if "x" in k and "y" in k]
+        if p < 0.0:
+            p = 0.0
+        elif p > 1.0:
+            p = 1.0
+
+        if not isinstance(p_calib, dict):
+            return p
+
+        gkey = (game_key or "").strip()
+        g = p_calib.get(gkey.lower(), p_calib.get(gkey.upper(), p_calib.get(gkey, {})))
+        if not isinstance(g, dict):
+            return p
+
+        knots = g.get("knots")
+        if not isinstance(knots, list) or len(knots) < 2:
+            return p
+
+        xs: list[float] = []
+        ys: list[float] = []
+
+        for k in knots:
+            x = y = None
+
+            # Format 1: dict
+            if isinstance(k, dict):
+                x = k.get("x")
+                y = k.get("y")
+            # Format 2: list/tuple pair
+            elif isinstance(k, (list, tuple)) and len(k) >= 2:
+                x, y = k[0], k[1]
+
+            try:
+                x = float(x)
+                y = float(y)
+            except Exception:
+                continue
+
+            # Skip nonsense
+            if not (0.0 <= x <= 1.0 and 0.0 <= y <= 1.0):
+                continue
+
+            xs.append(x)
+            ys.append(y)
+
         if len(xs) < 2:
-            return float(p_raw)
-        order = sorted(range(len(xs)), key=lambda i: xs[i])
-        xs = [xs[i] for i in order]
-        ys = [ys[i] for i in order]
-        xq = max(0.0, min(1.0, float(p_raw)))
-        xs2 = [0.0] + xs + [1.0]
-        ys2 = [ys[0]] + ys + [ys[-1]]
-        return float(np.interp([xq], xs2, ys2)[0])
+            return p
+
+        # Sort by x and de-duplicate identical x values (keep last y)
+        pairs = sorted(zip(xs, ys), key=lambda t: t[0])
+        xs_sorted: list[float] = []
+        ys_sorted: list[float] = []
+        for x, y in pairs:
+            if xs_sorted and x == xs_sorted[-1]:
+                ys_sorted[-1] = y
+            else:
+                xs_sorted.append(x)
+                ys_sorted.append(y)
+
+        if len(xs_sorted) < 2:
+            return p
+
+        # Piecewise-linear interpolation with boundary extension
+        if p <= xs_sorted[0]:
+            return ys_sorted[0]
+        if p >= xs_sorted[-1]:
+            return ys_sorted[-1]
+
+        i = bisect.bisect_right(xs_sorted, p) - 1
+        x0, y0 = xs_sorted[i], ys_sorted[i]
+        x1, y1 = xs_sorted[i + 1], ys_sorted[i + 1]
+        if x1 == x0:
+            return y0
+        t = (p - x0) / (x1 - x0)
+        return y0 + t * (y1 - y0)
     except Exception:
         return float(p_raw)
 

@@ -14,28 +14,28 @@
         0.8
       ],
       "buckets": {
-        "early": 390,
-        "late": 0,
-        "mid": 0,
-        "ot": 0
+        "early": 547,
+        "late": 47,
+        "mid": 162,
+        "ot": 33
       },
       "match_id": {
         "top": {
-          "11": 38,
           "21": 66,
-          "24": 42,
-          "3": 48,
-          "6": 39
+          "23": 67,
+          "24": 109,
+          "29": 69,
+          "30": 58
         },
-        "unique": 13
+        "unique": 19
       },
       "mid_stats": {
         "max": 0.99,
-        "mean": 0.3979615384615385,
+        "mean": 0.45194968553459114,
         "min": 0.01,
-        "std": 0.29390599035188475
+        "std": 0.2623229353340915
       },
-      "rows_usable": 390
+      "rows_usable": 795
     },
     "valorant": {
       "band_levels": [
@@ -75,30 +75,60 @@
     "Buckets: early<=8, mid<=18, late<=23, ot>=24 (prefers is_ot/half when available; otherwise total rounds)."
   ],
   "project_dir": "C:\\Users\\court\\OneDrive\\Desktop\\parlay\\esports-fair-odds",
-  "ran_at": "2026-02-15 14:46:48",
-  "rows_total_raw": 686,
-  "rows_total_usable": 686,
+  "ran_at": "2026-02-20 11:42:13",
+  "rows_total_raw": 1091,
+  "rows_total_usable": 1091,
   "training": {
     "cs2": {
       "0.8": {
         "early": {
-          "base_cover": 0.6717948717948717,
-          "base_width": 0.1277628067578706,
-          "best_cover": 0.7923076923076923,
+          "base_cover": 0.6691042047531993,
+          "base_width": 0.15078701127198196,
+          "best_cover": 0.7989031078610603,
           "best_mult": 0.55,
-          "best_width": 0.17080929170342263,
-          "improve_cover_abs": -0.12051282051282053,
-          "n": 390,
+          "best_width": 0.20158994708299496,
+          "improve_cover_abs": -0.12979890310786102,
+          "n": 547,
           "target": 0.8
         },
         "global": {
-          "base_cover": 0.6717948717948717,
-          "base_width": 0.1277628067578706,
-          "best_cover": 0.7923076923076923,
-          "best_mult": 0.55,
-          "best_width": 0.17080929170342263,
-          "improve_cover_abs": -0.12051282051282053,
-          "n": 390,
+          "base_cover": 0.6364779874213836,
+          "base_width": 0.14925485642464154,
+          "best_cover": 0.7962264150943397,
+          "best_mult": 0.5,
+          "best_width": 0.2091932206439647,
+          "improve_cover_abs": -0.15974842767295605,
+          "n": 795,
+          "target": 0.8
+        },
+        "late": {
+          "base_cover": 0.5957446808510638,
+          "base_width": 0.1148558921067707,
+          "best_cover": 0.723404255319149,
+          "best_mult": 0.5,
+          "best_width": 0.16176605825524992,
+          "improve_cover_abs": -0.12765957446808518,
+          "n": 47,
+          "target": 0.8
+        },
+        "mid": {
+          "base_cover": 0.5740740740740741,
+          "base_width": 0.16574227431645117,
+          "best_cover": 0.7530864197530864,
+          "best_mult": 0.5,
+          "best_width": 0.2329407993756451,
+          "improve_cover_abs": -0.17901234567901236,
+          "n": 162,
+          "target": 0.8
+        },
+        "ot": {
+          "base_cover": 0.48484848484848486,
+          "base_width": 0.09909486391208379,
+          "best_cover": 0.5757575757575758,
+          "best_mult": 0.5,
+          "best_width": 0.1397385544728423,
+          "improve_cover_abs": -0.09090909090909094,
+          "n": 33,
           "target": 0.8
         }
       }

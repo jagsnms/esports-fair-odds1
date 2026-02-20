@@ -18,3 +18,11 @@ match_id,game,team_a,team_b,winner,timestamp
 19,VALORANT,DFM,T1,T1,2026-02-13T00:50:08
 21,CS2,fut,aurora,fut,2026-02-14T03:31:44
 24,CS2,pain,mongolz,mongolz,2026-02-14T11:24:17
+23,CS2,aurora,navi,navi,2026-02-16T03:26:45
+24,CS2,mongolz,b8,mongolz,2026-02-16T06:45:34
+25,CS2,furia,falcons,falcons,2026-02-16T12:23:07
+26,CS2,fut,mouz,mouz,2026-02-17T04:12:53
+27,CS2,navi,mongolz,mongolz,2026-02-17T08:16:35
+28,CS2,parivision,furia,furia,2026-02-17T11:20:11
+29,CS2,falcons,parivision,parivision,2026-02-20T03:17:47
+30,CS2,mouz,navi,mouz,2026-02-20T06:59:29

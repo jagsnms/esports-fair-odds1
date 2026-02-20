@@ -72,6 +72,13 @@ from fair_odds.scoring import (
     series_score_modifier_5tier,
     SERIES_CLAMP, SERIES_WEIGHTS, SERIES_PCT_OF_BASE_CAP,
 )
+from fair_odds.backtest import (
+    load_state as load_backtest_state,
+    save_state as save_backtest_state,
+    load_match_settlements,
+    incremental_update as backtest_incremental_update,
+    repair_state_from_trades,
+)
 
 # ==========================
 # App UI + remaining code (markets, in-play logic) — logic from fair_odds.*
@@ -509,6 +516,110 @@ def _run_inplay_backtest_and_refresh_session():
             except Exception:
                 pass
     st.session_state["inplay_bt_trades"] = trades
+
+
+def _run_inplay_incremental_and_refresh_session(row_dict: dict) -> None:
+    """Run incremental backtest on one new row; update state file, append trades to CSV, refresh session. No subprocess."""
+    outdir = PROJECT_ROOT / "logs"
+    state_path = outdir / "inplay_backtest_state.json"
+    results_path = outdir / "inplay_match_results_clean.csv"
+    config_path = PROJECT_ROOT / "configs" / "inplay_strategies.json"
+    default_inplay = str(INPLAY_LOG_PATH) if INPLAY_LOG_PATH else str(outdir / "inplay_kappa_logs_clean.csv")
+    default_config = str(config_path)
+    default_outdir = str(outdir)
+    if not config_path.exists():
+        return
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = json.load(f)
+    except Exception:
+        return
+    state = load_backtest_state(state_path)
+    trades_for_repair = {}
+    for strat in (config.get("strategies") or []):
+        sid = strat["id"] if isinstance(strat, dict) else strat
+        tp = outdir / f"inplay_backtest_trades__{sid}.csv"
+        if tp.exists():
+            try:
+                trades_for_repair[sid] = pd.read_csv(tp)
+            except Exception:
+                pass
+    if trades_for_repair:
+        state = repair_state_from_trades(state, trades_for_repair)
+        save_backtest_state(state, state_path)
+    match_settlements = load_match_settlements(results_path)
+    new_state, new_trades_by_strategy = backtest_incremental_update(row_dict, state, config, match_settlements)
+    save_backtest_state(new_state, state_path)
+    st.session_state["inplay_bt_state"] = new_state
+    st.session_state["inplay_bt_paths"] = (default_inplay, default_config, default_outdir)
+
+    trade_columns = [
+        "trade_id", "strategy_id", "match_id", "side",
+        "entry_ts", "entry_px", "entry_mid", "entry_fair", "entry_band_lo", "entry_band_hi", "entry_spread_abs",
+        "exit_ts", "exit_px", "exit_reason", "hold_minutes", "contracts",
+        "pnl_price", "pnl_$", "bankroll_before", "bankroll_after", "ret_pct_account",
+    ]
+    trades = dict(st.session_state.get("inplay_bt_trades") or {})
+    for sid, trades_list in new_trades_by_strategy.items():
+        if not trades_list:
+            continue
+        tp = outdir / f"inplay_backtest_trades__{sid}.csv"
+        existing = pd.DataFrame()
+        if tp.exists():
+            try:
+                existing = pd.read_csv(tp)
+            except Exception:
+                pass
+        new_df = pd.DataFrame(trades_list)
+        if not new_df.empty:
+            combined = pd.concat([existing, new_df], ignore_index=True)
+            combined = combined[[c for c in trade_columns if c in combined.columns]]
+            combined.to_csv(tp, index=False)
+        if sid not in trades:
+            trades[sid] = pd.read_csv(tp) if tp.exists() else pd.DataFrame(trades_list)
+        else:
+            trades[sid] = pd.concat([trades[sid], pd.DataFrame(trades_list)], ignore_index=True)
+    st.session_state["inplay_bt_trades"] = trades
+
+    # Recompute summary from full session trades so KPI table stays current
+    sizing = config.get("sizing", {})
+    start_bankroll = float(sizing.get("start_bankroll", 2000))
+    summary = {}
+    for sid, df in trades.items():
+        if df is None or len(df) == 0:
+            summary[sid] = {
+                "trades": 0, "total_pnl_$": 0, "end_bankroll": start_bankroll,
+                "total_return_pct": 0, "win_rate": 0, "avg_pnl_$": 0,
+                "median_pnl_$": 0, "best_trade_$": 0, "worst_trade_$": 0,
+                "avg_hold_minutes": 0, "max_drawdown_pct": 0,
+            }
+            continue
+        n = len(df)
+        total_pnl = float(df["pnl_$"].sum()) if "pnl_$" in df.columns else 0
+        end_br = float(df["bankroll_after"].iloc[-1]) if "bankroll_after" in df.columns else start_bankroll
+        total_ret = (end_br - start_bankroll) / start_bankroll if start_bankroll else 0
+        wins = int((df["pnl_$"] > 0).sum()) if "pnl_$" in df.columns else 0
+        win_rate = wins / n if n else 0
+        avg_pnl = total_pnl / n if n else 0
+        pnls = df["pnl_$"].tolist() if "pnl_$" in df.columns else []
+        median_pnl = float(pd.Series(pnls).median()) if pnls else 0
+        best = max(pnls) if pnls else 0
+        worst = min(pnls) if pnls else 0
+        avg_hold = float(df["hold_minutes"].mean()) if "hold_minutes" in df.columns and n else 0
+        equity = df["bankroll_after"].tolist() if "bankroll_after" in df.columns else []
+        running_max = equity[0] if equity else 0
+        max_dd = 0.0
+        for e in equity:
+            running_max = max(running_max, e)
+            dd = (e - running_max) / running_max if running_max else 0.0
+            max_dd = min(max_dd, dd)
+        summary[sid] = {
+            "trades": n, "total_pnl_$": total_pnl, "end_bankroll": end_br,
+            "total_return_pct": total_ret, "win_rate": win_rate, "avg_pnl_$": avg_pnl,
+            "median_pnl_$": median_pnl, "best_trade_$": best, "worst_trade_$": worst,
+            "avg_hold_minutes": avg_hold, "max_drawdown_pct": max_dd,
+        }
+    st.session_state["inplay_bt_summary"] = summary
 
 
 tabs = st.tabs([
@@ -2393,8 +2504,10 @@ with tabs[3]:
                 st.warning(f"Gap detected: expected total rounds {int(prev_total)+1}, got {total_rounds_logged} (gap {gap_rounds}).")
             map_index = int(st.session_state.get("cs2_inplay_map_index", 0))
 
+            _snap_ts = datetime.now().isoformat(timespec="seconds")
             st.session_state["cs2_live_rows"].append({
                 "t": len(st.session_state["cs2_live_rows"]),
+                "snapshot_ts": _snap_ts,
                 "series_fmt": series_fmt,
                 "contract_scope": contract_scope,
                 "maps_a_won": int(maps_a_won),
@@ -2486,8 +2599,20 @@ with tabs[3]:
                     })
                 except Exception as e:
                     st.warning(f"Snapshot not persisted: {e}")
-            # Run backtest so In-Play Backtest tab chart updates with any new trades
-            _run_inplay_backtest_and_refresh_session()
+            # Incremental backtest update so In-Play Backtest tab chart updates without full run
+            _row = {
+                "timestamp": datetime.now().isoformat(timespec="seconds"),
+                "match_id": str(st.session_state.get("cs2_inplay_match_id", "")).strip(),
+                "contract_scope": str(contract_scope),
+                "bid": float(bid),
+                "ask": float(ask),
+                "mid": float(market_mid),
+                "spread_abs": float(spread),
+                "p_fair": float(p_hat),
+                "band_lo": float(lo),
+                "band_hi": float(hi),
+            }
+            _run_inplay_incremental_and_refresh_session(_row)
 
 
 def _cs2_start_next_half():
@@ -2584,7 +2709,111 @@ with colClear:
         if show_pcal and pcal:
             plot_df["p_hat_cal"] = plot_df["p_hat"].apply(lambda x: apply_p_calibration(x, pcal, "cs2"))
         plot_df = plot_df.set_index("t")
-        st.line_chart(plot_df, use_container_width=True, height=420)
+        # Use Plotly so we can overlay backtest entry/exit markers on the same chart
+        try:
+            import plotly.graph_objects as go
+            fig_cs2 = go.Figure()
+            t_vals = plot_df.index.astype(int).tolist()
+            for col in ["market_mid", "p_hat", "band_lo", "band_hi"]:
+                if col in plot_df.columns:
+                    fig_cs2.add_trace(go.Scatter(x=t_vals, y=plot_df[col].tolist(), name=col, mode="lines"))
+            if show_pcal and pcal and "p_hat_cal" in plot_df.columns:
+                fig_cs2.add_trace(go.Scatter(x=t_vals, y=plot_df["p_hat_cal"].tolist(), name="p_hat_cal", mode="lines"))
+            # Overlay backtest entry/exit for current match when we have trades and snapshot_ts for alignment
+            cs2_match_id = str(st.session_state.get("cs2_inplay_match_id", "")).strip()
+            bt_trades = st.session_state.get("inplay_bt_trades") or {}
+            has_ts = "snapshot_ts" in chart_df.columns and chart_df["snapshot_ts"].notna().any()
+            _strategy_styles_cs2 = {
+                "S1_mr_to_entry_fair": {"color": "#22c55e", "sym_l": "triangle-up", "sym_s": "triangle-down"},
+                "S2_mr_to_current_fair": {"color": "#3b82f6", "sym_l": "diamond", "sym_s": "diamond"},
+                "S3_mr_inside_band": {"color": "#f97316", "sym_l": "square", "sym_s": "square"},
+            }
+            if cs2_match_id and has_ts:
+                chart_ts = pd.to_datetime(chart_df["snapshot_ts"], errors="coerce")
+                # Completed trades from CSV (no backtest run needed if already loaded)
+                if bt_trades:
+                    for sid, trades_df in bt_trades.items():
+                        if trades_df is None or len(trades_df) == 0:
+                            continue
+                        match_trades = trades_df[trades_df["match_id"].astype(str) == cs2_match_id]
+                        if len(match_trades) == 0:
+                            continue
+                        style = _strategy_styles_cs2.get(sid, {"color": "#6b7280", "sym_l": "triangle-up", "sym_s": "triangle-down"})
+                        entry_ts = pd.to_datetime(match_trades["entry_ts"], errors="coerce")
+                        exit_ts = pd.to_datetime(match_trades["exit_ts"], errors="coerce")
+                        t_entry = []
+                        y_entry = []
+                        t_exit = []
+                        y_exit = []
+                        exit_reasons = []
+                        exit_pnls = []
+                        for _, tr in match_trades.iterrows():
+                            et = pd.to_datetime(tr.get("entry_ts"), errors="coerce")
+                            ex = pd.to_datetime(tr.get("exit_ts"), errors="coerce")
+                            if pd.notna(et):
+                                idx = np.nanargmin(np.abs(chart_ts.astype(np.int64) - et.value))
+                                t_entry.append(chart_df["t"].iloc[idx])
+                                y_entry.append(tr.get("entry_mid", np.nan))
+                            if pd.notna(ex):
+                                idx = np.nanargmin(np.abs(chart_ts.astype(np.int64) - ex.value))
+                                t_exit.append(chart_df["t"].iloc[idx])
+                                y_exit.append(tr.get("exit_px", np.nan))
+                                exit_reasons.append(str(tr.get("exit_reason", "")))
+                                exit_pnls.append(tr.get("pnl_$", np.nan))
+                        if t_entry:
+                            sides = match_trades["side"]
+                            long_m = (sides == "LONG").tolist()
+                            short_m = (sides == "SHORT").tolist()
+                            n = len(t_entry)
+                            if any(long_m[i] for i in range(min(n, len(long_m)))):
+                                te = [t_entry[i] for i in range(n) if i < len(long_m) and long_m[i]]
+                                ye = [y_entry[i] for i in range(n) if i < len(long_m) and long_m[i]]
+                                if te:
+                                    fig_cs2.add_trace(go.Scatter(x=te, y=ye, name=f"{sid} Entry LONG", mode="markers", marker=dict(symbol=style["sym_l"], size=12, color=style["color"])))
+                            if any(short_m[i] for i in range(min(n, len(short_m)))):
+                                te = [t_entry[i] for i in range(n) if i < len(short_m) and short_m[i]]
+                                ye = [y_entry[i] for i in range(n) if i < len(short_m) and short_m[i]]
+                                if te:
+                                    fig_cs2.add_trace(go.Scatter(x=te, y=ye, name=f"{sid} Entry SHORT", mode="markers", marker=dict(symbol=style["sym_s"], size=12, color=style["color"])))
+                        if t_exit:
+                            customdata = np.column_stack((exit_reasons, exit_pnls))
+                            fig_cs2.add_trace(go.Scatter(
+                                x=t_exit, y=y_exit, name=f"{sid} Exit", mode="markers",
+                                marker=dict(symbol="circle", size=10, color=style["color"], line=dict(width=1, color="white")),
+                                customdata=customdata,
+                                hovertemplate="t %{x}<br>exit_reason: %{customdata[0]}<br>pnl_$ %{customdata[1]:.2f}<extra></extra>",
+                            ))
+                # Open positions from state (show entry marker without running backtest)
+                bt_state = st.session_state.get("inplay_bt_state")
+                if bt_state is None:
+                    try:
+                        _state_path = PROJECT_ROOT / "logs" / "inplay_backtest_state.json"
+                        if _state_path.exists():
+                            bt_state = load_backtest_state(_state_path)
+                    except Exception:
+                        pass
+                if bt_state:
+                    for sid, s in (bt_state.get("strategies") or {}).items():
+                        pos = s.get("position")
+                        if not pos or str(pos.get("match_id")) != cs2_match_id:
+                            continue
+                        style = _strategy_styles_cs2.get(sid, {"color": "#6b7280", "sym_l": "triangle-up", "sym_s": "triangle-down"})
+                        et = pd.to_datetime(pos.get("entry_ts"), errors="coerce")
+                        if pd.notna(et):
+                            idx = np.nanargmin(np.abs(chart_ts.astype(np.int64) - et.value))
+                            t_open = chart_df["t"].iloc[idx]
+                            y_open = pos.get("entry_mid", np.nan)
+                            side = (pos.get("side") or "").upper()
+                            if side == "LONG":
+                                fig_cs2.add_trace(go.Scatter(x=[t_open], y=[y_open], name=f"{sid} Entry LONG (open)", mode="markers", marker=dict(symbol=style["sym_l"], size=12, color=style["color"])))
+                            elif side == "SHORT":
+                                fig_cs2.add_trace(go.Scatter(x=[t_open], y=[y_open], name=f"{sid} Entry SHORT (open)", mode="markers", marker=dict(symbol=style["sym_s"], size=12, color=style["color"])))
+            fig_cs2.update_layout(title="Chart", xaxis_title="t (snapshot index)", yaxis_title="Price / Fair", height=420)
+            st.plotly_chart(fig_cs2, use_container_width=True)
+        except ImportError:
+            st.line_chart(plot_df, use_container_width=True, height=420)
+        except Exception:
+            st.line_chart(plot_df, use_container_width=True, height=420)
 
         # Also show the raw table
         st.dataframe(chart_df, use_container_width=True)
@@ -3042,8 +3271,10 @@ with tabs[4]:
                 st.warning(f"Gap detected: expected total rounds {int(prev_total)+1}, got {total_rounds_logged} (gap {gap_rounds}).")
             map_index = int(st.session_state.get("val_inplay_map_index", 0))
 
+            _snap_ts = datetime.now().isoformat(timespec="seconds")
             st.session_state["val_rows"].append({
                 "t": len(st.session_state["val_rows"]),
+                "snapshot_ts": _snap_ts,
                 "series_fmt": str(val_series_fmt),
                 "contract_scope": str(val_contract_scope),
                 "maps_a_won": int(val_maps_a_won),
@@ -3138,8 +3369,20 @@ with tabs[4]:
                     })
                 except Exception as e:
                     st.warning(f"Snapshot not persisted: {e}")
-            # Run backtest so In-Play Backtest tab chart updates with any new trades
-            _run_inplay_backtest_and_refresh_session()
+            # Incremental backtest update so In-Play Backtest tab chart updates without full run
+            _row = {
+                "timestamp": datetime.now().isoformat(timespec="seconds"),
+                "match_id": str(st.session_state.get("val_inplay_match_id", "")).strip(),
+                "contract_scope": str(val_contract_scope),
+                "bid": float(bid),
+                "ask": float(ask),
+                "mid": float(val_mid),
+                "spread_abs": float(val_spread),
+                "p_fair": float(p_hat),
+                "band_lo": float(lo),
+                "band_hi": float(hi),
+            }
+            _run_inplay_incremental_and_refresh_session(_row)
 
 def _val_start_next_half():
     # Half-time resets (pistol + econ context), keep score
@@ -3240,7 +3483,103 @@ with colClear:
         plot_df = chart_df[["t","p_hat","band_lo","band_hi","market_mid"]].copy()
         if show_pcal and pcal:
             plot_df["p_hat_cal"] = plot_df["p_hat"].apply(lambda x: apply_p_calibration(x, pcal, "valorant"))
-        st.line_chart(plot_df.set_index("t"), use_container_width=True, height=420)
+        try:
+            import plotly.graph_objects as go
+            fig_val = go.Figure()
+            t_vals = plot_df["t"].astype(int).tolist()
+            for col in ["market_mid", "p_hat", "band_lo", "band_hi"]:
+                if col in plot_df.columns:
+                    fig_val.add_trace(go.Scatter(x=t_vals, y=plot_df[col].tolist(), name=col, mode="lines"))
+            if show_pcal and pcal and "p_hat_cal" in plot_df.columns:
+                fig_val.add_trace(go.Scatter(x=t_vals, y=plot_df["p_hat_cal"].tolist(), name="p_hat_cal", mode="lines"))
+            val_match_id = str(st.session_state.get("val_inplay_match_id", "")).strip()
+            bt_trades = st.session_state.get("inplay_bt_trades") or {}
+            has_ts = "snapshot_ts" in chart_df.columns and chart_df["snapshot_ts"].notna().any()
+            _strategy_styles_val = {
+                "S1_mr_to_entry_fair": {"color": "#22c55e", "sym_l": "triangle-up", "sym_s": "triangle-down"},
+                "S2_mr_to_current_fair": {"color": "#3b82f6", "sym_l": "diamond", "sym_s": "diamond"},
+                "S3_mr_inside_band": {"color": "#f97316", "sym_l": "square", "sym_s": "square"},
+            }
+            if val_match_id and has_ts:
+                chart_ts = pd.to_datetime(chart_df["snapshot_ts"], errors="coerce")
+                # Completed trades from CSV (no backtest run needed if already loaded)
+                if bt_trades:
+                    for sid, trades_df in bt_trades.items():
+                        if trades_df is None or len(trades_df) == 0:
+                            continue
+                        match_trades = trades_df[trades_df["match_id"].astype(str) == val_match_id]
+                        if len(match_trades) == 0:
+                            continue
+                        style = _strategy_styles_val.get(sid, {"color": "#6b7280", "sym_l": "triangle-up", "sym_s": "triangle-down"})
+                        t_entry, y_entry, t_exit, y_exit = [], [], [], []
+                        exit_reasons, exit_pnls = [], []
+                        for _, tr in match_trades.iterrows():
+                            et = pd.to_datetime(tr.get("entry_ts"), errors="coerce")
+                            ex = pd.to_datetime(tr.get("exit_ts"), errors="coerce")
+                            if pd.notna(et):
+                                idx = np.nanargmin(np.abs(chart_ts.astype(np.int64) - et.value))
+                                t_entry.append(chart_df["t"].iloc[idx])
+                                y_entry.append(tr.get("entry_mid", np.nan))
+                            if pd.notna(ex):
+                                idx = np.nanargmin(np.abs(chart_ts.astype(np.int64) - ex.value))
+                                t_exit.append(chart_df["t"].iloc[idx])
+                                y_exit.append(tr.get("exit_px", np.nan))
+                                exit_reasons.append(str(tr.get("exit_reason", "")))
+                                exit_pnls.append(tr.get("pnl_$", np.nan))
+                        if t_entry:
+                            sides = match_trades["side"]
+                            long_m = (sides == "LONG").tolist()
+                            short_m = (sides == "SHORT").tolist()
+                            n = len(t_entry)
+                            if any(long_m[i] for i in range(min(n, len(long_m)))):
+                                te = [t_entry[i] for i in range(n) if i < len(long_m) and long_m[i]]
+                                ye = [y_entry[i] for i in range(n) if i < len(long_m) and long_m[i]]
+                                if te:
+                                    fig_val.add_trace(go.Scatter(x=te, y=ye, name=f"{sid} Entry LONG", mode="markers", marker=dict(symbol=style["sym_l"], size=12, color=style["color"])))
+                            if any(short_m[i] for i in range(min(n, len(short_m)))):
+                                te = [t_entry[i] for i in range(n) if i < len(short_m) and short_m[i]]
+                                ye = [y_entry[i] for i in range(n) if i < len(short_m) and short_m[i]]
+                                if te:
+                                    fig_val.add_trace(go.Scatter(x=te, y=ye, name=f"{sid} Entry SHORT", mode="markers", marker=dict(symbol=style["sym_s"], size=12, color=style["color"])))
+                        if t_exit:
+                            customdata = np.column_stack((exit_reasons, exit_pnls))
+                            fig_val.add_trace(go.Scatter(
+                                x=t_exit, y=y_exit, name=f"{sid} Exit", mode="markers",
+                                marker=dict(symbol="circle", size=10, color=style["color"], line=dict(width=1, color="white")),
+                                customdata=customdata,
+                                hovertemplate="t %{x}<br>exit_reason: %{customdata[0]}<br>pnl_$ %{customdata[1]:.2f}<extra></extra>",
+                            ))
+                # Open positions from state (show entry marker without running backtest)
+                bt_state = st.session_state.get("inplay_bt_state")
+                if bt_state is None:
+                    try:
+                        _state_path = PROJECT_ROOT / "logs" / "inplay_backtest_state.json"
+                        if _state_path.exists():
+                            bt_state = load_backtest_state(_state_path)
+                    except Exception:
+                        pass
+                if bt_state:
+                    for sid, s in (bt_state.get("strategies") or {}).items():
+                        pos = s.get("position")
+                        if not pos or str(pos.get("match_id")) != val_match_id:
+                            continue
+                        style = _strategy_styles_val.get(sid, {"color": "#6b7280", "sym_l": "triangle-up", "sym_s": "triangle-down"})
+                        et = pd.to_datetime(pos.get("entry_ts"), errors="coerce")
+                        if pd.notna(et):
+                            idx = np.nanargmin(np.abs(chart_ts.astype(np.int64) - et.value))
+                            t_open = chart_df["t"].iloc[idx]
+                            y_open = pos.get("entry_mid", np.nan)
+                            side = (pos.get("side") or "").upper()
+                            if side == "LONG":
+                                fig_val.add_trace(go.Scatter(x=[t_open], y=[y_open], name=f"{sid} Entry LONG (open)", mode="markers", marker=dict(symbol=style["sym_l"], size=12, color=style["color"])))
+                            elif side == "SHORT":
+                                fig_val.add_trace(go.Scatter(x=[t_open], y=[y_open], name=f"{sid} Entry SHORT (open)", mode="markers", marker=dict(symbol=style["sym_s"], size=12, color=style["color"])))
+            fig_val.update_layout(title="Chart", xaxis_title="t (snapshot index)", yaxis_title="Price / Fair", height=420)
+            st.plotly_chart(fig_val, use_container_width=True)
+        except ImportError:
+            st.line_chart(plot_df.set_index("t"), use_container_width=True, height=420)
+        except Exception:
+            st.line_chart(plot_df.set_index("t"), use_container_width=True, height=420)
         st.dataframe(chart_df, use_container_width=True)
     else:
         st.info("Add at least one snapshot to see the chart.")
@@ -3363,16 +3702,15 @@ with tabs[5]:
 with tabs[6]:
     st.header("In-Play Backtest (P/L Tracker)")
     st.caption(
-        "Run the backtest script via subprocess; results are written to logs. "
-        "Use the Run button to execute; results are cached until you run again or change paths. "
-        "**Add snapshot** on the CS2/Valorant in-play tabs also runs the backtest so the chart here updates with any new trades."
+        "Run the backtest script once to seed state; then **Add snapshot** on CS2/Valorant tabs updates incrementally (no full run). "
+        "Results are written to logs; use **Run Backtest** to re-seed or re-sync."
     )
     with st.expander("How do trade markers get on the chart?", expanded=False):
         st.markdown(
-            "Trade markers (entry/exit) come from the **last backtest run**. "
-            "Click **Run Backtest** here, or click **Add snapshot** on the CS2 or Valorant in-play tab (each round)—that also runs the backtest and refreshes this chart. "
+            "Trade markers come from **Run Backtest** (full run) or **Add snapshot** (incremental). "
+            "Click **Run Backtest** once to seed; each **Add snapshot** on CS2/Valorant updates state and appends new trades without re-running the full backtest. "
             "Select a **Strategy** and **Match ID** below to see the price series and entry/exit markers. "
-            "**Match-end settlement:** If a position is still open when the match ends, it closes at 1 (Team A wins) or 0 (Team B wins) using the winner you log in the CS2/Valorant tab via **Winner** → **Save result** (inplay_match_results_clean.csv)."
+            "**Match-end settlement:** If a position is still open when the match ends, it closes at 1 (Team A wins) or 0 (Team B wins) using the winner you log via **Winner** → **Save result** (inplay_match_results_clean.csv)."
         )
 
     default_inplay = str(INPLAY_LOG_PATH) if INPLAY_LOG_PATH else "logs/inplay_kappa_logs_clean.csv"
@@ -3403,6 +3741,7 @@ with tabs[6]:
                 st.session_state["inplay_bt_last_run"] = datetime.now().isoformat()
                 st.session_state["inplay_bt_paths"] = paths_key
                 st.session_state["inplay_bt_result_stdout"] = result.stdout
+                # State will be loaded and repaired in the cached_paths block below
             except subprocess.CalledProcessError as e:
                 st.error("Backtest script failed.")
                 st.code(e.stderr or e.stdout or str(e))
@@ -3418,6 +3757,7 @@ with tabs[6]:
 
     if cached_paths == paths_key:
         summary_path = Path(outdir_path.strip()) / "inplay_backtest_summary.json"
+        state_path = Path(outdir_path.strip()) / "inplay_backtest_state.json"
         if summary_path.exists():
             try:
                 with open(summary_path, "r", encoding="utf-8") as f:
@@ -3427,7 +3767,12 @@ with tabs[6]:
                 summary_loaded = st.session_state.get("inplay_bt_summary")
         else:
             summary_loaded = st.session_state.get("inplay_bt_summary")
-
+        if state_path.exists():
+            try:
+                loaded_state = load_backtest_state(state_path)
+                st.session_state["inplay_bt_state"] = loaded_state
+            except Exception:
+                pass
         for sid in (summary_loaded or {}).keys():
             trades_path = Path(outdir_path.strip()) / f"inplay_backtest_trades__{sid}.csv"
             if trades_path.exists():
@@ -3436,6 +3781,15 @@ with tabs[6]:
                 except Exception:
                     pass
         st.session_state["inplay_bt_trades"] = trades_by_strategy
+        # Repair state: clear any "open position" for which we have a completed trade for that match
+        if trades_by_strategy and st.session_state.get("inplay_bt_state"):
+            repaired = repair_state_from_trades(st.session_state["inplay_bt_state"], trades_by_strategy)
+            if repaired != st.session_state["inplay_bt_state"]:
+                try:
+                    save_backtest_state(repaired, state_path)
+                    st.session_state["inplay_bt_state"] = repaired
+                except Exception:
+                    st.session_state["inplay_bt_state"] = repaired
 
     if run_clicked and cached_paths == paths_key:
         st.session_state["inplay_bt_summary"] = summary_loaded
@@ -3448,6 +3802,9 @@ with tabs[6]:
     else:
         summary_loaded = None
         trades_by_strategy = {}
+
+    if cached_paths == paths_key and not summary_loaded and not trades_by_strategy:
+        st.info("Run **Run Backtest** once to seed state and trades; then **Add snapshot** on CS2/Valorant tabs will update incrementally.")
 
     # Load config for strategy list and scope filter
     _cfg = (config_path or "").strip()
