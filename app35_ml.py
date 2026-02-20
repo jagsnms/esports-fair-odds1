@@ -471,7 +471,51 @@ def fetch_polymarket_bid_ask(token_id: str):
     return bid, ask, meta
 
 
-tabs = st.tabs(["CS2", "Dota2", "Diagnostics / Export", "CS2 In-Play Indicator (MVP)", "Valorant In-Play Indicator (MVP)", "Calibration"])
+def _run_inplay_backtest_and_refresh_session():
+    """Run backtest with default paths; update session state so backtest tab shows latest trades. Called from Add snapshot (CS2/Valorant)."""
+    default_inplay = str(INPLAY_LOG_PATH) if INPLAY_LOG_PATH else str(PROJECT_ROOT / "logs" / "inplay_kappa_logs_clean.csv")
+    default_config = str(PROJECT_ROOT / "configs" / "inplay_strategies.json")
+    default_outdir = str(PROJECT_ROOT / "logs")
+    script_path = PROJECT_ROOT / "scripts" / "inplay_backtest_runner.py"
+    if not script_path.exists():
+        return
+    try:
+        subprocess.run(
+            [sys.executable, str(script_path), "--inplay", default_inplay, "--config", default_config, "--outdir", default_outdir],
+            cwd=str(PROJECT_ROOT),
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=120,
+        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, Exception):
+        return
+    paths_key = (default_inplay, default_config, default_outdir)
+    st.session_state["inplay_bt_paths"] = paths_key
+    summary_path = Path(default_outdir) / "inplay_backtest_summary.json"
+    if summary_path.exists():
+        try:
+            with open(summary_path, "r", encoding="utf-8") as f:
+                st.session_state["inplay_bt_summary"] = json.load(f)
+        except Exception:
+            pass
+    summary = st.session_state.get("inplay_bt_summary") or {}
+    trades = {}
+    for sid in summary.keys():
+        tp = Path(default_outdir) / f"inplay_backtest_trades__{sid}.csv"
+        if tp.exists():
+            try:
+                trades[sid] = pd.read_csv(tp)
+            except Exception:
+                pass
+    st.session_state["inplay_bt_trades"] = trades
+
+
+tabs = st.tabs([
+    "CS2", "Dota2", "Diagnostics / Export",
+    "CS2 In-Play Indicator (MVP)", "Valorant In-Play Indicator (MVP)", "Calibration",
+    "In-Play Backtest (P/L Tracker)",
+])
 
 # --------------------------
 # CS2 TAB
@@ -2442,7 +2486,9 @@ with tabs[3]:
                     })
                 except Exception as e:
                     st.warning(f"Snapshot not persisted: {e}")
-    
+            # Run backtest so In-Play Backtest tab chart updates with any new trades
+            _run_inplay_backtest_and_refresh_session()
+
 
 def _cs2_start_next_half():
     # Half-time resets (pistol + economy context), keep score
@@ -2545,8 +2591,9 @@ with colClear:
     else:
         st.info("Add at least one snapshot to see the chart.")
 
-    # --- Final result logging (needed for probability calibration) ---
+    # --- Final result logging (needed for probability calibration + backtest match-end) ---
     st.markdown("### Log final result (for ML)")
+    st.caption("Also used for **In-Play Backtest** match-end settlement: if a position is still open when the match ends, it closes at 1 (Team A wins) or 0 (Team B wins) using the winner you save here.")
     rcol1, rcol2 = st.columns([2.0, 1.0])
     with rcol1:
         _cs2_default_winner_idx = 0
@@ -3091,7 +3138,9 @@ with tabs[4]:
                     })
                 except Exception as e:
                     st.warning(f"Snapshot not persisted: {e}")
-    
+            # Run backtest so In-Play Backtest tab chart updates with any new trades
+            _run_inplay_backtest_and_refresh_session()
+
 def _val_start_next_half():
     # Half-time resets (pistol + econ context), keep score
     cur_side = str(st.session_state.get("val_side", "Unknown"))
@@ -3196,8 +3245,9 @@ with colClear:
     else:
         st.info("Add at least one snapshot to see the chart.")
 
-    # --- Final result logging (needed for probability calibration) ---
+    # --- Final result logging (needed for probability calibration + backtest match-end) ---
     st.markdown("### Log final result (for ML)")
+    st.caption("Also used for **In-Play Backtest** match-end settlement: if a position is still open when the match ends, it closes at 1 (Team A wins) or 0 (Team B wins) using the winner you save here.")
     rcol1, rcol2 = st.columns([2.0, 1.0])
     with rcol1:
         _val_default_winner_idx = 0
@@ -3305,3 +3355,239 @@ with tabs[5]:
             st.warning(f"Could not read probability report: {e}")
     else:
         st.info("No probability report found yet. Requires inplay_match_results_clean.csv with winners logged.")
+
+
+# --------------------------
+# In-Play Backtest (P/L Tracker) TAB — additive only
+# --------------------------
+with tabs[6]:
+    st.header("In-Play Backtest (P/L Tracker)")
+    st.caption(
+        "Run the backtest script via subprocess; results are written to logs. "
+        "Use the Run button to execute; results are cached until you run again or change paths. "
+        "**Add snapshot** on the CS2/Valorant in-play tabs also runs the backtest so the chart here updates with any new trades."
+    )
+    with st.expander("How do trade markers get on the chart?", expanded=False):
+        st.markdown(
+            "Trade markers (entry/exit) come from the **last backtest run**. "
+            "Click **Run Backtest** here, or click **Add snapshot** on the CS2 or Valorant in-play tab (each round)—that also runs the backtest and refreshes this chart. "
+            "Select a **Strategy** and **Match ID** below to see the price series and entry/exit markers. "
+            "**Match-end settlement:** If a position is still open when the match ends, it closes at 1 (Team A wins) or 0 (Team B wins) using the winner you log in the CS2/Valorant tab via **Winner** → **Save result** (inplay_match_results_clean.csv)."
+        )
+
+    default_inplay = str(INPLAY_LOG_PATH) if INPLAY_LOG_PATH else "logs/inplay_kappa_logs_clean.csv"
+    default_config = str(PROJECT_ROOT / "configs" / "inplay_strategies.json")
+    default_outdir = str(PROJECT_ROOT / "logs")
+
+    inplay_path = st.text_input("In-play log CSV path", value=default_inplay, key="inplay_bt_inplay_path")
+    config_path = st.text_input("Config path", value=default_config, key="inplay_bt_config_path")
+    outdir_path = st.text_input("Output directory", value=default_outdir, key="inplay_bt_outdir")
+
+    run_clicked = st.button("Run Backtest", key="inplay_bt_run")
+    paths_key = (inplay_path.strip(), config_path.strip(), outdir_path.strip())
+
+    if run_clicked:
+        script_path = PROJECT_ROOT / "scripts" / "inplay_backtest_runner.py"
+        if not script_path.exists():
+            st.error(f"Backtest script not found: {script_path}")
+        else:
+            try:
+                result = subprocess.run(
+                    [sys.executable, str(script_path), "--inplay", inplay_path.strip(), "--config", config_path.strip(), "--outdir", outdir_path.strip()],
+                    cwd=str(PROJECT_ROOT),
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                st.success("Backtest completed.")
+                st.session_state["inplay_bt_last_run"] = datetime.now().isoformat()
+                st.session_state["inplay_bt_paths"] = paths_key
+                st.session_state["inplay_bt_result_stdout"] = result.stdout
+            except subprocess.CalledProcessError as e:
+                st.error("Backtest script failed.")
+                st.code(e.stderr or e.stdout or str(e))
+            except Exception as e:
+                st.error(str(e))
+
+    # Load cached results only if paths match
+    cached_paths = st.session_state.get("inplay_bt_paths")
+    summary_loaded = None
+    trades_by_strategy = {}
+    config_loaded = None
+    inplay_df_loaded = None
+
+    if cached_paths == paths_key:
+        summary_path = Path(outdir_path.strip()) / "inplay_backtest_summary.json"
+        if summary_path.exists():
+            try:
+                with open(summary_path, "r", encoding="utf-8") as f:
+                    summary_loaded = json.load(f)
+                st.session_state["inplay_bt_summary"] = summary_loaded
+            except Exception:
+                summary_loaded = st.session_state.get("inplay_bt_summary")
+        else:
+            summary_loaded = st.session_state.get("inplay_bt_summary")
+
+        for sid in (summary_loaded or {}).keys():
+            trades_path = Path(outdir_path.strip()) / f"inplay_backtest_trades__{sid}.csv"
+            if trades_path.exists():
+                try:
+                    trades_by_strategy[sid] = pd.read_csv(trades_path)
+                except Exception:
+                    pass
+        st.session_state["inplay_bt_trades"] = trades_by_strategy
+
+    if run_clicked and cached_paths == paths_key:
+        st.session_state["inplay_bt_summary"] = summary_loaded
+        st.session_state["inplay_bt_trades"] = trades_by_strategy
+
+    # Only use cached summary/trades when paths match current inputs
+    if cached_paths == paths_key:
+        summary_loaded = st.session_state.get("inplay_bt_summary")
+        trades_by_strategy = st.session_state.get("inplay_bt_trades") or {}
+    else:
+        summary_loaded = None
+        trades_by_strategy = {}
+
+    # Load config for strategy list and scope filter
+    _cfg = (config_path or "").strip()
+    config_path_resolved = Path(_cfg) if _cfg else PROJECT_ROOT / "configs" / "inplay_strategies.json"
+    if not config_path_resolved.is_absolute():
+        config_path_resolved = (PROJECT_ROOT / _cfg).resolve()
+    if config_path_resolved.exists():
+        try:
+            with open(config_path_resolved, "r", encoding="utf-8") as f:
+                config_loaded = json.load(f)
+        except Exception:
+            pass
+
+    strategy_ids = [s["id"] for s in (config_loaded or {}).get("strategies", [])]
+    if not strategy_ids and summary_loaded:
+        strategy_ids = list(summary_loaded.keys())
+
+    # KPI table
+    if summary_loaded:
+        st.subheader("Summary by strategy")
+        rows = []
+        for sid, kpis in summary_loaded.items():
+            rows.append({
+                "strategy_id": sid,
+                "trades": kpis.get("trades", 0),
+                "total_pnl_$": round(kpis.get("total_pnl_$", 0), 2),
+                "end_bankroll": round(kpis.get("end_bankroll", 0), 2),
+                "total_return_%": round(kpis.get("total_return_pct", 0) * 100, 2),
+                "win_rate": round(kpis.get("win_rate", 0) * 100, 1),
+                "avg_pnl_$": round(kpis.get("avg_pnl_$", 0), 2),
+                "max_drawdown_%": round(abs(kpis.get("max_drawdown_pct", 0)) * 100, 2),
+            })
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    # Load inplay CSV for match list and chart series (scope-filtered)
+    _inp = (inplay_path or "").strip()
+    inplay_path_resolved = Path(_inp) if _inp else Path(default_inplay)
+    if not inplay_path_resolved.is_absolute():
+        inplay_path_resolved = (PROJECT_ROOT / _inp).resolve()
+    if inplay_path_resolved.exists() and config_loaded:
+        try:
+            inplay_df_loaded = pd.read_csv(inplay_path_resolved)
+            scope_col = config_loaded.get("data", {}).get("scope_col", "contract_scope")
+            allowlist = config_loaded.get("filters", {}).get("scope_allowlist") or []
+            if allowlist and scope_col in inplay_df_loaded.columns:
+                inplay_df_loaded = inplay_df_loaded[inplay_df_loaded[scope_col].astype(str).str.strip().isin(allowlist)]
+            st.session_state["inplay_bt_inplay_df"] = inplay_df_loaded
+        except Exception:
+            inplay_df_loaded = st.session_state.get("inplay_bt_inplay_df")
+    else:
+        inplay_df_loaded = st.session_state.get("inplay_bt_inplay_df")
+
+    stream_id_col = (config_loaded or {}).get("data", {}).get("stream_id_col", "match_id")
+    ts_col = (config_loaded or {}).get("data", {}).get("timestamp_col", "timestamp")
+    mid_col = (config_loaded or {}).get("data", {}).get("mid_col", "mid")
+    fair_col = (config_loaded or {}).get("data", {}).get("fair_col", "p_fair")
+    band_lo_col = (config_loaded or {}).get("data", {}).get("band_lo_col", "band_lo")
+    band_hi_col = (config_loaded or {}).get("data", {}).get("band_hi_col", "band_hi")
+
+    sel_strategy = st.selectbox("Strategy", strategy_ids or ["(none)"], key="inplay_bt_sel_strategy")
+    match_ids = []
+    if inplay_df_loaded is not None and stream_id_col in inplay_df_loaded.columns:
+        match_ids = sorted(inplay_df_loaded[stream_id_col].dropna().astype(str).unique().tolist())
+    sel_match = st.selectbox("Match ID", [""] + match_ids, key="inplay_bt_sel_match")
+
+    # Strategy-specific colors and shapes for chart markers (differentiate strategies)
+    _strategy_styles = {
+        "S1_mr_to_entry_fair": {"color": "#22c55e", "symbol_long": "triangle-up", "symbol_short": "triangle-down"},
+        "S2_mr_to_current_fair": {"color": "#3b82f6", "symbol_long": "diamond", "symbol_short": "diamond"},
+        "S3_mr_inside_band": {"color": "#f97316", "symbol_long": "square", "symbol_short": "square"},
+    }
+
+    # Chart: time series + entry/exit markers
+    if sel_strategy and sel_strategy != "(none)" and sel_match and inplay_df_loaded is not None:
+        match_df = inplay_df_loaded[inplay_df_loaded[stream_id_col].astype(str) == sel_match].copy()
+        match_df[ts_col] = pd.to_datetime(match_df[ts_col], errors="coerce")
+        match_df = match_df.dropna(subset=[ts_col]).sort_values(ts_col)
+        style = _strategy_styles.get(sel_strategy, {"color": "#6b7280", "symbol_long": "triangle-up", "symbol_short": "triangle-down"})
+
+        try:
+            import plotly.graph_objects as go
+
+            fig = go.Figure()
+            if len(match_df):
+                fig.add_trace(go.Scatter(x=match_df[ts_col], y=match_df[mid_col], name="mid", mode="lines"))
+                if fair_col in match_df.columns:
+                    fig.add_trace(go.Scatter(x=match_df[ts_col], y=match_df[fair_col], name="p_fair", mode="lines"))
+                if band_lo_col in match_df.columns:
+                    fig.add_trace(go.Scatter(x=match_df[ts_col], y=match_df[band_lo_col], name="band_lo", mode="lines"))
+                if band_hi_col in match_df.columns:
+                    fig.add_trace(go.Scatter(x=match_df[ts_col], y=match_df[band_hi_col], name="band_hi", mode="lines"))
+
+            trades_df = trades_by_strategy.get(sel_strategy)
+            if trades_df is not None and len(trades_df):
+                match_trades = trades_df[trades_df["match_id"].astype(str) == sel_match]
+                if len(match_trades):
+                    entry_ts = pd.to_datetime(match_trades["entry_ts"], errors="coerce")
+                    entry_mid = match_trades["entry_mid"]
+                    sides = match_trades["side"]
+                    long_mask = sides == "LONG"
+                    short_mask = sides == "SHORT"
+                    if long_mask.any():
+                        fig.add_trace(
+                            go.Scatter(
+                                x=entry_ts[long_mask],
+                                y=entry_mid[long_mask],
+                                name=f"{sel_strategy} Entry LONG",
+                                mode="markers",
+                                marker=dict(symbol=style["symbol_long"], size=12, color=style["color"]),
+                            )
+                        )
+                    if short_mask.any():
+                        fig.add_trace(
+                            go.Scatter(
+                                x=entry_ts[short_mask],
+                                y=entry_mid[short_mask],
+                                name=f"{sel_strategy} Entry SHORT",
+                                mode="markers",
+                                marker=dict(symbol=style["symbol_short"], size=12, color=style["color"]),
+                            )
+                        )
+                    exit_ts = pd.to_datetime(match_trades["exit_ts"], errors="coerce")
+                    exit_px = match_trades["exit_px"]
+                    pnl = match_trades["pnl_$"]
+                    ret_pct = match_trades["ret_pct_account"]
+                    exit_reason = match_trades["exit_reason"].astype(str) if "exit_reason" in match_trades.columns else np.full(len(match_trades), "")
+                    fig.add_trace(
+                        go.Scatter(
+                            x=exit_ts,
+                            y=exit_px,
+                            name=f"{sel_strategy} Exit",
+                            mode="markers",
+                            marker=dict(symbol="circle", size=10, color=style["color"], line=dict(width=1, color="white")),
+                            customdata=np.column_stack((pnl, ret_pct, exit_reason)),
+                            hovertemplate="Exit %{x}<br>pnl_$ %{customdata[0]:.2f}<br>ret %{customdata[1]:.2%}<br>%{customdata[2]}<extra></extra>",
+                        )
+                    )
+            fig.update_layout(title=f"Match {sel_match} — {sel_strategy}", xaxis_title="Time", yaxis_title="Price / Fair")
+            st.plotly_chart(fig, use_container_width=True)
+        except ImportError:
+            st.warning("Install plotly to see the chart: pip install plotly")
+        except Exception as e:
+            st.warning(f"Chart error: {e}")

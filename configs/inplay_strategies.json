@@ -1,0 +1,44 @@
+{
+  "data": {
+    "timestamp_col": "timestamp",
+    "stream_id_col": "match_id",
+    "scope_col": "contract_scope",
+    "bid_col": "bid",
+    "ask_col": "ask",
+    "mid_col": "mid",
+    "spread_abs_col": "spread_abs",
+    "fair_col": "p_fair",
+    "band_lo_col": "band_lo",
+    "band_hi_col": "band_hi"
+  },
+  "filters": {
+    "scope_allowlist": ["Series winner", "Map winner (this map)"]
+  },
+  "sizing": {
+    "contracts": 100,
+    "start_bankroll": 2000
+  },
+  "strategies": [
+    {
+      "id": "S1_mr_to_entry_fair",
+      "buffer": 0.10,
+      "spread_abs_max": 0.06,
+      "max_hold_minutes": 45,
+      "exit_mode": "to_entry_fair"
+    },
+    {
+      "id": "S2_mr_to_current_fair",
+      "buffer": 0.12,
+      "spread_abs_max": 0.06,
+      "max_hold_minutes": 45,
+      "exit_mode": "to_current_fair"
+    },
+    {
+      "id": "S3_mr_inside_band",
+      "buffer": 0.10,
+      "spread_abs_max": 0.06,
+      "max_hold_minutes": 30,
+      "exit_mode": "back_inside_band"
+    }
+  ]
+}
