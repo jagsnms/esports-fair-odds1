@@ -15,9 +15,11 @@ import unicodedata
 import string
 from datetime import datetime
 import csv
+import time
 from typing import Optional  # 3.9-compatible Optional[...] for type hints
 
 import streamlit as st
+from streamlit_autorefresh import st_autorefresh
 
 # Streamlit layout
 st.set_page_config(layout="wide", page_title="Esports Fair Odds")
@@ -78,6 +80,11 @@ from fair_odds.backtest import (
     load_match_settlements,
     incremental_update as backtest_incremental_update,
     repair_state_from_trades,
+)
+from fair_odds.bo3_adapter import (
+    fetch_bo3_live_matches,
+    fetch_bo3_snapshot,
+    normalize_bo3_snapshot_to_app,
 )
 
 # ==========================
@@ -146,6 +153,10 @@ with st.expander("Calibration & Mapping (optional)"):
 # ==========================
 from urllib.parse import urlparse, parse_qs
 
+# Kalshi tickers can include a dot (e.g. KXCS2GAME-26FEB21FORZE.REXR)
+_KALSHI_TICKER_RE = re.compile(r"^[A-Z0-9_.-]{3,80}$", re.IGNORECASE)
+
+
 def _try_extract_kalshi_ticker(raw: str) -> str:
     """
     Best-effort extraction of a Kalshi market ticker from a pasted URL or raw input.
@@ -154,23 +165,23 @@ def _try_extract_kalshi_ticker(raw: str) -> str:
     raw = (raw or "").strip()
     if not raw:
         return ""
-    # If it's already a simple ticker-like token, return it
-    if re.fullmatch(r"[A-Z0-9_-]{3,64}", raw):
-        return raw
+    # If it's already a ticker-like token (letters, digits, _, ., -), return it
+    if _KALSHI_TICKER_RE.match(raw):
+        return raw.upper() if raw.isascii() else raw
     try:
         u = urlparse(raw)
         path_parts = [p for p in (u.path or "").split("/") if p]
         # Common patterns: /markets/{TICKER} or /trade/{TICKER}
         for i, part in enumerate(path_parts[:-1]):
             if part.lower() in ("markets", "market", "trade", "event"):
-                cand = path_parts[i+1]
-                if re.fullmatch(r"[A-Z0-9_-]{3,64}", cand):
-                    return cand
+                cand = path_parts[i + 1]
+                if _KALSHI_TICKER_RE.match(cand):
+                    return cand.upper() if cand.isascii() else cand
         # Fallback: last segment
         if path_parts:
             cand = path_parts[-1]
-            if re.fullmatch(r"[A-Z0-9_-]{3,64}", cand):
-                return cand
+            if _KALSHI_TICKER_RE.match(cand):
+                return cand.upper() if cand.isascii() else cand
     except Exception:
         pass
     return ""
@@ -381,6 +392,38 @@ def _kalshi_parse_event_ticker(url_or_ticker: str) -> Optional[str]:
     return s_up
 
 
+def _cs2_kalshi_resolve_ticker() -> tuple[Optional[str], Optional[str]]:
+    """
+    Resolve CS2 Kalshi market ticker from session state (same fallback as Refresh bid/ask).
+    Returns (ticker_str, error_message). ticker is valid for fetch_kalshi_bid_ask; error_message is for UI.
+    """
+    tkr = st.session_state.get("cs2_kalshi_market") or ""
+    t = _try_extract_kalshi_ticker(tkr) if tkr else ""
+    if t:
+        return (t, None)
+    markets = st.session_state.get("cs2_kalshi_markets") or []
+    if markets and isinstance(markets[0], dict) and markets[0].get("ticker"):
+        t = _try_extract_kalshi_ticker(markets[0]["ticker"])
+        if t:
+            st.session_state["cs2_kalshi_market"] = markets[0]["ticker"]
+            return (t, None)
+    url = (st.session_state.get("cs2_kalshi_url") or "").strip()
+    if url:
+        try:
+            ev = _kalshi_parse_event_ticker(url)
+            if ev:
+                markets2 = kalshi_list_markets_for_event(ev)
+                st.session_state["cs2_kalshi_markets"] = markets2
+                if markets2 and markets2[0].get("ticker"):
+                    st.session_state["cs2_kalshi_market"] = markets2[0]["ticker"]
+                    t = _try_extract_kalshi_ticker(markets2[0]["ticker"])
+                    if t:
+                        return (t, None)
+        except Exception:
+            pass
+    return (None, "Load teams and select a market, or paste a Kalshi URL and click Load teams.")
+
+
 @st.cache_data(ttl=30, show_spinner=False)
 def kalshi_list_markets_for_event(event_ticker: str):
     """Return a list of markets for a Kalshi event_ticker. Unauthenticated read."""
@@ -518,6 +561,30 @@ def _run_inplay_backtest_and_refresh_session():
     st.session_state["inplay_bt_trades"] = trades
 
 
+def _load_inplay_trades_from_disk(outdir: Path, strategy_ids: Optional[list] = None) -> dict:
+    """Load all in-play backtest trade CSVs from outdir. Returns {strategy_id: DataFrame}.
+    If strategy_ids is None, discovers from inplay_backtest_trades__*.csv filenames."""
+    outdir = Path(outdir)
+    if strategy_ids is None:
+        strategy_ids = []
+        for fp in outdir.glob("inplay_backtest_trades__*.csv"):
+            try:
+                sid = fp.stem.replace("inplay_backtest_trades__", "")
+                if sid:
+                    strategy_ids.append(sid)
+            except Exception:
+                pass
+    trades = {}
+    for sid in strategy_ids:
+        tp = outdir / f"inplay_backtest_trades__{sid}.csv"
+        if tp.exists():
+            try:
+                trades[sid] = pd.read_csv(tp)
+            except Exception:
+                pass
+    return trades
+
+
 def _run_inplay_incremental_and_refresh_session(row_dict: dict) -> None:
     """Run incremental backtest on one new row; update state file, append trades to CSV, refresh session. No subprocess."""
     outdir = PROJECT_ROOT / "logs"
@@ -559,7 +626,7 @@ def _run_inplay_incremental_and_refresh_session(row_dict: dict) -> None:
         "exit_ts", "exit_px", "exit_reason", "hold_minutes", "contracts",
         "pnl_price", "pnl_$", "bankroll_before", "bankroll_after", "ret_pct_account",
     ]
-    trades = dict(st.session_state.get("inplay_bt_trades") or {})
+    strategy_ids = [s["id"] if isinstance(s, dict) else s for s in (config.get("strategies") or [])]
     for sid, trades_list in new_trades_by_strategy.items():
         if not trades_list:
             continue
@@ -575,10 +642,8 @@ def _run_inplay_incremental_and_refresh_session(row_dict: dict) -> None:
             combined = pd.concat([existing, new_df], ignore_index=True)
             combined = combined[[c for c in trade_columns if c in combined.columns]]
             combined.to_csv(tp, index=False)
-        if sid not in trades:
-            trades[sid] = pd.read_csv(tp) if tp.exists() else pd.DataFrame(trades_list)
-        else:
-            trades[sid] = pd.concat([trades[sid], pd.DataFrame(trades_list)], ignore_index=True)
+    # Reload all strategy trades from CSV so chart always has full data (avoids entry "disappearing" when trade closes)
+    trades = _load_inplay_trades_from_disk(outdir, strategy_ids or None)
     st.session_state["inplay_bt_trades"] = trades
 
     # Recompute summary from full session trades so KPI table stays current
@@ -2055,9 +2120,80 @@ def invert_series_to_map_prob(p_series: float, n_maps: int) -> float:
             lo = mid
     return float(0.5 * (lo + hi))
 
+
 with tabs[3]:
     st.header("CS2 In-Play Indicator (MVP)")
     st.caption("Fair probability line + certainty bands. Supports BO1 / BO3 / BO5 and map-vs-series markets. MVP = manual match inputs + manual/auto market bid-ask.")
+
+    # Apply pending Match ID from Activate (before widget is instantiated; Streamlit forbids modifying widget key after creation)
+    if "cs2_bo3_pending_match_id" in st.session_state and st.session_state["cs2_bo3_pending_match_id"] is not None:
+        st.session_state["cs2_inplay_match_id"] = str(st.session_state["cs2_bo3_pending_match_id"])
+        del st.session_state["cs2_bo3_pending_match_id"]
+
+    # --- BO3.gg auto data pull: overwrite session_state from feed when active ---
+    BO3_FEED_FILE = PROJECT_ROOT / "logs" / "bo3_live_feed.json"
+    BO3_CONTROL_FILE = PROJECT_ROOT / "logs" / "bo3_live_control.json"
+    BO3_FEED_STALE_SEC = 15
+    if st.session_state.get("cs2_bo3_auto_active") and BO3_FEED_FILE.exists():
+        try:
+            with open(BO3_FEED_FILE, "r", encoding="utf-8") as f:
+                feed = json.load(f)
+            payload = feed.get("payload") or {}
+            feed_error = feed.get("error")
+            snapshot_status = feed.get("snapshot_status")
+            st.session_state["cs2_bo3_feed_error"] = feed_error
+            st.session_state["cs2_bo3_feed_snapshot_status"] = snapshot_status
+            # Apply payload whenever it's non-empty (no stale check) so "live data received" always updates UI
+            if isinstance(payload, dict) and payload:
+                st.session_state["cs2_live_team_a"] = str(payload.get("team_a", st.session_state.get("cs2_live_team_a", "")))
+                st.session_state["cs2_live_team_b"] = str(payload.get("team_b", st.session_state.get("cs2_live_team_b", "")))
+                st.session_state["cs2_live_rounds_a"] = int(payload.get("rounds_a", 0))
+                st.session_state["cs2_live_rounds_b"] = int(payload.get("rounds_b", 0))
+                st.session_state["cs2_live_maps_a_won"] = int(payload.get("maps_a_won", 0))
+                st.session_state["cs2_live_maps_b_won"] = int(payload.get("maps_b_won", 0))
+                st.session_state["cs2_live_map_name"] = str(payload.get("map_name", "Average (no map)"))
+                st.session_state["cs2_live_a_side"] = str(payload.get("a_side", "Unknown"))
+                if payload.get("series_fmt") == "BO3":
+                    st.session_state["cs2_live_series_fmt_idx"] = 1
+                elif payload.get("series_fmt") == "BO5":
+                    st.session_state["cs2_live_series_fmt_idx"] = 2
+                elif payload.get("series_fmt") == "BO1":
+                    st.session_state["cs2_live_series_fmt_idx"] = 0
+                if payload.get("round_number") is not None:
+                    try:
+                        st.session_state["cs2_live_round_number"] = int(payload["round_number"])
+                    except (TypeError, ValueError):
+                        pass
+                if "team_a_econ" in payload and "team_b_econ" in payload:
+                    try:
+                        st.session_state["cs2_live_econ_a"] = int(float(payload["team_a_econ"]))
+                        st.session_state["cs2_live_econ_b"] = int(float(payload["team_b_econ"]))
+                    except (TypeError, ValueError):
+                        pass
+        except Exception:
+            pass
+    else:
+        st.session_state["cs2_bo3_feed_error"] = None
+        st.session_state["cs2_bo3_feed_snapshot_status"] = None
+
+    # When auto is on: 7s timer triggers full script rerun (no fragment, so no "fragment does not exist" errors)
+    if st.session_state.get("cs2_bo3_auto_active"):
+        st_autorefresh(interval=7000, limit=None, key="cs2_bo3_autorefresh")
+        # On each run (including 7s tick): if Kalshi, fetch bid/ask and request one chart snapshot
+        if st.session_state.get("cs2_mkt_fetch_venue") == "Kalshi":
+            tkr, _ = _cs2_kalshi_resolve_ticker()
+            if tkr:
+                try:
+                    bid_f, ask_f, meta = fetch_kalshi_bid_ask(tkr)
+                    if bid_f is not None:
+                        st.session_state["cs2_live_market_bid"] = float(bid_f)
+                    if ask_f is not None:
+                        st.session_state["cs2_live_market_ask"] = float(ask_f)
+                    if meta is not None:
+                        st.session_state["cs2_mkt_fetch_meta"] = meta
+                    st.session_state["cs2_auto_add_snapshot_this_run"] = True
+                except Exception:
+                    pass
 
     st.markdown("### K-bands + calibration logging (always visible)")
     l1, l2, l3, l4 = st.columns([1.35, 1.10, 1.05, 1.20])
@@ -2075,6 +2211,189 @@ with tabs[3]:
         cs2_k_scale = st.slider("K scale", 0.50, 2.00, float(st.session_state.get("cs2_inplay_k_scale", 1.00)), 0.05, key="cs2_inplay_k_scale")
     cs2_inplay_notes = st.text_input("Notes (optional)", key="cs2_inplay_notes")
     show_inplay_log_paths()
+
+    # --- Auto data pull (BO3.gg) ---
+    with st.expander("Auto data pull (BO3.gg)", expanded=bool(st.session_state.get("cs2_bo3_auto_active"))):
+        bo3_active = st.session_state.get("cs2_bo3_auto_active", False)
+        if bo3_active:
+            st.success("Auto data pull ON (every 7 s). Live scores and sides are updating from BO3.gg.")
+            # Read feed file for current status so UI matches logs/bo3_live_feed.json
+            feed_err = st.session_state.get("cs2_bo3_feed_error")
+            snap_status = st.session_state.get("cs2_bo3_feed_snapshot_status")
+            if BO3_FEED_FILE.exists():
+                try:
+                    with open(BO3_FEED_FILE, "r", encoding="utf-8") as f:
+                        _feed = json.load(f)
+                    snap_status = _feed.get("snapshot_status", snap_status)
+                    feed_err = _feed.get("error", feed_err)
+                except Exception:
+                    pass
+            # Poller writes "poller_starting" once at start before first fetch; treat as transient
+            if feed_err == "poller_starting":
+                st.info("**Polling starting…** Data and (when Kalshi) market/chart update every 7 s automatically.")
+            else:
+                is_empty = snap_status == "empty" or (feed_err and feed_err != "inactive")
+                if is_empty:
+                    if feed_err and ("empty" in str(feed_err).lower() or "snapshot" in str(feed_err).lower()):
+                        st.info("**Last poll: no snapshot** — match may not be live yet, or BO3.gg returned no data. Rounds/map/economy will update when live. In `logs/bo3_live_feed.json`, `snapshot_status` = empty means not live.")
+                    else:
+                        st.info(f"**Last poll: no snapshot** — {feed_err or 'snapshot_status: empty'}. Match may not be live yet.")
+                else:
+                    st.caption("Last poll: live data received. Rounds, map, side, and economy are updating from the feed.")
+            # Diagnostics: what the app read from the feed (for evaluating auto data pull)
+            with st.expander("Diagnostics", expanded=False):
+                feed_path = str(BO3_FEED_FILE)
+                feed_exists = BO3_FEED_FILE.exists()
+                st.text(f"Feed file path: {feed_path}")
+                st.text(f"File exists: {feed_exists}")
+                if feed_exists:
+                    try:
+                        mtime = BO3_FEED_FILE.stat().st_mtime
+                        st.text(f"Last modified: {datetime.fromtimestamp(mtime).isoformat()} (UTC)")
+                    except Exception:
+                        st.text("Last modified: (could not read)")
+                    try:
+                        with open(BO3_FEED_FILE, "r", encoding="utf-8") as _f:
+                            _d = json.load(_f)
+                        payload_keys = list((_d.get("payload") or {}).keys())
+                        st.text(f"Payload keys: {', '.join(payload_keys) if payload_keys else 'empty'}")
+                        st.text(f"snapshot_status: {_d.get('snapshot_status', '—')}")
+                        st.text(f"error: {_d.get('error', '—')}")
+                    except Exception as e:
+                        st.text(f"Read error: {e}")
+                else:
+                    st.text("Payload keys: (file missing)")
+                    st.text("snapshot_status: —")
+                    st.text("error: —")
+            if st.session_state.get("cs2_mkt_fetch_venue") == "Kalshi":
+                if st.button("Refresh Kalshi + Add snapshot", key="cs2_bo3_refresh_kalshi_snap", help="Fetch Kalshi bid/ask and add one chart point"):
+                    tkr, err = _cs2_kalshi_resolve_ticker()
+                    if err or not tkr:
+                        st.error(err or "Load teams and select a market, or paste a Kalshi URL and click Load teams.")
+                    else:
+                        try:
+                            bid_f, ask_f, meta = fetch_kalshi_bid_ask(tkr)
+                            if bid_f is not None:
+                                st.session_state["cs2_live_market_bid"] = float(bid_f)
+                            if ask_f is not None:
+                                st.session_state["cs2_live_market_ask"] = float(ask_f)
+                            if meta is not None:
+                                st.session_state["cs2_mkt_fetch_meta"] = meta
+                            st.session_state["cs2_auto_add_snapshot_this_run"] = True
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Kalshi + snapshot failed: {e}")
+            if st.button("Deactivate auto data pull", key="cs2_bo3_deactivate"):
+                try:
+                    BO3_CONTROL_FILE.parent.mkdir(parents=True, exist_ok=True)
+                    with open(BO3_CONTROL_FILE, "w", encoding="utf-8") as f:
+                        json.dump({"active": False}, f)
+                except Exception:
+                    pass
+                st.session_state["cs2_bo3_auto_active"] = False
+                st.rerun()
+            st.caption("With auto on: score, status, and (when Kalshi) market + chart update every 7 s. Use **Refresh Kalshi + Add snapshot** above for an immediate update.")
+        else:
+            bo3_matches = st.session_state.get("cs2_bo3_live_matches") or []
+            if st.button("Load live matches", key="cs2_bo3_load_matches"):
+                try:
+                    matches = fetch_bo3_live_matches()
+                    st.session_state["cs2_bo3_live_matches"] = matches
+                    st.session_state["cs2_bo3_load_error"] = None
+                except Exception as e:
+                    st.session_state["cs2_bo3_live_matches"] = []
+                    st.session_state["cs2_bo3_load_error"] = str(e)
+                st.rerun()
+            if st.session_state.get("cs2_bo3_load_error"):
+                st.error(st.session_state["cs2_bo3_load_error"])
+            if not bo3_matches:
+                st.caption("Click **Load live matches** to fetch current BO3.gg live matches.")
+            else:
+                opts = [f"{m.get('team1_name', '?')} vs {m.get('team2_name', '?')} (id: {m.get('id', '')})" for m in bo3_matches]
+                sel_idx = st.selectbox(
+                    "Select match",
+                    range(len(opts)),
+                    format_func=lambda i: opts[i],
+                    key="cs2_bo3_match_idx",
+                )
+                if sel_idx is not None and 0 <= sel_idx < len(bo3_matches):
+                    m = bo3_matches[int(sel_idx)]
+                    team1_name = m.get("team1_name") or "Team 1"
+                    team2_name = m.get("team2_name") or "Team 2"
+                    team_a_choice = st.radio(
+                        "Team A is",
+                        options=[team1_name, team2_name],
+                        index=0,
+                        key="cs2_bo3_team_a_choice",
+                        horizontal=True,
+                    )
+                    if team_a_choice is None:
+                        team_a_choice = team1_name
+                    team_a_is_team_one = team_a_choice == team1_name
+                    if st.button("Activate auto data pull", key="cs2_bo3_activate"):
+                        match_id = m.get("id") or m.get("match_id")
+                        if not match_id:
+                            st.error("No match id.")
+                        else:
+                            try:
+                                BO3_CONTROL_FILE.parent.mkdir(parents=True, exist_ok=True)
+                                with open(BO3_CONTROL_FILE, "w", encoding="utf-8") as f:
+                                    json.dump({
+                                        "active": True,
+                                        "match_id": int(match_id),
+                                        "team_a_is_team_one": team_a_is_team_one,
+                                    }, f)
+                                # Write initial feed so file exists and app can show team names until poller overwrites
+                                team_a_name = team1_name if team_a_is_team_one else team2_name
+                                team_b_name = team2_name if team_a_is_team_one else team1_name
+                                initial_payload = {
+                                    "team_a": team_a_name,
+                                    "team_b": team_b_name,
+                                    "rounds_a": 0,
+                                    "rounds_b": 0,
+                                    "maps_a_won": 0,
+                                    "maps_b_won": 0,
+                                    "map_name": "Average (no map)",
+                                    "a_side": "Unknown",
+                                    "series_fmt": "BO3",
+                                }
+                                BO3_FEED_FILE = PROJECT_ROOT / "logs" / "bo3_live_feed.json"
+                                BO3_FEED_FILE.parent.mkdir(parents=True, exist_ok=True)
+                                with open(BO3_FEED_FILE, "w", encoding="utf-8") as f:
+                                    json.dump({"timestamp": time.time(), "payload": initial_payload}, f, indent=2)
+                                st.session_state["cs2_bo3_auto_active"] = True
+                                st.session_state["cs2_bo3_pending_match_id"] = str(match_id)
+                                # Set initial live fields so they show after rerun even if poller overwrites feed with empty payload
+                                st.session_state["cs2_live_team_a"] = team_a_name
+                                st.session_state["cs2_live_team_b"] = team_b_name
+                                st.session_state["cs2_live_rounds_a"] = 0
+                                st.session_state["cs2_live_rounds_b"] = 0
+                                st.session_state["cs2_live_maps_a_won"] = 0
+                                st.session_state["cs2_live_maps_b_won"] = 0
+                                st.session_state["cs2_live_map_name"] = "Average (no map)"
+                                st.session_state["cs2_live_a_side"] = "Unknown"
+                                st.session_state["cs2_live_series_fmt_idx"] = 1
+                                st.session_state["cs2_live_econ_a"] = 0
+                                st.session_state["cs2_live_econ_b"] = 0
+                                # Start poller subprocess (runs in background).
+                                # Run as script (bo3.gg is a folder name, not package bo3.gg for -m).
+                                try:
+                                    env = os.environ.copy()
+                                    env["PYTHONPATH"] = str(PROJECT_ROOT)
+                                    poller_script = PROJECT_ROOT / "bo3.gg" / "poller.py"
+                                    subprocess.Popen(
+                                        [sys.executable, str(poller_script)],
+                                        cwd=str(PROJECT_ROOT),
+                                        env=env,
+                                        stdin=subprocess.DEVNULL,
+                                        stdout=subprocess.DEVNULL,
+                                        stderr=subprocess.DEVNULL,
+                                    )
+                                except Exception:
+                                    pass
+                                st.rerun()
+                            except Exception as e:
+                                st.error(str(e))
 
     # --- K calibration controls (optional) ---
     calib = load_kappa_calibration()
@@ -2184,11 +2503,35 @@ with tabs[3]:
     map_name = None if str(map_sel) == "Average (no map)" else str(map_sel)
     a_side = None if str(a_side_sel) == "Unknown" else str(a_side_sel)
 
+    # BO3 ECON INTEGRATION — helper for team total money from player list (balance only; safe parsing)
+    def _compute_team_total_money_from_players(players):
+        if not players or not isinstance(players, list):
+            return 0.0
+        total = 0.0
+        for p in players:
+            if not isinstance(p, dict):
+                continue
+            b = p.get("balance")
+            try:
+                total += float(b if b is not None else 0)
+            except (TypeError, ValueError):
+                pass
+        return total
 
-    # Faster economy input (buy state) — avoids typing exact $ totals during buy time.
+    # BO3 ECON INTEGRATION — economy source: Manual (legacy) or Auto from BO3 feed (team total money)
+    ECONOMY_SOURCE_LEGACY = "Manual Buy-State (legacy)"
+    ECONOMY_SOURCE_BO3 = "Auto from BO3 feed (team total money)"
+    economy_source = st.radio(
+        "Economy source",
+        [ECONOMY_SOURCE_LEGACY, ECONOMY_SOURCE_BO3],
+        index=0,
+        key="cs2_economy_source",
+        horizontal=True,
+        help="Manual: use buy-state dropdowns. Auto: use team total money from BO3 feed when available.",
+    )
+    # Faster economy input (buy state) — legacy path; dropdowns always visible for fallback + comparison
     BUY_STATES = ["Skip/Unknown", "Eco", "Light", "Full (fragile)", "Full", "Full+Save"]
     BUY_STATE_TO_ECON = {
-        # Rough team-total proxies (MR12). Tune later if you want.
         "Skip/Unknown": 0.0,
         "Eco": 3500.0,
         "Light": 6500.0,
@@ -2200,22 +2543,42 @@ with tabs[3]:
         st.session_state["cs2_live_buy_a"] = "Skip/Unknown"
     if "cs2_live_buy_b" not in st.session_state:
         st.session_state["cs2_live_buy_b"] = "Skip/Unknown"
-
     with c3:
         buy_a = st.selectbox("Team A buy state", BUY_STATES, key="cs2_live_buy_a")
     with c4:
         buy_b = st.selectbox("Team B buy state", BUY_STATES, key="cs2_live_buy_b")
+    manual_econ_a = float(BUY_STATE_TO_ECON.get(str(buy_a), 0.0))
+    manual_econ_b = float(BUY_STATE_TO_ECON.get(str(buy_b), 0.0))
 
-    econ_a = float(BUY_STATE_TO_ECON.get(str(buy_a), 0.0))
-    econ_b = float(BUY_STATE_TO_ECON.get(str(buy_b), 0.0))
+    # BO3 ECON INTEGRATION — choose econ_a/econ_b: Auto from feed when available, else fall back to manual
+    if economy_source == ECONOMY_SOURCE_BO3 and "cs2_live_econ_a" in st.session_state and "cs2_live_econ_b" in st.session_state:
+        try:
+            econ_a = float(st.session_state["cs2_live_econ_a"])
+            econ_b = float(st.session_state["cs2_live_econ_b"])
+            econ_source_used = "bo3_balance"
+            team_a_money_total = econ_a
+            team_b_money_total = econ_b
+        except (TypeError, ValueError):
+            econ_a = manual_econ_a
+            econ_b = manual_econ_b
+            econ_source_used = "manual"
+            team_a_money_total = manual_econ_a
+            team_b_money_total = manual_econ_b
+    else:
+        econ_a = manual_econ_a
+        econ_b = manual_econ_b
+        econ_source_used = "manual"
+        team_a_money_total = econ_a
+        team_b_money_total = econ_b
+        st.session_state["cs2_live_econ_a"] = int(econ_a)
+        st.session_state["cs2_live_econ_b"] = int(econ_b)
+
     econ_missing = (str(buy_a) == "Skip/Unknown") or (str(buy_b) == "Skip/Unknown")
     econ_fragile = (str(buy_a) == "Full (fragile)") or (str(buy_b) == "Full (fragile)")
-
-    # Keep numeric econ in session_state for downstream calcs / exports.
-    st.session_state["cs2_live_econ_a"] = int(econ_a)
-    st.session_state["cs2_live_econ_b"] = int(econ_b)
-
-    st.caption(f"Econ proxy (from buy states): A=${econ_a:,.0f}, B=${econ_b:,.0f} — set Skip/Unknown to widen bands and avoid false precision.")
+    if economy_source == ECONOMY_SOURCE_BO3 and econ_source_used == "bo3_balance":
+        st.caption(f"Econ from BO3 feed: A=${econ_a:,.0f}, B=${econ_b:,.0f} — switch to Manual to use buy-state dropdown.")
+    else:
+        st.caption(f"Econ proxy (from buy states): A=${econ_a:,.0f}, B=${econ_b:,.0f} — set Skip/Unknown to widen bands and avoid false precision.")
 
     colP1, colP2, colChaos = st.columns(3)
     with colP1:
@@ -2248,6 +2611,7 @@ with tabs[3]:
         with colF3:
             load_markets = st.button("Load teams", key="cs2_kalshi_load", use_container_width=True)
             refresh_prices = st.button("Refresh bid/ask", key="cs2_kalshi_refresh", use_container_width=True)
+            refresh_and_snap = st.button("Refresh Kalshi + Add snapshot", key="cs2_kalshi_refresh_and_snap", use_container_width=True)
 
         # Load markets (team contracts) for the event ticker derived from the URL.
         if load_markets:
@@ -2283,32 +2647,39 @@ with tabs[3]:
 
         # Refresh prices (fills Team A bid/ask inputs below)
         if refresh_prices:
-            try:
-                tkr = st.session_state.get("cs2_kalshi_market")
-                if not tkr:
-                    # If the user pasted a URL but didn't click "Load teams" yet, auto-load once.
-                    if not st.session_state.get("cs2_kalshi_markets"):
-                        kalshi_url2 = st.session_state.get("cs2_kalshi_url", "")
-                        if kalshi_url2:
-                            ev2 = _kalshi_parse_event_ticker(kalshi_url2)
-                            markets2 = kalshi_list_markets_for_event(ev2)
-                            st.session_state["cs2_kalshi_markets"] = markets2
-                            # Safe here because the selectbox isn't created unless markets exist.
-                            st.session_state["cs2_kalshi_market"] = markets2[0]["ticker"]
-                            tkr = markets2[0]["ticker"]
-                    if not tkr:
-                        raise ValueError("Paste a Kalshi URL, click Load teams, then pick a team market.")
-                bid_f, ask_f, meta = fetch_kalshi_bid_ask(tkr)
+            tkr, err = _cs2_kalshi_resolve_ticker()
+            if err or not tkr:
+                st.error(err or "Load teams and select a market, or paste a Kalshi URL and click Load teams.")
+            else:
+                try:
+                    bid_f, ask_f, meta = fetch_kalshi_bid_ask(tkr)
+                    if bid_f is not None:
+                        st.session_state["cs2_live_market_bid"] = float(bid_f)
+                    if ask_f is not None:
+                        st.session_state["cs2_live_market_ask"] = float(ask_f)
+                    st.session_state["cs2_mkt_fetch_meta"] = meta
+                    st.success("Kalshi bid/ask updated.")
+                except Exception as e:
+                    st.error(f"Kalshi refresh failed: {e}")
 
-                if bid_f is not None:
-                    st.session_state["cs2_live_market_bid"] = float(bid_f)
-                if ask_f is not None:
-                    st.session_state["cs2_live_market_ask"] = float(ask_f)
-
-                st.session_state["cs2_mkt_fetch_meta"] = meta
-                st.success("Kalshi bid/ask updated.")
-            except Exception as e:
-                st.error(f"Kalshi refresh failed: {e}")
+        # Refresh Kalshi + add one chart snapshot (one click: fetch bid/ask then rerun to add snapshot)
+        if refresh_and_snap:
+            tkr, err = _cs2_kalshi_resolve_ticker()
+            if err or not tkr:
+                st.error(err or "Load teams and select a market, or paste a Kalshi URL and click Load teams.")
+            else:
+                try:
+                    bid_f, ask_f, meta = fetch_kalshi_bid_ask(tkr)
+                    if bid_f is not None:
+                        st.session_state["cs2_live_market_bid"] = float(bid_f)
+                    if ask_f is not None:
+                        st.session_state["cs2_live_market_ask"] = float(ask_f)
+                    if meta is not None:
+                        st.session_state["cs2_mkt_fetch_meta"] = meta
+                    st.session_state["cs2_auto_add_snapshot_this_run"] = True
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Kalshi + snapshot failed: {e}")
 
     else:
         with colF2:
@@ -2489,7 +2860,12 @@ with tabs[3]:
 
     colAdd, colClear, colExport = st.columns(3)
     with colAdd:
-        if st.button("Add snapshot"):
+        _do_add_snapshot = (
+            st.button("Add snapshot")
+            or (bool(st.session_state.get("cs2_auto_add_snapshot_this_run")) and bool(st.session_state.get("cs2_bo3_auto_active")))
+        )
+        if _do_add_snapshot:
+            st.session_state["cs2_auto_add_snapshot_this_run"] = False
             total_rounds_logged = int(rounds_a) + int(rounds_b)
             prev_total = st.session_state.get("cs2_inplay_last_total_rounds")
             gap_rounds = 0
@@ -2526,6 +2902,10 @@ with tabs[3]:
                 "gap_rounds": int(gap_rounds),
                 "econ_a": float(econ_a),
                 "econ_b": float(econ_b),
+                # BO3 ECON INTEGRATION — optional debug fields for snapshot row
+                "econ_source_used": econ_source_used,
+                "team_a_money_total": float(team_a_money_total),
+                "team_b_money_total": float(team_b_money_total),
                 "p0_series": float(p0_series) if 'p0_series' in locals() else float(p0_map),
                 "p0_map": float(p0_map),
                 "p_hat_map": float(p_hat_map),
@@ -2722,6 +3102,10 @@ with colClear:
             # Overlay backtest entry/exit for current match when we have trades and snapshot_ts for alignment
             cs2_match_id = str(st.session_state.get("cs2_inplay_match_id", "")).strip()
             bt_trades = st.session_state.get("inplay_bt_trades") or {}
+            if not bt_trades and cs2_match_id:
+                bt_trades = _load_inplay_trades_from_disk(PROJECT_ROOT / "logs")
+                if bt_trades:
+                    st.session_state["inplay_bt_trades"] = bt_trades
             has_ts = "snapshot_ts" in chart_df.columns and chart_df["snapshot_ts"].notna().any()
             _strategy_styles_cs2 = {
                 "S1_mr_to_entry_fair": {"color": "#22c55e", "sym_l": "triangle-up", "sym_s": "triangle-down"},
@@ -3494,6 +3878,10 @@ with colClear:
                 fig_val.add_trace(go.Scatter(x=t_vals, y=plot_df["p_hat_cal"].tolist(), name="p_hat_cal", mode="lines"))
             val_match_id = str(st.session_state.get("val_inplay_match_id", "")).strip()
             bt_trades = st.session_state.get("inplay_bt_trades") or {}
+            if not bt_trades and val_match_id:
+                bt_trades = _load_inplay_trades_from_disk(PROJECT_ROOT / "logs")
+                if bt_trades:
+                    st.session_state["inplay_bt_trades"] = bt_trades
             has_ts = "snapshot_ts" in chart_df.columns and chart_df["snapshot_ts"].notna().any()
             _strategy_styles_val = {
                 "S1_mr_to_entry_fair": {"color": "#22c55e", "sym_l": "triangle-up", "sym_s": "triangle-down"},
