@@ -1,0 +1,125 @@
+{
+  "kind": "OBJECT",
+  "name": "Team",
+  "fields": [
+    {
+      "name": "id",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "ID"
+        }
+      }
+    },
+    {
+      "name": "name",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "String"
+        }
+      }
+    },
+    {
+      "name": "nameShortened",
+      "type": {
+        "kind": "SCALAR",
+        "name": "String"
+      }
+    },
+    {
+      "name": "colorPrimary",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "HexColor"
+        }
+      }
+    },
+    {
+      "name": "colorSecondary",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "HexColor"
+        }
+      }
+    },
+    {
+      "name": "logoUrl",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "Url"
+        }
+      }
+    },
+    {
+      "name": "rating",
+      "type": {
+        "kind": "SCALAR",
+        "name": "Float"
+      }
+    },
+    {
+      "name": "externalLinks",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "LIST"
+        }
+      }
+    },
+    {
+      "name": "titles",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "LIST"
+        }
+      }
+    },
+    {
+      "name": "title",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "OBJECT",
+          "name": "Title"
+        }
+      }
+    },
+    {
+      "name": "organization",
+      "type": {
+        "kind": "OBJECT",
+        "name": "OrganizationRelation"
+      }
+    },
+    {
+      "name": "private",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "Boolean"
+        }
+      }
+    },
+    {
+      "name": "updatedAt",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "DateTime"
+        }
+      }
+    }
+  ]
+}

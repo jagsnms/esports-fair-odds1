@@ -1,0 +1,75 @@
+{
+  "data": {
+    "allSeries": {
+      "totalCount": 17604,
+      "edges": [
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFCwtaCwtFR0VBWkdFWkVFI0dOTUZHTURDLQ==",
+          "node": {
+            "id": "2"
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFTkdGT0ZBCwtaCwtFR0VBWkdFWkVFI0dOTUdHTUdHLQ==",
+          "node": {
+            "id": "2901816"
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFT05PTkBGCwtaCwtFR0VBWkdFWkVFI0dOTUdHTUdHLQ==",
+          "node": {
+            "id": "2898971"
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFT05ER0ZACwtaCwtFR0VBWkdFWkVFI0dOTUdHTUdHLQ==",
+          "node": {
+            "id": "2893017"
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtOTgsLWgsLRUdFQVpHRVpFRSNHT01CQ01FQS0=",
+          "node": {
+            "id": "99"
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFTkdFQE5DCwtaCwtFR0VBWkdFWkVFI0dPTUdHTUdHLQ==",
+          "node": {
+            "id": "2902794"
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFTwsLWgsLRUdFQVpHRVpFRSNHQE1DRk1CRi0=",
+          "node": {
+            "id": "28"
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFT05ER0ZBCwtaCwtFR0VBWkdFWkVFI0dATUdHTUdHLQ==",
+          "node": {
+            "id": "2893016"
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFTkdFTk9FCwtaCwtFR0VBWkdFWkVFI0dFTUdHTUdHLQ==",
+          "node": {
+            "id": "2902982"
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFTkdFQEZBCwtaCwtFR0VBWkdFWkVGI0VFTUdHTUdHLQ==",
+          "node": {
+            "id": "2902716"
+          }
+        }
+      ],
+      "pageInfo": {
+        "hasNextPage": true,
+        "hasPreviousPage": false,
+        "startCursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFCwtaCwtFR0VBWkdFWkVFI0dOTUZHTURDLQ==",
+        "endCursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFTkdFQEZBCwtaCwtFR0VBWkdFWkVGI0VFTUdHTUdHLQ=="
+      }
+    }
+  }
+}

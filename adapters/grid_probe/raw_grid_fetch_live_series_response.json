@@ -1,0 +1,1442 @@
+{
+  "data": {
+    "allSeries": {
+      "totalCount": 17604,
+      "edges": [
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFCwtaCwtFR0VBWkdFWkVFI0dOTUZHTURDLQ==",
+          "node": {
+            "id": "2",
+            "title": {
+              "name": "Defense of the Ancients 2",
+              "nameShortened": "dota"
+            },
+            "type": "LOOPFEED",
+            "updatedAt": "2026-02-22T09:10:50Z",
+            "startTimeScheduled": "2026-02-22T09:10:34Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "771",
+                  "name": "DOTA-1"
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "772",
+                  "name": "DOTA-2"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFTkdGT0ZBCwtaCwtFR0VBWkdFWkVFI0dOTUdHTUdHLQ==",
+          "node": {
+            "id": "2901816",
+            "title": {
+              "name": "Counter Strike 2",
+              "nameShortened": "cs2"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-22T08:39:26Z",
+            "startTimeScheduled": "2026-02-22T09:00:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "56727",
+                  "name": "ex-FUT AC",
+                  "nameShortened": ""
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "56744",
+                  "name": "FOKUS REALITY",
+                  "nameShortened": ""
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFT05PTkBGCwtaCwtFR0VBWkdFWkVFI0dOTUdHTUdHLQ==",
+          "node": {
+            "id": "2898971",
+            "title": {
+              "name": "Counter Strike 2",
+              "nameShortened": "cs2"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-22T08:41:44Z",
+            "startTimeScheduled": "2026-02-22T09:00:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "50177",
+                  "name": "los kogutos"
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "56748",
+                  "name": "Fuzos",
+                  "nameShortened": ""
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFT05ER0ZACwtaCwtFR0VBWkdFWkVFI0dOTUdHTUdHLQ==",
+          "node": {
+            "id": "2893017",
+            "title": {
+              "name": "Counter Strike 2",
+              "nameShortened": "cs2"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-22T08:02:44Z",
+            "startTimeScheduled": "2026-02-22T09:00:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "55691",
+                  "name": "Speedrunners",
+                  "nameShortened": ""
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "55692",
+                  "name": "Shots Fired",
+                  "nameShortened": ""
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtOTgsLWgsLRUdFQVpHRVpFRSNHT01CQ01FQS0=",
+          "node": {
+            "id": "99",
+            "title": {
+              "name": "Counter Strike 2",
+              "nameShortened": "cs2"
+            },
+            "type": "LOOPFEED",
+            "updatedAt": "2026-02-22T08:54:49Z",
+            "startTimeScheduled": "2026-02-22T08:54:26Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "52314",
+                  "name": "CS2-1"
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "52315",
+                  "name": "CS2-2"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFTkdFQE5DCwtaCwtFR0VBWkdFWkVFI0dPTUdHTUdHLQ==",
+          "node": {
+            "id": "2902794",
+            "title": {
+              "name": "Counter Strike 2",
+              "nameShortened": "cs2"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-22T09:22:45Z",
+            "startTimeScheduled": "2026-02-22T08:00:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "52009",
+                  "name": "Mindfreak",
+                  "nameShortened": ""
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "50103",
+                  "name": "BBBMBCBS"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFTwsLWgsLRUdFQVpHRVpFRSNHQE1DRk1CRi0=",
+          "node": {
+            "id": "28",
+            "title": {
+              "name": "Counter Strike 2",
+              "nameShortened": "cs2"
+            },
+            "type": "LOOPFEED",
+            "updatedAt": "2026-02-22T07:41:57Z",
+            "startTimeScheduled": "2026-02-22T07:41:51Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "52314",
+                  "name": "CS2-1"
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "52315",
+                  "name": "CS2-2"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFT05ER0ZBCwtaCwtFR0VBWkdFWkVFI0dATUdHTUdHLQ==",
+          "node": {
+            "id": "2893016",
+            "title": {
+              "name": "Counter Strike 2",
+              "nameShortened": "cs2"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-22T08:01:21Z",
+            "startTimeScheduled": "2026-02-22T07:00:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "55692",
+                  "name": "Shots Fired",
+                  "nameShortened": ""
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "55691",
+                  "name": "Speedrunners",
+                  "nameShortened": ""
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFTkdFTk9FCwtaCwtFR0VBWkdFWkVFI0dFTUdHTUdHLQ==",
+          "node": {
+            "id": "2902982",
+            "title": {
+              "name": "Counter Strike 2",
+              "nameShortened": "cs2"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-22T03:49:56Z",
+            "startTimeScheduled": "2026-02-22T02:00:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "54545",
+                  "name": "Marsborne",
+                  "nameShortened": ""
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "51746",
+                  "name": "Zomblers LLC",
+                  "nameShortened": "Zomblers"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFTkdFQEZBCwtaCwtFR0VBWkdFWkVGI0VFTUdHTUdHLQ==",
+          "node": {
+            "id": "2902716",
+            "title": {
+              "name": "Counter Strike 2",
+              "nameShortened": "cs2"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-21T23:54:57Z",
+            "startTimeScheduled": "2026-02-21T22:00:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "52023",
+                  "name": "ODDIK"
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "52002",
+                  "name": "YNG Sharks Esports",
+                  "nameShortened": "YNG Sharks"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFTkdFT09ECwtaCwtFR0VBWkdFWkVGI0VHTUdCTUdHLQ==",
+          "node": {
+            "id": "2902883",
+            "title": {
+              "name": "Counter Strike 2",
+              "nameShortened": "cs2"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-21T21:53:23Z",
+            "startTimeScheduled": "2026-02-21T20:05:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "52068",
+                  "name": "Aurora YB",
+                  "nameShortened": ""
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "50780",
+                  "name": "Millenium"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFTkdHRkBPCwtaCwtFR0VBWkdFWkVGI0VHTUdHTUdHLQ==",
+          "node": {
+            "id": "2900178",
+            "title": {
+              "name": "Defense of the Ancients 2",
+              "nameShortened": "dota"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-21T21:57:31Z",
+            "startTimeScheduled": "2026-02-21T20:00:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "53014",
+                  "name": "Team Falcons",
+                  "nameShortened": ""
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "4023",
+                  "name": "BetBoom Team",
+                  "nameShortened": ""
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFTkdFT09DCwtaCwtFR0VBWkdFWkVGI0ZOTUZCTUdHLQ==",
+          "node": {
+            "id": "2902884",
+            "title": {
+              "name": "Counter Strike 2",
+              "nameShortened": "cs2"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-21T21:09:08Z",
+            "startTimeScheduled": "2026-02-21T19:15:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "56741",
+                  "name": "yngods",
+                  "nameShortened": ""
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "56566",
+                  "name": "rottweilers",
+                  "nameShortened": ""
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFTkdFT0RCCwtaCwtFR0VBWkdFWkVGI0ZOTUZCTUdHLQ==",
+          "node": {
+            "id": "2902835",
+            "title": {
+              "name": "Counter Strike 2",
+              "nameShortened": "cs2"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-21T20:26:37Z",
+            "startTimeScheduled": "2026-02-21T19:15:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "56168",
+                  "name": "FOLHA AMARELA ",
+                  "nameShortened": ""
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "56753",
+                  "name": "Damajuana",
+                  "nameShortened": ""
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFTkdDQkRDCwtaCwtFR0VBWkdFWkVGI0ZOTUdHTUdHLQ==",
+          "node": {
+            "id": "2904534",
+            "title": {
+              "name": "Defense of the Ancients 2",
+              "nameShortened": "dota"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-21T22:15:59Z",
+            "startTimeScheduled": "2026-02-21T19:00:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "52994",
+                  "name": "Team Hryvnia",
+                  "nameShortened": ""
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "56366",
+                  "name": "Team Spirit Academy",
+                  "nameShortened": ""
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFTkdFQEBOCwtaCwtFR0VBWkdFWkVGI0ZPTUdHTUdHLQ==",
+          "node": {
+            "id": "2902779",
+            "title": {
+              "name": "Counter Strike 2",
+              "nameShortened": "cs2"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-21T21:13:48Z",
+            "startTimeScheduled": "2026-02-21T18:00:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "56500",
+                  "name": "illwill",
+                  "nameShortened": ""
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "54537",
+                  "name": "Leo Team",
+                  "nameShortened": ""
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFTkdFQEBPCwtaCwtFR0VBWkdFWkVGI0ZPTUdHTUdHLQ==",
+          "node": {
+            "id": "2902778",
+            "title": {
+              "name": "Counter Strike 2",
+              "nameShortened": "cs2"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-21T20:39:24Z",
+            "startTimeScheduled": "2026-02-21T18:00:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "52337",
+                  "name": "Alliance",
+                  "nameShortened": ""
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "51536",
+                  "name": "GenOne"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFT05ATkVGCwtaCwtFR0VBWkdFWkVGI0ZPTUdHTUdHLQ==",
+          "node": {
+            "id": "2897921",
+            "title": {
+              "name": "Counter Strike 2",
+              "nameShortened": "cs2"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-21T21:21:03Z",
+            "startTimeScheduled": "2026-02-21T18:00:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "56694",
+                  "name": "ASTRAL",
+                  "nameShortened": ""
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "53967",
+                  "name": "kONO",
+                  "nameShortened": "kONO"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFTkdHRkBACwtaCwtFR0VBWkdFWkVGI0ZATUZATUdHLQ==",
+          "node": {
+            "id": "2900177",
+            "title": {
+              "name": "Defense of the Ancients 2",
+              "nameShortened": "dota"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-21T19:26:48Z",
+            "startTimeScheduled": "2026-02-21T17:17:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "53008",
+                  "name": "Aurora",
+                  "nameShortened": ""
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "54204",
+                  "name": "Parivision",
+                  "nameShortened": "PVN"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFTkdDTkFPCwtaCwtFR0VBWkdFWkVGI0ZATUdHTUdHLQ==",
+          "node": {
+            "id": "2904968",
+            "title": {
+              "name": "Counter Strike 2",
+              "nameShortened": "cs2"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-21T17:35:03Z",
+            "startTimeScheduled": "2026-02-21T17:00:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "56235",
+                  "name": "QWENTRY",
+                  "nameShortened": ""
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "56697",
+                  "name": "SUNFALL",
+                  "nameShortened": ""
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFTkdDTkFACwtaCwtFR0VBWkdFWkVGI0ZATUdHTUdHLQ==",
+          "node": {
+            "id": "2904967",
+            "title": {
+              "name": "Counter Strike 2",
+              "nameShortened": "cs2"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-21T17:50:09Z",
+            "startTimeScheduled": "2026-02-21T17:00:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "56544",
+                  "name": "eLITenergy",
+                  "nameShortened": ""
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "55639",
+                  "name": "LFO",
+                  "nameShortened": ""
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFT09CRUdHCwtaCwtFR0VBWkdFWkVGI0ZBTUNHTUdHLQ==",
+          "node": {
+            "id": "2885200",
+            "title": {
+              "name": "Counter Strike 2",
+              "nameShortened": "cs2"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-21T18:20:21Z",
+            "startTimeScheduled": "2026-02-21T16:40:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "55754",
+                  "name": "KOLESIE",
+                  "nameShortened": "KOL"
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "52040",
+                  "name": "BRUTE",
+                  "nameShortened": ""
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFTkdFT0RDCwtaCwtFR0VBWkdFWkVGI0ZBTURATUdHLQ==",
+          "node": {
+            "id": "2902834",
+            "title": {
+              "name": "Counter Strike 2",
+              "nameShortened": "cs2"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-21T17:09:09Z",
+            "startTimeScheduled": "2026-02-21T16:37:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "55765",
+                  "name": "Bad Luck",
+                  "nameShortened": "BL"
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "50197",
+                  "name": "Elites"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFTkdFT09GCwtaCwtFR0VBWkdFWkVGI0ZBTURHTUdHLQ==",
+          "node": {
+            "id": "2902881",
+            "title": {
+              "name": "Counter Strike 2",
+              "nameShortened": "cs2"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-21T19:50:03Z",
+            "startTimeScheduled": "2026-02-21T16:30:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "56739",
+                  "name": "jeleznienoji",
+                  "nameShortened": ""
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "56740",
+                  "name": "Drama eSports",
+                  "nameShortened": ""
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFTkdDTkBECwtaCwtFR0VBWkdFWkVGI0ZBTUdHTUdHLQ==",
+          "node": {
+            "id": "2904973",
+            "title": {
+              "name": "Defense of the Ancients 2",
+              "nameShortened": "dota"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-21T18:10:29Z",
+            "startTimeScheduled": "2026-02-21T16:00:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "56381",
+                  "name": "Amaru Gaming",
+                  "nameShortened": "AG"
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "1187",
+                  "name": "Yellow Submarine"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFT05ATkVHCwtaCwtFR0VBWkdFWkVGI0ZCTUdHTUdHLQ==",
+          "node": {
+            "id": "2897920",
+            "title": {
+              "name": "Counter Strike 2",
+              "nameShortened": "cs2"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-21T17:45:25Z",
+            "startTimeScheduled": "2026-02-21T15:00:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "55476",
+                  "name": "FORZE Reload",
+                  "nameShortened": ""
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "56386",
+                  "name": "Bebop",
+                  "nameShortened": ""
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFTkdER0ZGCwtaCwtFR0VBWkdFWkVGI0ZDTUNCTUdHLQ==",
+          "node": {
+            "id": "2903011",
+            "title": {
+              "name": "Counter Strike 2",
+              "nameShortened": "cs2"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-21T15:32:25Z",
+            "startTimeScheduled": "2026-02-21T14:45:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "55838",
+                  "name": "Boring Players",
+                  "nameShortened": "BP"
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "55276",
+                  "name": "The QUBE Esports",
+                  "nameShortened": "QUBE"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFTkdER0ZFCwtaCwtFR0VBWkdFWkVGI0ZDTUdHTUdHLQ==",
+          "node": {
+            "id": "2903012",
+            "title": {
+              "name": "Counter Strike 2",
+              "nameShortened": "cs2"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-21T16:13:58Z",
+            "startTimeScheduled": "2026-02-21T14:00:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "53767",
+                  "name": "Chinggis Warriors",
+                  "nameShortened": "CW"
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "55274",
+                  "name": "Change The Game",
+                  "nameShortened": "CTG"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFT09CRk5OCwtaCwtFR0VBWkdFWkVGI0ZDTUdHTUdHLQ==",
+          "node": {
+            "id": "2885199",
+            "title": {
+              "name": "Counter Strike 2",
+              "nameShortened": "cs2"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-21T16:24:32Z",
+            "startTimeScheduled": "2026-02-21T14:00:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "51108",
+                  "name": "ECSTATIC"
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "49997",
+                  "name": "MASONIC"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFTkdHRkBBCwtaCwtFR0VBWkdFWkVGI0ZETURHTUdHLQ==",
+          "node": {
+            "id": "2900176",
+            "title": {
+              "name": "Defense of the Ancients 2",
+              "nameShortened": "dota"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-21T16:34:02Z",
+            "startTimeScheduled": "2026-02-21T13:30:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "47374",
+                  "name": "MOUZ"
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "1546",
+                  "name": "Tundra Esports"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFTkdDTkBFCwtaCwtFR0VBWkdFWkVGI0ZETUdHTUdHLQ==",
+          "node": {
+            "id": "2904972",
+            "title": {
+              "name": "Defense of the Ancients 2",
+              "nameShortened": "dota"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-21T15:10:21Z",
+            "startTimeScheduled": "2026-02-21T13:00:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "47405",
+                  "name": "NaVi Junior"
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "56749",
+                  "name": "LiXO eSports",
+                  "nameShortened": ""
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFTkdFT0RECwtaCwtFR0VBWkdFWkVGI0ZETUdHTUdHLQ==",
+          "node": {
+            "id": "2902833",
+            "title": {
+              "name": "Counter Strike 2",
+              "nameShortened": "cs2"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-21T15:51:41Z",
+            "startTimeScheduled": "2026-02-21T13:00:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "56162",
+                  "name": "LP",
+                  "nameShortened": ""
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "49687",
+                  "name": "Isurus Gaming"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFT05ER0ZCCwtaCwtFR0VBWkdFWkVGI0ZETUdHTUdHLQ==",
+          "node": {
+            "id": "2893015",
+            "title": {
+              "name": "Counter Strike 2",
+              "nameShortened": "cs2"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-21T14:10:33Z",
+            "startTimeScheduled": "2026-02-21T13:00:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "56240",
+                  "name": "Blaze Tracers",
+                  "nameShortened": "Blaze Tracers"
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "55691",
+                  "name": "Speedrunners",
+                  "nameShortened": ""
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFT05PTkBHCwtaCwtFR0VBWkdFWkVGI0ZFTUVHTUdHLQ==",
+          "node": {
+            "id": "2898970",
+            "title": {
+              "name": "Counter Strike 2",
+              "nameShortened": "cs2"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-21T14:45:09Z",
+            "startTimeScheduled": "2026-02-21T12:20:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "56695",
+                  "name": "ex-Zero Tenacity",
+                  "nameShortened": ""
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "56689",
+                  "name": "Oxuji",
+                  "nameShortened": ""
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFT05ER0ZDCwtaCwtFR0VBWkdFWkVGI0ZGTUdHTUdHLQ==",
+          "node": {
+            "id": "2893014",
+            "title": {
+              "name": "Counter Strike 2",
+              "nameShortened": "cs2"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-21T12:13:20Z",
+            "startTimeScheduled": "2026-02-21T11:00:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "55691",
+                  "name": "Speedrunners",
+                  "nameShortened": ""
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "56240",
+                  "name": "Blaze Tracers",
+                  "nameShortened": "Blaze Tracers"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFTkdFQE5ECwtaCwtFR0VBWkdFWkVGI0ZHTURHTUdHLQ==",
+          "node": {
+            "id": "2902793",
+            "title": {
+              "name": "Counter Strike 2",
+              "nameShortened": "cs2"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-21T12:03:31Z",
+            "startTimeScheduled": "2026-02-21T10:30:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "55706",
+                  "name": "LELUX",
+                  "nameShortened": "LE-LUX"
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "56724",
+                  "name": "Skele",
+                  "nameShortened": ""
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFTkdHRkBCCwtaCwtFR0VBWkdFWkVGI0ZHTURHTUdHLQ==",
+          "node": {
+            "id": "2900175",
+            "title": {
+              "name": "Defense of the Ancients 2",
+              "nameShortened": "dota"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-21T12:13:06Z",
+            "startTimeScheduled": "2026-02-21T10:30:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "47361",
+                  "name": "Team Liquid",
+                  "nameShortened": "TL"
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "1451",
+                  "name": "Xtreme Gaming"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFTkdDTkBGCwtaCwtFR0VBWkdFWkVGI0ZHTUdHTUdHLQ==",
+          "node": {
+            "id": "2904971",
+            "title": {
+              "name": "Defense of the Ancients 2",
+              "nameShortened": "dota"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-21T12:01:43Z",
+            "startTimeScheduled": "2026-02-21T10:00:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "54613",
+                  "name": "Team Lynx",
+                  "nameShortened": ""
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "56549",
+                  "name": "alohasquad",
+                  "nameShortened": "alohasquad"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFTkdFQU9PCwtaCwtFR0VBWkdFWkVGI0ZHTUdHTUdHLQ==",
+          "node": {
+            "id": "2902688",
+            "title": {
+              "name": "Counter Strike 2",
+              "nameShortened": "cs2"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-21T12:56:56Z",
+            "startTimeScheduled": "2026-02-21T10:00:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "52009",
+                  "name": "Mindfreak",
+                  "nameShortened": ""
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "55719",
+                  "name": "Underground ESC",
+                  "nameShortened": ""
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFTkdGT0ZDCwtaCwtFR0VBWkdFWkVGI0dOTUdHTUdHLQ==",
+          "node": {
+            "id": "2901814",
+            "title": {
+              "name": "Counter Strike 2",
+              "nameShortened": "cs2"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-21T13:05:46Z",
+            "startTimeScheduled": "2026-02-21T09:00:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "53084",
+                  "name": "Navi Junior",
+                  "nameShortened": ""
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "54200",
+                  "name": "KUUSAMO",
+                  "nameShortened": "KUUSAMO"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFT05PTkFOCwtaCwtFR0VBWkdFWkVGI0dOTUdHTUdHLQ==",
+          "node": {
+            "id": "2898969",
+            "title": {
+              "name": "Counter Strike 2",
+              "nameShortened": "cs2"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-21T12:29:00Z",
+            "startTimeScheduled": "2026-02-21T09:00:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "56563",
+                  "name": "ex-RUBY",
+                  "nameShortened": ""
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "55476",
+                  "name": "FORZE Reload",
+                  "nameShortened": ""
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFT05ER0ZECwtaCwtFR0VBWkdFWkVGI0dOTUdHTUdHLQ==",
+          "node": {
+            "id": "2893013",
+            "title": {
+              "name": "Counter Strike 2",
+              "nameShortened": "cs2"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-21T10:34:38Z",
+            "startTimeScheduled": "2026-02-21T09:00:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "56240",
+                  "name": "Blaze Tracers",
+                  "nameShortened": "Blaze Tracers"
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "55692",
+                  "name": "Shots Fired",
+                  "nameShortened": ""
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFTkdFQE5FCwtaCwtFR0VBWkdFWkVGI0dPTUdHTUdHLQ==",
+          "node": {
+            "id": "2902792",
+            "title": {
+              "name": "Counter Strike 2",
+              "nameShortened": "cs2"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-21T09:44:20Z",
+            "startTimeScheduled": "2026-02-21T08:00:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "56306",
+                  "name": "Time Waves",
+                  "nameShortened": ""
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "50103",
+                  "name": "BBBMBCBS"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFT05AREdFCwtaCwtFR0VBWkdFWkVGI0dPTUdHTUdHLQ==",
+          "node": {
+            "id": "2897302",
+            "title": {
+              "name": "Defense of the Ancients 2",
+              "nameShortened": "dota"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-21T11:45:32Z",
+            "startTimeScheduled": "2026-02-21T08:00:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "54468",
+                  "name": "Team Ivory",
+                  "nameShortened": ""
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "1241",
+                  "name": "Yangon Galacticos",
+                  "nameShortened": ""
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFT05ER0ZFCwtaCwtFR0VBWkdFWkVGI0dATUdHTUdHLQ==",
+          "node": {
+            "id": "2893012",
+            "title": {
+              "name": "Counter Strike 2",
+              "nameShortened": "cs2"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-21T08:42:21Z",
+            "startTimeScheduled": "2026-02-21T07:00:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "55692",
+                  "name": "Shots Fired",
+                  "nameShortened": ""
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "56240",
+                  "name": "Blaze Tracers",
+                  "nameShortened": "Blaze Tracers"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFT05AREdGCwtaCwtFR0VBWkdFWkVGI0dCTUdHTUdHLQ==",
+          "node": {
+            "id": "2897301",
+            "title": {
+              "name": "Defense of the Ancients 2",
+              "nameShortened": "dota"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-21T07:33:33Z",
+            "startTimeScheduled": "2026-02-21T05:00:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "1241",
+                  "name": "Yangon Galacticos",
+                  "nameShortened": ""
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "3147",
+                  "name": "InterActive Philippines",
+                  "nameShortened": ""
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFTkdFTk9GCwtaCwtFR0VBWkdFWkVGI0dFTUdHTUdHLQ==",
+          "node": {
+            "id": "2902981",
+            "title": {
+              "name": "Counter Strike 2",
+              "nameShortened": "cs2"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-21T03:32:46Z",
+            "startTimeScheduled": "2026-02-21T02:00:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "51746",
+                  "name": "Zomblers LLC",
+                  "nameShortened": "Zomblers"
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "51439",
+                  "name": "InControl",
+                  "nameShortened": ""
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFTkdFTk9HCwtaCwtFR0VBWkdFWkVGI0dFTUdHTUdHLQ==",
+          "node": {
+            "id": "2902980",
+            "title": {
+              "name": "Counter Strike 2",
+              "nameShortened": "cs2"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-21T03:22:36Z",
+            "startTimeScheduled": "2026-02-21T02:00:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "52142",
+                  "name": "FlyQuest RED"
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "49644",
+                  "name": "Phoenix"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFTkdFTkBOCwtaCwtFR0VBWkdFWkVGI0dFTUdHTUdHLQ==",
+          "node": {
+            "id": "2902979",
+            "title": {
+              "name": "Counter Strike 2",
+              "nameShortened": "cs2"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-21T04:37:23Z",
+            "startTimeScheduled": "2026-02-21T02:00:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "56687",
+                  "name": "Team Voca",
+                  "nameShortened": ""
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "54545",
+                  "name": "Marsborne",
+                  "nameShortened": ""
+                }
+              }
+            ]
+          }
+        },
+        {
+          "cursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFTkdFTkBPCwtaCwtFR0VBWkdFWkVGI0dFTUdHTUdHLQ==",
+          "node": {
+            "id": "2902978",
+            "title": {
+              "name": "Counter Strike 2",
+              "nameShortened": "cs2"
+            },
+            "type": "ESPORTS",
+            "updatedAt": "2026-02-21T05:09:29Z",
+            "startTimeScheduled": "2026-02-21T02:00:00Z",
+            "teams": [
+              {
+                "baseInfo": {
+                  "id": "52200",
+                  "name": "M80",
+                  "nameShortened": ""
+                }
+              },
+              {
+                "baseInfo": {
+                  "id": "56701",
+                  "name": "Rave",
+                  "nameShortened": ""
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "pageInfo": {
+        "hasNextPage": true,
+        "hasPreviousPage": false,
+        "startCursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFCwtaCwtFR0VBWkdFWkVFI0dOTUZHTURDLQ==",
+        "endCursor": "JAMWBQMjHhoSJBQfEhMCGxITCwtaCwtFTkdFTkBPCwtaCwtFR0VBWkdFWkVGI0dFTUdHTUdHLQ=="
+      }
+    }
+  }
+}

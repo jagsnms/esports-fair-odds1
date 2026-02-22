@@ -1,0 +1,769 @@
+{
+  "series_id": "2893018",
+  "version": null,
+  "startedAt": null,
+  "duration": null,
+  "title_short": "cs2",
+  "valid": true,
+  "updated_at": "2026-02-22T11:59:17.669Z",
+  "started": true,
+  "finished": false,
+  "format": null,
+  "teams_count": 2,
+  "games_count": 2,
+  "team_ids": [
+    "56176",
+    "56240"
+  ],
+  "team_names": [],
+  "round_scores": [
+    0,
+    1
+  ],
+  "series_teams_normalized": [
+    {
+      "id": "56176",
+      "name": null,
+      "score": 0,
+      "won": null
+    },
+    {
+      "id": "56240",
+      "name": null,
+      "score": 1,
+      "won": null
+    }
+  ],
+  "map_name": "ancient",
+  "clock_phase": {
+    "currentSeconds": 26,
+    "ticking": false,
+    "type": "gameClock"
+  },
+  "raw_top_level_keys": [
+    "__typename",
+    "id",
+    "valid",
+    "updatedAt",
+    "started",
+    "finished",
+    "title",
+    "teams",
+    "games"
+  ],
+  "raw_team_keys_sample": [
+    "__typename",
+    "id",
+    "score"
+  ],
+  "raw_game_keys_sample": [
+    "__typename",
+    "sequenceNumber",
+    "started",
+    "finished",
+    "map",
+    "clock",
+    "segments",
+    "teams"
+  ],
+  "games_normalized": [
+    {
+      "id": null,
+      "sequenceNumber": 1,
+      "map_name": "ancient",
+      "started": true,
+      "finished": true,
+      "paused": null,
+      "forfeited": null,
+      "clock_seconds": 26,
+      "clock_ticking": false,
+      "clock_type": "gameClock",
+      "teams": [
+        {
+          "id": "56176",
+          "name": null,
+          "score": 4,
+          "won": null,
+          "side": "counter-terrorists",
+          "money": 2500,
+          "loadoutValue": 4300,
+          "netWorth": null,
+          "players": [
+            {
+              "id": "76561198198828667",
+              "name": null,
+              "alive": false,
+              "currentHealth": 0,
+              "currentArmor": 0,
+              "money": 1150,
+              "loadoutValue": 4300,
+              "netWorth": null,
+              "kills": null,
+              "deaths": null
+            },
+            {
+              "id": "76561198243139414",
+              "name": null,
+              "alive": false,
+              "currentHealth": 0,
+              "currentArmor": 0,
+              "money": 100,
+              "loadoutValue": 0,
+              "netWorth": null,
+              "kills": null,
+              "deaths": null
+            },
+            {
+              "id": "76561198930578921",
+              "name": null,
+              "alive": false,
+              "currentHealth": 0,
+              "currentArmor": 0,
+              "money": 350,
+              "loadoutValue": 0,
+              "netWorth": null,
+              "kills": null,
+              "deaths": null
+            },
+            {
+              "id": "76561199026115943",
+              "name": null,
+              "alive": false,
+              "currentHealth": 0,
+              "currentArmor": 0,
+              "money": 650,
+              "loadoutValue": 0,
+              "netWorth": null,
+              "kills": null,
+              "deaths": null
+            },
+            {
+              "id": "76561199038744538",
+              "name": null,
+              "alive": false,
+              "currentHealth": 0,
+              "currentArmor": 0,
+              "money": 250,
+              "loadoutValue": 0,
+              "netWorth": null,
+              "kills": null,
+              "deaths": null
+            }
+          ],
+          "alive_count": 0
+        },
+        {
+          "id": "56240",
+          "name": null,
+          "score": 13,
+          "won": null,
+          "side": "terrorists",
+          "money": 24000,
+          "loadoutValue": 9000,
+          "netWorth": null,
+          "players": [
+            {
+              "id": "76561198149326736",
+              "name": null,
+              "alive": true,
+              "currentHealth": 100,
+              "currentArmor": 100,
+              "money": 3900,
+              "loadoutValue": 5100,
+              "netWorth": null,
+              "kills": null,
+              "deaths": null
+            },
+            {
+              "id": "76561198188448593",
+              "name": null,
+              "alive": true,
+              "currentHealth": 100,
+              "currentArmor": 100,
+              "money": 2900,
+              "loadoutValue": 3900,
+              "netWorth": null,
+              "kills": null,
+              "deaths": null
+            },
+            {
+              "id": "76561198382619372",
+              "name": null,
+              "alive": false,
+              "currentHealth": 0,
+              "currentArmor": 0,
+              "money": 6650,
+              "loadoutValue": 0,
+              "netWorth": null,
+              "kills": null,
+              "deaths": null
+            },
+            {
+              "id": "76561199123171301",
+              "name": null,
+              "alive": false,
+              "currentHealth": 0,
+              "currentArmor": 0,
+              "money": 7600,
+              "loadoutValue": 0,
+              "netWorth": null,
+              "kills": null,
+              "deaths": null
+            },
+            {
+              "id": "76561199395698130",
+              "name": null,
+              "alive": false,
+              "currentHealth": 0,
+              "currentArmor": 0,
+              "money": 2950,
+              "loadoutValue": 0,
+              "netWorth": null,
+              "kills": null,
+              "deaths": null
+            }
+          ],
+          "alive_count": 2
+        }
+      ]
+    },
+    {
+      "id": null,
+      "sequenceNumber": 2,
+      "map_name": "nuke",
+      "started": true,
+      "finished": false,
+      "paused": null,
+      "forfeited": null,
+      "clock_seconds": 87,
+      "clock_ticking": true,
+      "clock_type": "gameClock",
+      "teams": [
+        {
+          "id": "56176",
+          "name": null,
+          "score": 8,
+          "won": null,
+          "side": "terrorists",
+          "money": 1300,
+          "loadoutValue": 12150,
+          "netWorth": null,
+          "players": [
+            {
+              "id": "76561198198828667",
+              "name": null,
+              "alive": false,
+              "currentHealth": 0,
+              "currentArmor": 0,
+              "money": 400,
+              "loadoutValue": 0,
+              "netWorth": null,
+              "kills": null,
+              "deaths": null
+            },
+            {
+              "id": "76561198243139414",
+              "name": null,
+              "alive": true,
+              "currentHealth": 2,
+              "currentArmor": 88,
+              "money": 50,
+              "loadoutValue": 3550,
+              "netWorth": null,
+              "kills": null,
+              "deaths": null
+            },
+            {
+              "id": "76561198930578921",
+              "name": null,
+              "alive": false,
+              "currentHealth": 0,
+              "currentArmor": 0,
+              "money": 150,
+              "loadoutValue": 0,
+              "netWorth": null,
+              "kills": null,
+              "deaths": null
+            },
+            {
+              "id": "76561199026115943",
+              "name": null,
+              "alive": true,
+              "currentHealth": 100,
+              "currentArmor": 100,
+              "money": 350,
+              "loadoutValue": 4700,
+              "netWorth": null,
+              "kills": null,
+              "deaths": null
+            },
+            {
+              "id": "76561199038744538",
+              "name": null,
+              "alive": true,
+              "currentHealth": 36,
+              "currentArmor": 100,
+              "money": 350,
+              "loadoutValue": 3900,
+              "netWorth": null,
+              "kills": null,
+              "deaths": null
+            }
+          ],
+          "alive_count": 3
+        },
+        {
+          "id": "56240",
+          "name": null,
+          "score": 12,
+          "won": null,
+          "side": "counter-terrorists",
+          "money": 13850,
+          "loadoutValue": 11000,
+          "netWorth": null,
+          "players": [
+            {
+              "id": "76561198149326736",
+              "name": null,
+              "alive": true,
+              "currentHealth": 100,
+              "currentArmor": 100,
+              "money": 1300,
+              "loadoutValue": 5300,
+              "netWorth": null,
+              "kills": null,
+              "deaths": null
+            },
+            {
+              "id": "76561198188448593",
+              "name": null,
+              "alive": false,
+              "currentHealth": 0,
+              "currentArmor": 0,
+              "money": 2350,
+              "loadoutValue": 0,
+              "netWorth": null,
+              "kills": null,
+              "deaths": null
+            },
+            {
+              "id": "76561198382619372",
+              "name": null,
+              "alive": true,
+              "currentHealth": 39,
+              "currentArmor": 93,
+              "money": 5100,
+              "loadoutValue": 5700,
+              "netWorth": null,
+              "kills": null,
+              "deaths": null
+            },
+            {
+              "id": "76561199123171301",
+              "name": null,
+              "alive": false,
+              "currentHealth": 0,
+              "currentArmor": 0,
+              "money": 1850,
+              "loadoutValue": 0,
+              "netWorth": null,
+              "kills": null,
+              "deaths": null
+            },
+            {
+              "id": "76561199395698130",
+              "name": null,
+              "alive": false,
+              "currentHealth": 0,
+              "currentArmor": 0,
+              "money": 3250,
+              "loadoutValue": 0,
+              "netWorth": null,
+              "kills": null,
+              "deaths": null
+            }
+          ],
+          "alive_count": 2
+        }
+      ]
+    }
+  ],
+  "player_data_summaries": [
+    {
+      "id": "76561198198828667",
+      "name": null,
+      "alive": false,
+      "currentHealth": 0,
+      "money": 1150,
+      "loadoutValue": 4300,
+      "netWorth": null
+    },
+    {
+      "id": "76561198243139414",
+      "name": null,
+      "alive": false,
+      "currentHealth": 0,
+      "money": 100,
+      "loadoutValue": 0,
+      "netWorth": null
+    },
+    {
+      "id": "76561198930578921",
+      "name": null,
+      "alive": false,
+      "currentHealth": 0,
+      "money": 350,
+      "loadoutValue": 0,
+      "netWorth": null
+    },
+    {
+      "id": "76561199026115943",
+      "name": null,
+      "alive": false,
+      "currentHealth": 0,
+      "money": 650,
+      "loadoutValue": 0,
+      "netWorth": null
+    },
+    {
+      "id": "76561199038744538",
+      "name": null,
+      "alive": false,
+      "currentHealth": 0,
+      "money": 250,
+      "loadoutValue": 0,
+      "netWorth": null
+    },
+    {
+      "id": "76561198149326736",
+      "name": null,
+      "alive": true,
+      "currentHealth": 100,
+      "money": 3900,
+      "loadoutValue": 5100,
+      "netWorth": null
+    },
+    {
+      "id": "76561198188448593",
+      "name": null,
+      "alive": true,
+      "currentHealth": 100,
+      "money": 2900,
+      "loadoutValue": 3900,
+      "netWorth": null
+    },
+    {
+      "id": "76561198382619372",
+      "name": null,
+      "alive": false,
+      "currentHealth": 0,
+      "money": 6650,
+      "loadoutValue": 0,
+      "netWorth": null
+    },
+    {
+      "id": "76561199123171301",
+      "name": null,
+      "alive": false,
+      "currentHealth": 0,
+      "money": 7600,
+      "loadoutValue": 0,
+      "netWorth": null
+    },
+    {
+      "id": "76561199395698130",
+      "name": null,
+      "alive": false,
+      "currentHealth": 0,
+      "money": 2950,
+      "loadoutValue": 0,
+      "netWorth": null
+    },
+    {
+      "id": "76561198198828667",
+      "name": null,
+      "alive": false,
+      "currentHealth": 0,
+      "money": 400,
+      "loadoutValue": 0,
+      "netWorth": null
+    },
+    {
+      "id": "76561198243139414",
+      "name": null,
+      "alive": true,
+      "currentHealth": 2,
+      "money": 50,
+      "loadoutValue": 3550,
+      "netWorth": null
+    },
+    {
+      "id": "76561198930578921",
+      "name": null,
+      "alive": false,
+      "currentHealth": 0,
+      "money": 150,
+      "loadoutValue": 0,
+      "netWorth": null
+    },
+    {
+      "id": "76561199026115943",
+      "name": null,
+      "alive": true,
+      "currentHealth": 100,
+      "money": 350,
+      "loadoutValue": 4700,
+      "netWorth": null
+    },
+    {
+      "id": "76561199038744538",
+      "name": null,
+      "alive": true,
+      "currentHealth": 36,
+      "money": 350,
+      "loadoutValue": 3900,
+      "netWorth": null
+    },
+    {
+      "id": "76561198149326736",
+      "name": null,
+      "alive": true,
+      "currentHealth": 100,
+      "money": 1300,
+      "loadoutValue": 5300,
+      "netWorth": null
+    },
+    {
+      "id": "76561198188448593",
+      "name": null,
+      "alive": false,
+      "currentHealth": 0,
+      "money": 2350,
+      "loadoutValue": 0,
+      "netWorth": null
+    },
+    {
+      "id": "76561198382619372",
+      "name": null,
+      "alive": true,
+      "currentHealth": 39,
+      "money": 5100,
+      "loadoutValue": 5700,
+      "netWorth": null
+    },
+    {
+      "id": "76561199123171301",
+      "name": null,
+      "alive": false,
+      "currentHealth": 0,
+      "money": 1850,
+      "loadoutValue": 0,
+      "netWorth": null
+    },
+    {
+      "id": "76561199395698130",
+      "name": null,
+      "alive": false,
+      "currentHealth": 0,
+      "money": 3250,
+      "loadoutValue": 0,
+      "netWorth": null
+    }
+  ],
+  "alive_counts": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    1,
+    1,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    1,
+    1,
+    1,
+    0,
+    1,
+    0,
+    0
+  ],
+  "hp_totals": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    100,
+    100,
+    0,
+    0,
+    0,
+    0,
+    2,
+    0,
+    100,
+    36,
+    100,
+    0,
+    39,
+    0,
+    0
+  ],
+  "money_totals": [
+    1150,
+    100,
+    350,
+    650,
+    250,
+    3900,
+    2900,
+    6650,
+    7600,
+    2950,
+    400,
+    50,
+    150,
+    350,
+    350,
+    1300,
+    2350,
+    5100,
+    1850,
+    3250
+  ],
+  "bomb_phase_time": null,
+  "unavailable_fields": [
+    "teams[].name"
+  ],
+  "v2": {
+    "source": "grid",
+    "series_id": "2893018",
+    "valid": true,
+    "updated_at": "2026-02-22T11:59:17.669Z",
+    "started": true,
+    "finished": false,
+    "game_index": 2,
+    "game_started": true,
+    "game_finished": false,
+    "maps_a_won": 0,
+    "maps_b_won": 1,
+    "map_name": "nuke",
+    "team_a_id": "56176",
+    "team_b_id": "56240",
+    "team_a_name": null,
+    "team_b_name": null,
+    "team_a_side": "terrorists",
+    "team_b_side": "counter-terrorists",
+    "rounds_a": 8,
+    "rounds_b": 12,
+    "team_a_money": 1300,
+    "team_b_money": 13850,
+    "team_a_loadout_value": 12150,
+    "team_b_loadout_value": 11000,
+    "players_a": [
+      {
+        "id": "76561198198828667",
+        "alive": false,
+        "current_health": 0,
+        "current_armor": 0,
+        "money": 400,
+        "loadout_value": 0
+      },
+      {
+        "id": "76561198243139414",
+        "alive": true,
+        "current_health": 2,
+        "current_armor": 88,
+        "money": 50,
+        "loadout_value": 3550
+      },
+      {
+        "id": "76561198930578921",
+        "alive": false,
+        "current_health": 0,
+        "current_armor": 0,
+        "money": 150,
+        "loadout_value": 0
+      },
+      {
+        "id": "76561199026115943",
+        "alive": true,
+        "current_health": 100,
+        "current_armor": 100,
+        "money": 350,
+        "loadout_value": 4700
+      },
+      {
+        "id": "76561199038744538",
+        "alive": true,
+        "current_health": 36,
+        "current_armor": 100,
+        "money": 350,
+        "loadout_value": 3900
+      }
+    ],
+    "players_b": [
+      {
+        "id": "76561198149326736",
+        "alive": true,
+        "current_health": 100,
+        "current_armor": 100,
+        "money": 1300,
+        "loadout_value": 5300
+      },
+      {
+        "id": "76561198188448593",
+        "alive": false,
+        "current_health": 0,
+        "current_armor": 0,
+        "money": 2350,
+        "loadout_value": 0
+      },
+      {
+        "id": "76561198382619372",
+        "alive": true,
+        "current_health": 39,
+        "current_armor": 93,
+        "money": 5100,
+        "loadout_value": 5700
+      },
+      {
+        "id": "76561199123171301",
+        "alive": false,
+        "current_health": 0,
+        "current_armor": 0,
+        "money": 1850,
+        "loadout_value": 0
+      },
+      {
+        "id": "76561199395698130",
+        "alive": false,
+        "current_health": 0,
+        "current_armor": 0,
+        "money": 3250,
+        "loadout_value": 0
+      }
+    ],
+    "pistol_a_won": false,
+    "pistol_b_won": true,
+    "clock_seconds": 87,
+    "clock_ticking": true,
+    "clock_type": "gameClock",
+    "clock_ticks_backwards": true,
+    "alive_count_a": 3,
+    "alive_count_b": 2,
+    "hp_total_a": 138,
+    "hp_total_b": 139,
+    "armor_total_a": 288,
+    "armor_total_b": 193,
+    "has_players": true,
+    "has_clock": true,
+    "completeness_score": 1.0,
+    "staleness_seconds": 31
+  }
+}

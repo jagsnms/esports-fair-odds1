@@ -1,0 +1,80 @@
+{
+  "data": {
+    "__schema": {
+      "queryType": {
+        "name": "Query",
+        "fields": [
+          {
+            "name": "title"
+          },
+          {
+            "name": "titles"
+          },
+          {
+            "name": "tournament"
+          },
+          {
+            "name": "tournaments"
+          },
+          {
+            "name": "tournamentIdByExternalId"
+          },
+          {
+            "name": "team"
+          },
+          {
+            "name": "teams"
+          },
+          {
+            "name": "teamIdByExternalId"
+          },
+          {
+            "name": "series"
+          },
+          {
+            "name": "seriesFormats"
+          },
+          {
+            "name": "seriesIdByExternalId"
+          },
+          {
+            "name": "allSeries"
+          },
+          {
+            "name": "player"
+          },
+          {
+            "name": "players"
+          },
+          {
+            "name": "playerIdByExternalId"
+          },
+          {
+            "name": "organization"
+          },
+          {
+            "name": "organizations"
+          },
+          {
+            "name": "gameIdByExternalId"
+          },
+          {
+            "name": "dataProviders"
+          },
+          {
+            "name": "playerRole"
+          },
+          {
+            "name": "playerRoles"
+          },
+          {
+            "name": "_service"
+          },
+          {
+            "name": "_entities"
+          }
+        ]
+      }
+    }
+  }
+}

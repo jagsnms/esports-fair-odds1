@@ -1,0 +1,154 @@
+{
+  "data": {
+    "seriesState": {
+      "__typename": "SeriesState",
+      "id": "2901816",
+      "valid": true,
+      "updatedAt": "2026-02-22T09:27:35.047Z",
+      "started": true,
+      "finished": false,
+      "title": {
+        "nameShortened": "cs2"
+      },
+      "teams": [
+        {
+          "__typename": "SeriesTeamStateCs2",
+          "id": "56727"
+        },
+        {
+          "__typename": "SeriesTeamStateCs2",
+          "id": "56744"
+        }
+      ],
+      "games": [
+        {
+          "__typename": "GameState",
+          "sequenceNumber": 1,
+          "started": true,
+          "finished": false,
+          "map": {
+            "name": "overpass"
+          },
+          "clock": {
+            "currentSeconds": 50,
+            "ticking": true,
+            "type": "gameClock",
+            "ticksBackwards": true
+          },
+          "teams": [
+            {
+              "__typename": "GameTeamStateCs2",
+              "id": "56727",
+              "score": 11,
+              "side": "counter-terrorists",
+              "money": 42950,
+              "loadoutValue": 8100,
+              "players": [
+                {
+                  "__typename": "GamePlayerStateCs2",
+                  "id": "76561198048917855",
+                  "alive": true,
+                  "currentHealth": 100,
+                  "currentArmor": 100,
+                  "money": 7650,
+                  "loadoutValue": 1400
+                },
+                {
+                  "__typename": "GamePlayerStateCs2",
+                  "id": "76561198271046468",
+                  "alive": false,
+                  "currentHealth": 0,
+                  "currentArmor": 0,
+                  "money": 7900,
+                  "loadoutValue": 0
+                },
+                {
+                  "__typename": "GamePlayerStateCs2",
+                  "id": "76561198888334048",
+                  "alive": true,
+                  "currentHealth": 48,
+                  "currentArmor": 66,
+                  "money": 5400,
+                  "loadoutValue": 1400
+                },
+                {
+                  "__typename": "GamePlayerStateCs2",
+                  "id": "76561199004328083",
+                  "alive": true,
+                  "currentHealth": 100,
+                  "currentArmor": 100,
+                  "money": 7750,
+                  "loadoutValue": 5300
+                },
+                {
+                  "__typename": "GamePlayerStateCs2",
+                  "id": "76561199051712199",
+                  "alive": false,
+                  "currentHealth": 0,
+                  "currentArmor": 0,
+                  "money": 14250,
+                  "loadoutValue": 0
+                }
+              ]
+            },
+            {
+              "__typename": "GameTeamStateCs2",
+              "id": "56744",
+              "score": 1,
+              "side": "terrorists",
+              "money": 22200,
+              "loadoutValue": 0,
+              "players": [
+                {
+                  "__typename": "GamePlayerStateCs2",
+                  "id": "76561198119574633",
+                  "alive": false,
+                  "currentHealth": 0,
+                  "currentArmor": 0,
+                  "money": 4250,
+                  "loadoutValue": 0
+                },
+                {
+                  "__typename": "GamePlayerStateCs2",
+                  "id": "76561198144419936",
+                  "alive": false,
+                  "currentHealth": 0,
+                  "currentArmor": 0,
+                  "money": 4750,
+                  "loadoutValue": 0
+                },
+                {
+                  "__typename": "GamePlayerStateCs2",
+                  "id": "76561198196719594",
+                  "alive": false,
+                  "currentHealth": 0,
+                  "currentArmor": 0,
+                  "money": 3650,
+                  "loadoutValue": 0
+                },
+                {
+                  "__typename": "GamePlayerStateCs2",
+                  "id": "76561198263687556",
+                  "alive": false,
+                  "currentHealth": 0,
+                  "currentArmor": 0,
+                  "money": 4850,
+                  "loadoutValue": 0
+                },
+                {
+                  "__typename": "GamePlayerStateCs2",
+                  "id": "76561198276739802",
+                  "alive": false,
+                  "currentHealth": 0,
+                  "currentArmor": 0,
+                  "money": 4700,
+                  "loadoutValue": 0
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

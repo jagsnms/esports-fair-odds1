@@ -4,9 +4,9 @@ Use this to find where the pipeline fails without changing behavior.
 
 ## Pipeline overview
 
-1. **Poller** (runs every 7s): reads `logs/bo3_live_control.json` → fetches BO3 snapshot → normalizes → writes `logs/bo3_live_feed.json`.
+1. **Poller** (runs every 5s): reads `logs/bo3_live_control.json` → fetches BO3 snapshot → normalizes → writes `logs/bo3_live_feed.json`.
 2. **App** (on each run): if auto is on and feed file exists → reads feed → overwrites session_state (team names, rounds, map, side, etc.).
-3. **Timer**: when auto is on, `st_autorefresh(interval=7000)` triggers a full script rerun every 7s so the app re-reads the feed.
+3. **Timer**: when auto is on, `st_autorefresh(interval=5000)` triggers a full script rerun every 5s so the app re-reads the feed.
 
 Failure can be: (A) poller not running or not getting live data, (B) feed file not updated or wrong path, (C) app not reading or not applying, (D) app not rerunning so it never re-reads.
 
@@ -67,11 +67,11 @@ When auto data pull is **ON**, open the **"Diagnostics"** sub-section inside the
 
 ---
 
-## Step 3: Confirm the app reruns every 7s
+## Step 3: Confirm the app reruns every 5s
 
-When auto is on, the app should rerun every 7 seconds (so it re-reads the feed). If it never reruns, you’ll only ever see the first read (often "poller_starting" or stale).
+When auto is on, the app should rerun every 5 seconds (so it re-reads the feed). If it never reruns, you’ll only ever see the first read (often "poller_starting" or stale).
 
-- **Quick check**: Leave the app open on the CS2 In-Play tab with auto ON. Watch the **Diagnostics** "Last modified" time; it should change roughly every 7s. If it never changes, the timer isn’t firing or the script isn’t rerunning.
+- **Quick check**: Leave the app open on the CS2 In-Play tab with auto ON. Watch the **Diagnostics** "Last modified" time; it should change roughly every 5s. If it never changes, the timer isn’t firing or the script isn’t rerunning.
 - If you’re not on the CS2 In-Play tab, the autorefresh may still run (depending on layout); for a clear test, stay on that tab.
 
 ---

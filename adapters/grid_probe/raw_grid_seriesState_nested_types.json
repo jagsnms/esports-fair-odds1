@@ -1,0 +1,991 @@
+{
+  "SeriesState": {
+    "name": "SeriesState",
+    "kind": "OBJECT",
+    "fields": [
+      {
+        "name": "version",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "Version"
+          }
+        }
+      },
+      {
+        "name": "id",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "ID"
+          }
+        }
+      },
+      {
+        "name": "title",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "OBJECT",
+            "name": "Title"
+          }
+        }
+      },
+      {
+        "name": "format",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "String"
+          }
+        }
+      },
+      {
+        "name": "started",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "Boolean"
+          }
+        }
+      },
+      {
+        "name": "finished",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "Boolean"
+          }
+        }
+      },
+      {
+        "name": "forfeited",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "Boolean"
+          }
+        }
+      },
+      {
+        "name": "valid",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "Boolean"
+          }
+        }
+      },
+      {
+        "name": "teams",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "LIST",
+            "ofType": {
+              "kind": "NON_NULL",
+              "ofType": {
+                "kind": "INTERFACE",
+                "name": "SeriesTeamState"
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "games",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "LIST",
+            "ofType": {
+              "kind": "NON_NULL",
+              "ofType": {
+                "kind": "OBJECT",
+                "name": "GameState"
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "draftActions",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "LIST",
+            "ofType": {
+              "kind": "NON_NULL",
+              "ofType": {
+                "kind": "OBJECT",
+                "name": "DraftAction"
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "updatedAt",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "DateTime"
+          }
+        }
+      },
+      {
+        "name": "startedAt",
+        "type": {
+          "kind": "SCALAR",
+          "name": "DateTime"
+        }
+      },
+      {
+        "name": "duration",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "Duration"
+          }
+        }
+      }
+    ]
+  },
+  "Title": {
+    "name": "Title",
+    "kind": "OBJECT",
+    "fields": [
+      {
+        "name": "nameShortened",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "String"
+          }
+        }
+      }
+    ]
+  },
+  "GameState": {
+    "name": "GameState",
+    "kind": "OBJECT",
+    "fields": [
+      {
+        "name": "id",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "ID"
+          }
+        }
+      },
+      {
+        "name": "sequenceNumber",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "Int"
+          }
+        }
+      },
+      {
+        "name": "map",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "OBJECT",
+            "name": "MapState"
+          }
+        }
+      },
+      {
+        "name": "titleVersion",
+        "type": {
+          "kind": "OBJECT",
+          "name": "TitleVersion"
+        }
+      },
+      {
+        "name": "type",
+        "type": {
+          "kind": "ENUM",
+          "name": "GameType"
+        }
+      },
+      {
+        "name": "started",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "Boolean"
+          }
+        }
+      },
+      {
+        "name": "finished",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "Boolean"
+          }
+        }
+      },
+      {
+        "name": "forfeited",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "Boolean"
+          }
+        }
+      },
+      {
+        "name": "paused",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "Boolean"
+          }
+        }
+      },
+      {
+        "name": "startedAt",
+        "type": {
+          "kind": "SCALAR",
+          "name": "DateTime"
+        }
+      },
+      {
+        "name": "clock",
+        "type": {
+          "kind": "OBJECT",
+          "name": "ClockState"
+        }
+      },
+      {
+        "name": "structures",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "LIST",
+            "ofType": {
+              "kind": "NON_NULL",
+              "ofType": {
+                "kind": "OBJECT",
+                "name": "StructureState"
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "nonPlayerCharacters",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "LIST",
+            "ofType": {
+              "kind": "NON_NULL",
+              "ofType": {
+                "kind": "OBJECT",
+                "name": "NonPlayerCharacterState"
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "teams",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "LIST",
+            "ofType": {
+              "kind": "NON_NULL",
+              "ofType": {
+                "kind": "INTERFACE",
+                "name": "GameTeamState"
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "draftActions",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "LIST",
+            "ofType": {
+              "kind": "NON_NULL",
+              "ofType": {
+                "kind": "OBJECT",
+                "name": "DraftAction"
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "externalLinks",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "LIST",
+            "ofType": {
+              "kind": "NON_NULL",
+              "ofType": {
+                "kind": "OBJECT",
+                "name": "ExternalLink"
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "segments",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "LIST",
+            "ofType": {
+              "kind": "NON_NULL",
+              "ofType": {
+                "kind": "OBJECT",
+                "name": "SegmentState"
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "duration",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "Duration"
+          }
+        }
+      }
+    ]
+  },
+  "DraftAction": {
+    "name": "DraftAction",
+    "kind": "OBJECT",
+    "fields": [
+      {
+        "name": "id",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "ID"
+          }
+        }
+      },
+      {
+        "name": "type",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "String"
+          }
+        }
+      },
+      {
+        "name": "sequenceNumber",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "String"
+          }
+        }
+      },
+      {
+        "name": "drafter",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "OBJECT",
+            "name": "Drafter"
+          }
+        }
+      },
+      {
+        "name": "draftable",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "OBJECT",
+            "name": "Draftable"
+          }
+        }
+      }
+    ]
+  },
+  "MapState": {
+    "name": "MapState",
+    "kind": "OBJECT",
+    "fields": [
+      {
+        "name": "id",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "String"
+          }
+        }
+      },
+      {
+        "name": "name",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "String"
+          }
+        }
+      },
+      {
+        "name": "bounds",
+        "type": {
+          "kind": "OBJECT",
+          "name": "Bounds"
+        }
+      }
+    ]
+  },
+  "TitleVersion": {
+    "name": "TitleVersion",
+    "kind": "OBJECT",
+    "fields": [
+      {
+        "name": "name",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "String"
+          }
+        }
+      }
+    ]
+  },
+  "ClockState": {
+    "name": "ClockState",
+    "kind": "OBJECT",
+    "fields": [
+      {
+        "name": "id",
+        "type": {
+          "kind": "SCALAR",
+          "name": "String"
+        }
+      },
+      {
+        "name": "type",
+        "type": {
+          "kind": "SCALAR",
+          "name": "String"
+        }
+      },
+      {
+        "name": "ticking",
+        "type": {
+          "kind": "SCALAR",
+          "name": "Boolean"
+        }
+      },
+      {
+        "name": "ticksBackwards",
+        "type": {
+          "kind": "SCALAR",
+          "name": "Boolean"
+        }
+      },
+      {
+        "name": "currentSeconds",
+        "type": {
+          "kind": "SCALAR",
+          "name": "Int"
+        }
+      }
+    ]
+  },
+  "StructureState": {
+    "name": "StructureState",
+    "kind": "OBJECT",
+    "fields": [
+      {
+        "name": "id",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "ID"
+          }
+        }
+      },
+      {
+        "name": "type",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "String"
+          }
+        }
+      },
+      {
+        "name": "side",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "String"
+          }
+        }
+      },
+      {
+        "name": "teamId",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "ID"
+          }
+        }
+      },
+      {
+        "name": "respawnClock",
+        "type": {
+          "kind": "OBJECT",
+          "name": "ClockState"
+        }
+      },
+      {
+        "name": "currentHealth",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "Int"
+          }
+        }
+      },
+      {
+        "name": "maxHealth",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "Int"
+          }
+        }
+      },
+      {
+        "name": "destroyed",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "Boolean"
+          }
+        }
+      },
+      {
+        "name": "position",
+        "type": {
+          "kind": "OBJECT",
+          "name": "Coordinates"
+        }
+      }
+    ]
+  },
+  "NonPlayerCharacterState": {
+    "name": "NonPlayerCharacterState",
+    "kind": "OBJECT",
+    "fields": [
+      {
+        "name": "id",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "ID"
+          }
+        }
+      },
+      {
+        "name": "type",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "String"
+          }
+        }
+      },
+      {
+        "name": "side",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "String"
+          }
+        }
+      },
+      {
+        "name": "respawnClock",
+        "type": {
+          "kind": "OBJECT",
+          "name": "ClockState"
+        }
+      },
+      {
+        "name": "position",
+        "type": {
+          "kind": "OBJECT",
+          "name": "Coordinates"
+        }
+      },
+      {
+        "name": "alive",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "Boolean"
+          }
+        }
+      }
+    ]
+  },
+  "ExternalLink": {
+    "name": "ExternalLink",
+    "kind": "OBJECT",
+    "fields": [
+      {
+        "name": "dataProvider",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "OBJECT",
+            "name": "DataProvider"
+          }
+        }
+      },
+      {
+        "name": "externalEntity",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "OBJECT",
+            "name": "ExternalEntity"
+          }
+        }
+      }
+    ]
+  },
+  "SegmentState": {
+    "name": "SegmentState",
+    "kind": "OBJECT",
+    "fields": [
+      {
+        "name": "id",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "ID"
+          }
+        }
+      },
+      {
+        "name": "type",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "String"
+          }
+        }
+      },
+      {
+        "name": "sequenceNumber",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "Int"
+          }
+        }
+      },
+      {
+        "name": "started",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "Boolean"
+          }
+        }
+      },
+      {
+        "name": "draftActions",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "LIST",
+            "ofType": {
+              "kind": "NON_NULL",
+              "ofType": {
+                "kind": "OBJECT",
+                "name": "DraftAction"
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "finished",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "Boolean"
+          }
+        }
+      },
+      {
+        "name": "startedAt",
+        "type": {
+          "kind": "SCALAR",
+          "name": "DateTime"
+        }
+      },
+      {
+        "name": "teams",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "LIST",
+            "ofType": {
+              "kind": "NON_NULL",
+              "ofType": {
+                "kind": "INTERFACE",
+                "name": "SegmentTeamState"
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "segments",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "LIST",
+            "ofType": {
+              "kind": "NON_NULL",
+              "ofType": {
+                "kind": "OBJECT",
+                "name": "SegmentState"
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "duration",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "Duration"
+          }
+        }
+      }
+    ]
+  },
+  "Drafter": {
+    "name": "Drafter",
+    "kind": "OBJECT",
+    "fields": [
+      {
+        "name": "id",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "ID"
+          }
+        }
+      },
+      {
+        "name": "type",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "String"
+          }
+        }
+      }
+    ]
+  },
+  "Draftable": {
+    "name": "Draftable",
+    "kind": "OBJECT",
+    "fields": [
+      {
+        "name": "id",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "ID"
+          }
+        }
+      },
+      {
+        "name": "type",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "String"
+          }
+        }
+      },
+      {
+        "name": "name",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "String"
+          }
+        }
+      },
+      {
+        "name": "linkedDraftable",
+        "type": {
+          "kind": "LIST",
+          "ofType": {
+            "kind": "NON_NULL",
+            "ofType": {
+              "kind": "OBJECT",
+              "name": "Draftable"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "Bounds": {
+    "name": "Bounds",
+    "kind": "OBJECT",
+    "fields": [
+      {
+        "name": "min",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "OBJECT",
+            "name": "Coordinates"
+          }
+        }
+      },
+      {
+        "name": "max",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "OBJECT",
+            "name": "Coordinates"
+          }
+        }
+      }
+    ]
+  },
+  "Coordinates": {
+    "name": "Coordinates",
+    "kind": "OBJECT",
+    "fields": [
+      {
+        "name": "x",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "Float"
+          }
+        }
+      },
+      {
+        "name": "y",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "Float"
+          }
+        }
+      }
+    ]
+  },
+  "DataProvider": {
+    "name": "DataProvider",
+    "kind": "OBJECT",
+    "fields": [
+      {
+        "name": "name",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "String"
+          }
+        }
+      }
+    ]
+  },
+  "ExternalEntity": {
+    "name": "ExternalEntity",
+    "kind": "OBJECT",
+    "fields": [
+      {
+        "name": "id",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "ID"
+          }
+        }
+      }
+    ]
+  }
+}

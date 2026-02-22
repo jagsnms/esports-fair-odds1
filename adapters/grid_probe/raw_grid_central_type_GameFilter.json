@@ -1,0 +1,20 @@
+{
+  "kind": "INPUT_OBJECT",
+  "name": "GameFilter",
+  "inputFields": [
+    {
+      "name": "id",
+      "type": {
+        "kind": "INPUT_OBJECT",
+        "name": "IdFilter"
+      }
+    },
+    {
+      "name": "map",
+      "type": {
+        "kind": "INPUT_OBJECT",
+        "name": "MapFilter"
+      }
+    }
+  ]
+}
