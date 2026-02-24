@@ -17,6 +17,7 @@ from datetime import datetime, timezone, timedelta
 import csv
 import time
 from collections import deque
+import copy
 from typing import Optional  # 3.9-compatible Optional[...] for type hints
 
 import streamlit as st
@@ -89,6 +90,11 @@ from fair_odds.bo3_adapter import (
     fetch_bo3_live_matches,
     fetch_bo3_snapshot,
     normalize_bo3_snapshot_to_app,
+)
+from fair_odds.replay_bo3 import (
+    load_bo3_jsonl,
+    group_bo3_by_match,
+    write_replay_frame_to_feed,
 )
 
 # ==========================
@@ -564,6 +570,46 @@ def fetch_polymarket_bid_ask(token_id: str):
         "ask_size": ask_sz,
     }
     return bid, ask, meta
+
+
+@st.cache_data(ttl=10, show_spinner=False)
+def _load_bo3_replay_jsonl(path_str: str) -> tuple:
+    """Load BO3 JSONL and group by match_id. Returns (entries_list, by_match_dict)."""
+    from pathlib import Path
+    entries = load_bo3_jsonl(Path(path_str))
+    by_match = group_bo3_by_match(entries)
+    return (entries, by_match)
+
+
+def _replay_skip_duplicate_frames(entries: list, idx: int) -> int:
+    """Advance idx past consecutive duplicate payloads (json.dumps sort_keys=True). Bounded; returns idx in [0, len(entries)-1]."""
+    if not entries or idx < 0 or idx >= len(entries):
+        return min(max(0, idx), len(entries) - 1) if entries else 0
+    max_idx = len(entries) - 1
+    n = 0
+    while n < len(entries) and idx < max_idx:
+        cur = entries[idx].get("payload") or {}
+        prev = entries[idx - 1].get("payload") or {}
+        if json.dumps(cur, sort_keys=True) != json.dumps(prev, sort_keys=True):
+            break
+        idx += 1
+        n += 1
+    return min(idx, max_idx)
+
+
+def _replay_match_display_label(entries_for_match: list) -> str:
+    """Get 'TeamOne vs TeamTwo' from first frame payload; fallback to match_slug or 'Match {id}'."""
+    if not entries_for_match:
+        return "Unknown"
+    payload = entries_for_match[0].get("payload") or {}
+    t1 = (payload.get("team_one") or {}).get("name") or (payload.get("team_one") or {}).get("clan_name")
+    t2 = (payload.get("team_two") or {}).get("name") or (payload.get("team_two") or {}).get("clan_name")
+    if t1 and t2:
+        return f"{t1} vs {t2}"
+    slug = (payload.get("match_fixture") or {}).get("match_slug")
+    if slug:
+        return slug.replace("-", " ")
+    return f"Match {entries_for_match[0].get('match_id', '?')}"
 
 
 def _run_inplay_backtest_and_refresh_session():
@@ -1612,50 +1658,68 @@ def _compute_cs2_round_state_bands(
     n_maps: int,
     maps_a_won: int,
     maps_b_won: int,
+    rail_mode: str = "ANCHOR_PULLED",
+    rail_pull_scale: float = 0.7,
+    rail_pull_cap: float = 0.6,
 ) -> tuple:
     """Compute asymmetric round-state rail: p_state_center, p_if_next_round_win, p_if_next_round_loss.
-    Win/loss transitions are distance-weighted toward map-win (1.0) and map-loss (0.0) anchors.
+    Win/loss transitions are distance-weighted toward map-win (1.0) and map-loss (0.0) anchors when rail_mode==ANCHOR_PULLED.
     Returns (p_if_a, p_if_b, band_lo, band_hi, rail_debug_dict). On failure rail_debug is empty."""
     ra, rb = int(rounds_a), int(rounds_b)
-    # Current state center (Team A perspective)
+    # Raw counterfactuals from fair(ra,rb), fair(ra+1,rb), fair(ra,rb+1)
     p_center, _ = _compute_cs2_live_fair_for_state(
         float(p0_map), ra, rb, float(econ_a), float(econ_b),
         pistol_a, pistol_b, float(beta_score), float(beta_econ), float(beta_pistol),
         map_name, a_side, float(beta_lock), int(lock_start_offset), int(lock_ramp),
         str(contract_scope), int(n_maps), int(maps_a_won), int(maps_b_won),
     )
-    p_if_a, _ = _compute_cs2_live_fair_for_state(
+    p_if_a_raw, _ = _compute_cs2_live_fair_for_state(
         float(p0_map), ra + 1, rb, float(econ_a), float(econ_b),
         pistol_a, pistol_b, float(beta_score), float(beta_econ), float(beta_pistol),
         map_name, a_side, float(beta_lock), int(lock_start_offset), int(lock_ramp),
         str(contract_scope), int(n_maps), int(maps_a_won), int(maps_b_won),
     )
-    p_if_b, _ = _compute_cs2_live_fair_for_state(
+    p_if_b_raw, _ = _compute_cs2_live_fair_for_state(
         float(p0_map), ra, rb + 1, float(econ_a), float(econ_b),
         pistol_a, pistol_b, float(beta_score), float(beta_econ), float(beta_pistol),
         map_name, a_side, float(beta_lock), int(lock_start_offset), int(lock_ramp),
         str(contract_scope), int(n_maps), int(maps_a_won), int(maps_b_won),
     )
-    if p_if_a is None or p_if_b is None:
+    if p_if_a_raw is None or p_if_b_raw is None:
         return (None, None, None, None, {})
     if p_center is None:
-        p_center = 0.5 * (float(p_if_a) + float(p_if_b))
+        p_center = 0.5 * (float(p_if_a_raw) + float(p_if_b_raw))
 
     win_target = cs2_current_win_target(ra, rb)
-    # Rounds still needed for A to win map from (ra+1, rb); for B from (ra, rb+1)
     steps_to_a_win = max(0, win_target - (ra + 1))
     steps_to_b_win = max(0, win_target - (rb + 1))
-    pull_win = 1.0 / (1.0 + float(steps_to_a_win))
-    pull_loss = 1.0 / (1.0 + float(steps_to_b_win))
-    # Cap pull so we don't overshoot (conservative)
-    pull_win = min(pull_win * 0.7, 0.6)
-    pull_loss = min(pull_loss * 0.7, 0.6)
-    # Blend toward map-win (1.0) and map-loss (0.0) anchors
-    p_if_next_round_win = float(p_if_a) + (1.0 - float(p_if_a)) * pull_win
-    p_if_next_round_loss = float(p_if_b) * (1.0 - pull_loss)
-    p_if_next_round_win = float(np.clip(p_if_next_round_win, 0.0, 1.0))
-    p_if_next_round_loss = float(np.clip(p_if_next_round_loss, 0.0, 1.0))
-    # Ensure ordering and cap corridor widths
+
+    pull_win_used = 0.0
+    pull_loss_used = 0.0
+    mode_used = str(rail_mode) if rail_mode in ("ANCHOR_PULLED", "RAW_COUNTERFACTUAL") else "ANCHOR_PULLED"
+
+    if mode_used == "RAW_COUNTERFACTUAL":
+        p_if_a = float(p_if_a_raw)
+        p_if_b = float(p_if_b_raw)
+        p_if_next_round_win = p_if_a
+        p_if_next_round_loss = p_if_b
+    else:
+        pull_win = 1.0 / (1.0 + float(steps_to_a_win))
+        pull_loss = 1.0 / (1.0 + float(steps_to_b_win))
+        scale = float(rail_pull_scale) if rail_pull_scale is not None else 0.7
+        cap = float(rail_pull_cap) if rail_pull_cap is not None else 0.6
+        pull_win = min(pull_win * scale, cap)
+        pull_loss = min(pull_loss * scale, cap)
+        pull_win_used = pull_win
+        pull_loss_used = pull_loss
+        p_if_a = float(p_if_a_raw)
+        p_if_b = float(p_if_b_raw)
+        p_if_next_round_win = float(p_if_a) + (1.0 - float(p_if_a)) * pull_win
+        p_if_next_round_loss = float(p_if_b) * (1.0 - pull_loss)
+        p_if_next_round_win = float(np.clip(p_if_next_round_win, 0.0, 1.0))
+        p_if_next_round_loss = float(np.clip(p_if_next_round_loss, 0.0, 1.0))
+
+    # Ensure ordering and cap corridor widths (unchanged)
     p_center_f = float(p_center)
     upper_width = min(p_if_next_round_win - p_center_f, RAIL_MAX_HALF_WIDTH)
     lower_width = min(p_center_f - p_if_next_round_loss, RAIL_MAX_HALF_WIDTH)
@@ -1681,6 +1745,13 @@ def _compute_cs2_round_state_bands(
         "rail_asymmetry_ratio": float(asym_ratio) if asym_ratio is not None else None,
         "current_rounds_a": ra,
         "current_rounds_b": rb,
+        "band_if_a_round_raw": float(p_if_a_raw),
+        "band_if_b_round_raw": float(p_if_b_raw),
+        "rail_pull_win_used": float(pull_win_used),
+        "rail_pull_loss_used": float(pull_loss_used),
+        "rail_steps_to_a_win": int(steps_to_a_win),
+        "rail_steps_to_b_win": int(steps_to_b_win),
+        "rail_mode_used": mode_used,
     }
     return (p_if_a, p_if_b, band_lo, band_hi, rail_debug)
 # BO3 STATE BANDS
@@ -1737,6 +1808,9 @@ def _compute_cs2_round_state_rails_v2(
     maps_b_won: Optional[int] = None,
     canonical_econ_a: Optional[float] = None,
     canonical_econ_b: Optional[float] = None,
+    rail_mode: Optional[str] = None,
+    rail_pull_scale: Optional[float] = None,
+    rail_pull_cap: Optional[float] = None,
 ) -> dict:
     """Round-state rails v2 canonical: corridor from SAME probability engine as p_hat; v2 terms only shape/asymmetry.
     Canonical anchor and endpoints from _compute_cs2_live_fair_for_state (series-aware when contract is Series winner).
@@ -1785,8 +1859,45 @@ def _compute_cs2_round_state_rails_v2(
         except Exception:
             canonical_anchor = canonical_if_a = canonical_if_b = None
 
+    # Terminal override: at map point (ra+1 or rb+1 >= win_target), set canonical endpoint to the exact map
+    # terminal line (state_bound_lower / state_bound_upper). Use win_target from same path as fair (cs2_current_win_target).
+    rail_terminal_override_a_used = False
+    rail_terminal_override_b_used = False
+    rail_terminal_if_a = canonical_if_a
+    rail_terminal_if_b = canonical_if_b
+    rail_maps_a_won_used = None
+    rail_maps_b_won_used = None
+    wt_rail = cs2_current_win_target(ra, rb)
+    if canonical_anchor is not None and canonical_if_a is not None and canonical_if_b is not None:
+        _n = int(n_maps) if n_maps is not None else 3
+        _ma = int(maps_a_won) if maps_a_won is not None else 0
+        _mb = int(maps_b_won) if maps_b_won is not None else 0
+        _p0 = float(p0_map) if p0_map is not None else 0.5
+        _scope = str(contract_scope or "")
+        rail_maps_a_won_used = _ma
+        rail_maps_b_won_used = _mb
+        # (rb + 1) >= win_target => B wins this map => canonical_if_b = state_bound_lower (series fair "B wins map")
+        if (rb + 1) >= wt_rail:
+            rail_terminal_override_b_used = True
+            if _scope == "Series winner" and _n > 1:
+                rail_terminal_if_b = series_win_prob_live(_n, _ma, _mb + 1, _p0, _p0)
+            else:
+                rail_terminal_if_b = 0.0
+            canonical_if_b = rail_terminal_if_b
+        # (ra + 1) >= win_target => A wins this map => canonical_if_a = state_bound_upper (series fair "A wins map")
+        if (ra + 1) >= wt_rail:
+            rail_terminal_override_a_used = True
+            if _scope == "Series winner" and _n > 1:
+                rail_terminal_if_a = series_win_prob_live(_n, _ma + 1, _mb, _p0, _p0)
+            else:
+                rail_terminal_if_a = 1.0
+            canonical_if_a = rail_terminal_if_a
+
     if canonical_anchor is None or canonical_if_a is None or canonical_if_b is None:
         # Fallback: old canonical round-state bands (same engine, different shape)
+        _rail_mode = (rail_mode or "ANCHOR_PULLED") if rail_mode in ("ANCHOR_PULLED", "RAW_COUNTERFACTUAL") else "ANCHOR_PULLED"
+        _pull_scale = float(rail_pull_scale) if rail_pull_scale is not None else 0.7
+        _pull_cap = float(rail_pull_cap) if rail_pull_cap is not None else 0.6
         fallback = _compute_cs2_round_state_bands(
             float(p0_map or 0.5), ra, rb,
             float(canonical_econ_a or econ_a or 0.0), float(canonical_econ_b or econ_b or 0.0),
@@ -1794,6 +1905,7 @@ def _compute_cs2_round_state_rails_v2(
             float(beta_score or 0.22), float(beta_econ or 0.06), float(beta_pistol or 0.35),
             map_name, team_a_side, float(beta_lock or 0.9), int(lock_start_offset or 3), int(lock_ramp or 3),
             str(contract_scope or "Map winner (this map)"), int(n_maps or 3), int(maps_a_won or 0), int(maps_b_won or 0),
+            rail_mode=_rail_mode, rail_pull_scale=_pull_scale, rail_pull_cap=_pull_cap,
         )
         p_if_a_fb, p_if_b_fb, band_lo_fb, band_hi_fb, debug_fb = fallback
         anchor_fb = None
@@ -1803,6 +1915,15 @@ def _compute_cs2_round_state_rails_v2(
             anchor_fb = 0.5 * (float(p_if_a_fb) + float(p_if_b_fb))
         if anchor_fb is None:
             anchor_fb = 0.5
+        # Dead-path envelope diagnostics (no behavior change)
+        _env_fb = _compute_cs2_branch_endpoint_envelope_debug(
+            endpoint_a_base=float(p_if_a_fb) if p_if_a_fb is not None else 0.5,
+            endpoint_b_base=float(p_if_b_fb) if p_if_b_fb is not None else 0.5,
+            rounds_a=ra, rounds_b=rb,
+            best_of=int(best_of) if best_of is not None else 3,
+            maps_a_won=int(maps_a_won or 0), maps_b_won=int(maps_b_won or 0),
+            win_target=wt,
+        )
         return {
             "anchor": float(np.clip(anchor_fb, clip_lo, clip_hi)),
             "p_if_a_wins": p_if_a_fb,
@@ -1829,6 +1950,40 @@ def _compute_cs2_round_state_rails_v2(
             "rail_series_term": None,
             "rail_series_maps_won_a": int(series_maps_won_a or 0),
             "rail_series_maps_won_b": int(series_maps_won_b or 0),
+            "rail_endpoint_env_valid": _env_fb.get("env_valid"),
+            "rail_endpoint_a_base_dbg": _env_fb.get("endpoint_a_base"),
+            "rail_endpoint_b_base_dbg": _env_fb.get("endpoint_b_base"),
+            "rail_endpoint_env_base_span_abs": _env_fb.get("endpoint_base_span_abs"),
+            "rail_endpoint_env_fraction_k": _env_fb.get("endpoint_env_fraction_k"),
+            "rail_endpoint_env_round_leverage": _env_fb.get("endpoint_env_round_leverage"),
+            "rail_endpoint_env_series_leverage": _env_fb.get("endpoint_env_series_leverage"),
+            "rail_endpoint_env_half_width": _env_fb.get("endpoint_env_half_width"),
+            "rail_endpoint_a_env_low": _env_fb.get("endpoint_a_env_low"),
+            "rail_endpoint_a_env_high": _env_fb.get("endpoint_a_env_high"),
+            "rail_endpoint_b_env_low": _env_fb.get("endpoint_b_env_low"),
+            "rail_endpoint_b_env_high": _env_fb.get("endpoint_b_env_high"),
+            "rail_endpoint_a_env_center": _env_fb.get("endpoint_a_env_center"),
+            "rail_endpoint_b_env_center": _env_fb.get("endpoint_b_env_center"),
+            "rail_endpoint_env_map_index": _env_fb.get("endpoint_env_map_index"),
+            "rail_endpoint_env_best_of": _env_fb.get("endpoint_env_best_of"),
+            "rail_endpoint_env_win_target": _env_fb.get("endpoint_env_win_target"),
+            "band_if_a_round_raw": debug_fb.get("band_if_a_round_raw"),
+            "band_if_b_round_raw": debug_fb.get("band_if_b_round_raw"),
+            "rail_pull_win_used": debug_fb.get("rail_pull_win_used"),
+            "rail_pull_loss_used": debug_fb.get("rail_pull_loss_used"),
+            "rail_steps_to_a_win": debug_fb.get("rail_steps_to_a_win"),
+            "rail_steps_to_b_win": debug_fb.get("rail_steps_to_b_win"),
+            "rail_mode_used": debug_fb.get("rail_mode_used"),
+            "rail_terminal_override_a_used": False,
+            "rail_terminal_override_b_used": False,
+            "rail_terminal_if_a": None,
+            "rail_terminal_if_b": None,
+            "rail_ra": ra,
+            "rail_rb": rb,
+            "win_target": wt,
+            "rail_win_target_used": wt,
+            "rail_maps_a_won_used": int(maps_a_won) if maps_a_won is not None else None,
+            "rail_maps_b_won_used": int(maps_b_won) if maps_b_won is not None else None,
         }
 
     canonical_anchor = float(np.clip(canonical_anchor, clip_lo, clip_hi))
@@ -1883,10 +2038,16 @@ def _compute_cs2_round_state_rails_v2(
     d_dn = canonical_anchor - canonical_if_b
     adjusted_d_up = d_up * mult_a
     adjusted_d_dn = d_dn * mult_b
-    adj_if_a = canonical_anchor + adjusted_d_up
-    adj_if_b = canonical_anchor - adjusted_d_dn
-    adj_if_a = float(np.clip(adj_if_a, clip_lo, clip_hi))
-    adj_if_b = float(np.clip(adj_if_b, clip_lo, clip_hi))
+    if rail_terminal_override_a_used:
+        adj_if_a = float(np.clip(rail_terminal_if_a, clip_lo, clip_hi))
+    else:
+        adj_if_a = canonical_anchor + adjusted_d_up
+        adj_if_a = float(np.clip(adj_if_a, clip_lo, clip_hi))
+    if rail_terminal_override_b_used:
+        adj_if_b = float(np.clip(rail_terminal_if_b, clip_lo, clip_hi))
+    else:
+        adj_if_b = canonical_anchor - adjusted_d_dn
+        adj_if_b = float(np.clip(adj_if_b, clip_lo, clip_hi))
 
     band_lo = min(adj_if_a, adj_if_b)
     band_hi = max(adj_if_a, adj_if_b)
@@ -1895,6 +2056,18 @@ def _compute_cs2_round_state_rails_v2(
     if band_hi < canonical_anchor:
         band_hi = max(band_hi, canonical_anchor)
     anchor = canonical_anchor
+
+    # Dead-path envelope diagnostics (no behavior change)
+    _env = _compute_cs2_branch_endpoint_envelope_debug(
+        endpoint_a_base=adj_if_a,
+        endpoint_b_base=adj_if_b,
+        rounds_a=ra,
+        rounds_b=rb,
+        best_of=bo,
+        maps_a_won=ma,
+        maps_b_won=mb,
+        win_target=wt,
+    )
 
     return {
         "anchor": anchor,
@@ -1922,13 +2095,47 @@ def _compute_cs2_round_state_rails_v2(
         "rail_series_term": rail_series_term,
         "rail_series_maps_won_a": ma,
         "rail_series_maps_won_b": mb,
+        "rail_endpoint_env_valid": _env.get("env_valid"),
+        "rail_endpoint_a_base_dbg": _env.get("endpoint_a_base"),
+        "rail_endpoint_b_base_dbg": _env.get("endpoint_b_base"),
+        "rail_endpoint_env_base_span_abs": _env.get("endpoint_base_span_abs"),
+        "rail_endpoint_env_fraction_k": _env.get("endpoint_env_fraction_k"),
+        "rail_endpoint_env_round_leverage": _env.get("endpoint_env_round_leverage"),
+        "rail_endpoint_env_series_leverage": _env.get("endpoint_env_series_leverage"),
+        "rail_endpoint_env_half_width": _env.get("endpoint_env_half_width"),
+        "rail_endpoint_a_env_low": _env.get("endpoint_a_env_low"),
+        "rail_endpoint_a_env_high": _env.get("endpoint_a_env_high"),
+        "rail_endpoint_b_env_low": _env.get("endpoint_b_env_low"),
+        "rail_endpoint_b_env_high": _env.get("endpoint_b_env_high"),
+        "rail_endpoint_a_env_center": _env.get("endpoint_a_env_center"),
+        "rail_endpoint_b_env_center": _env.get("endpoint_b_env_center"),
+        "rail_endpoint_env_map_index": _env.get("endpoint_env_map_index"),
+        "rail_endpoint_env_best_of": _env.get("endpoint_env_best_of"),
+        "rail_endpoint_env_win_target": _env.get("endpoint_env_win_target"),
+        "rail_terminal_override_a_used": rail_terminal_override_a_used,
+        "rail_terminal_override_b_used": rail_terminal_override_b_used,
+        "rail_terminal_if_a": rail_terminal_if_a,
+        "rail_terminal_if_b": rail_terminal_if_b,
+        "rail_ra": ra,
+        "rail_rb": rb,
+        "win_target": wt_rail,
+        "rail_win_target": wt,
+        "rail_win_target_used": wt_rail,
+        "rail_maps_a_won_used": rail_maps_a_won_used,
+        "rail_maps_b_won_used": rail_maps_b_won_used,
     }
 
 
 # BO3 MIDROUND V1 — round-state latching and intraround adjustment (alive/bomb/HP/time)
-def _build_cs2_round_key(map_name, rounds_a, rounds_b, maps_a_won, maps_b_won, contract_scope, n_maps) -> str:
-    """Stable key for current round state; only changes when score/map/series changes."""
-    return f"{map_name}|{int(rounds_a)}|{int(rounds_b)}|{int(maps_a_won)}|{int(maps_b_won)}|{contract_scope}|{int(n_maps)}"
+def _build_cs2_round_key(map_name, rounds_a, rounds_b, maps_a_won, maps_b_won, contract_scope, n_maps, game_number=None) -> str:
+    """Stable key for current round state; only changes when score/map/series changes. Optional game_number for map-transition robustness."""
+    base = f"{map_name}|{int(rounds_a)}|{int(rounds_b)}|{int(maps_a_won)}|{int(maps_b_won)}|{contract_scope}|{int(n_maps)}"
+    if game_number is not None:
+        try:
+            base = f"{base}|{int(game_number)}"
+        except (TypeError, ValueError):
+            pass
+    return base
 
 
 # BO3 MIDROUND V1 — default V1 weights (conservative, easy to tune)
@@ -1942,6 +2149,8 @@ MAX_ABS_MID_ADJ = 0.18
 ARMOR_DIFF_WEIGHT_PER_100 = 0.008
 LOADOUT_DIFF_WEIGHT_PER_1000 = 0.012
 RELIABILITY_MIN_MULT = 0.35
+# Series-endpoint mixture: temperature for q_intra = sigmoid(intra_score_raw / temp)
+INTRA_Q_SIGMOID_TEMP = 1.0
 
 # Round-start context offset: max absolute offset (baseline context only)
 ROUND_CONTEXT_OFFSET_MAX = 0.04
@@ -2028,6 +2237,712 @@ def _compute_cs2_round_context_offset(
     return (offset, debug)
 
 
+def _compute_cs2_branch_endpoint_envelope_debug(
+    endpoint_a_base: float,
+    endpoint_b_base: float,
+    rounds_a: int,
+    rounds_b: int,
+    best_of: int,
+    maps_a_won: int,
+    maps_b_won: int,
+    win_target: int = 13,
+) -> dict:
+    """Pure helper: compute per-branch endpoint envelope diagnostics from base endpoints,
+    round score, and series state. Dead-path utility for testing; no integration into live pipeline.
+    Returns a debug dict with env_valid=False and None fields on invalid inputs.
+    """
+    def _clip01(x: float) -> float:
+        return float(np.clip(x, 0.0, 1.0))
+
+    invalid = {
+        "env_valid": False,
+        "endpoint_a_base": None,
+        "endpoint_b_base": None,
+        "endpoint_base_span_abs": None,
+        "endpoint_env_fraction_k": None,
+        "endpoint_env_round_leverage": None,
+        "endpoint_env_series_leverage": None,
+        "endpoint_env_half_width": None,
+        "endpoint_a_env_low": None,
+        "endpoint_a_env_high": None,
+        "endpoint_b_env_low": None,
+        "endpoint_b_env_high": None,
+        "endpoint_a_env_center": None,
+        "endpoint_b_env_center": None,
+        "endpoint_env_map_index": None,
+        "endpoint_env_best_of": None,
+        "endpoint_env_win_target": None,
+    }
+    try:
+        ea = float(endpoint_a_base)
+        eb = float(endpoint_b_base)
+        ra = int(rounds_a)
+        rb = int(rounds_b)
+        bo = int(best_of)
+        ma = int(maps_a_won)
+        mb = int(maps_b_won)
+        wt = int(win_target)
+    except (TypeError, ValueError):
+        return invalid
+    if wt <= 0 or ra < 0 or rb < 0 or ma < 0 or mb < 0 or bo not in (3, 5):
+        return invalid
+
+    # 1) Round leverage L_round in [0,1]
+    leader = max(ra, rb)
+    P = leader / float(wt)
+    d = abs(ra - rb)
+    C = 1.0 - min(d / 8.0, 1.0)
+    L_round = _clip01(0.6 * P + 0.4 * C)
+
+    # 2) Series leverage L_series in [0,1]
+    map_idx = ma + mb + 1
+    if bo == 3:
+        series_leverage_map = {1: 0.45, 2: 0.65, 3: 1.00}
+    elif bo == 5:
+        series_leverage_map = {1: 0.30, 2: 0.45, 3: 0.65, 4: 0.85, 5: 1.00}
+    else:
+        series_leverage_map = {}
+    L_series = series_leverage_map.get(map_idx, 0.60)
+
+    # 3) Envelope fraction k
+    k_raw = 0.08 + 0.14 * (0.75 * L_round + 0.25 * L_series)
+    k = float(np.clip(k_raw, 0.08, 0.22))
+
+    # 4) Base span and envelope half-width
+    base_span = abs(ea - eb)
+    env_half_width = base_span * k
+
+    # 5) Branch-oriented envelope bounds (do NOT sort A/B together)
+    a_env_low = _clip01(ea - env_half_width)
+    a_env_high = _clip01(ea + env_half_width)
+    b_env_low = _clip01(eb - env_half_width)
+    b_env_high = _clip01(eb + env_half_width)
+
+    # 6) Centers
+    a_env_center = 0.5 * (a_env_low + a_env_high)
+    b_env_center = 0.5 * (b_env_low + b_env_high)
+
+    return {
+        "env_valid": True,
+        "endpoint_a_base": ea,
+        "endpoint_b_base": eb,
+        "endpoint_base_span_abs": base_span,
+        "endpoint_env_fraction_k": k,
+        "endpoint_env_round_leverage": L_round,
+        "endpoint_env_series_leverage": L_series,
+        "endpoint_env_half_width": env_half_width,
+        "endpoint_a_env_low": a_env_low,
+        "endpoint_a_env_high": a_env_high,
+        "endpoint_b_env_low": b_env_low,
+        "endpoint_b_env_high": b_env_high,
+        "endpoint_a_env_center": a_env_center,
+        "endpoint_b_env_center": b_env_center,
+        "endpoint_env_map_index": map_idx,
+        "endpoint_env_best_of": bo,
+        "endpoint_env_win_target": wt,
+    }
+
+
+if False:  # Optional disabled self-test: uncomment to inspect outputs
+    _env = _compute_cs2_branch_endpoint_envelope_debug(0.55, 0.45, 6, 5, 3, 0, 0, 13)
+    print("BO3 map1 6-5:", _env)
+    _env2 = _compute_cs2_branch_endpoint_envelope_debug(0.72, 0.28, 12, 10, 5, 1, 0, 13)
+    print("BO5 map2 12-10:", _env2)
+    _inv = _compute_cs2_branch_endpoint_envelope_debug(0.5, 0.5, -1, 0, 3, 0, 0, 13)
+    print("Invalid:", _inv.get("env_valid"), _inv.get("endpoint_a_base"))
+
+
+def _compute_cs2_branch_econ_consequence_debug(
+    team_a_alive_count: float,
+    team_b_alive_count: float,
+    team_a_alive_loadout_est_total: float,
+    team_b_alive_loadout_est_total: float,
+    team_a_alive_cash_total: float,
+    team_b_alive_cash_total: float,
+) -> dict:
+    """Pure helper: branch econ consequence quality (A-favored vs B-favored) from normalized alive resource fields.
+    Debug-only; no loss-bonus simulation. Returns econ_valid=False and None fields on invalid input.
+    """
+    invalid = {
+        "econ_valid": False,
+        "endpoint_econ_d_alive_survival": None,
+        "endpoint_econ_d_alive_loadout": None,
+        "endpoint_econ_d_alive_cash": None,
+        "endpoint_econ_score_a": None,
+        "endpoint_econ_score_b": None,
+    }
+    try:
+        n_a = float(team_a_alive_count)
+        n_b = float(team_b_alive_count)
+        load_a = float(team_a_alive_loadout_est_total)
+        load_b = float(team_b_alive_loadout_est_total)
+        cash_a = float(team_a_alive_cash_total)
+        cash_b = float(team_b_alive_cash_total)
+    except (TypeError, ValueError):
+        return invalid
+    if not (np.isfinite(n_a) and np.isfinite(n_b) and np.isfinite(load_a) and np.isfinite(load_b)
+            and np.isfinite(cash_a) and np.isfinite(cash_b)):
+        return invalid
+
+    d_alive_survival = (n_a - n_b) / 5.0
+    d_alive_survival = float(np.clip(d_alive_survival, -1.0, 1.0))
+
+    loadout_sum = load_a + load_b
+    if loadout_sum >= 1e-9:
+        d_alive_loadout = (load_a - load_b) / loadout_sum
+    else:
+        d_alive_loadout = 0.0
+    d_alive_loadout = float(np.clip(d_alive_loadout, -1.0, 1.0))
+
+    cash_sum = cash_a + cash_b
+    if cash_sum >= 1e-9:
+        d_alive_cash = (cash_a - cash_b) / cash_sum
+    else:
+        d_alive_cash = 0.0
+    d_alive_cash = float(np.clip(d_alive_cash, -1.0, 1.0))
+
+    econ_score_a = 0.45 * d_alive_survival + 0.35 * d_alive_loadout + 0.20 * d_alive_cash
+    econ_score_a = float(np.clip(econ_score_a, -1.0, 1.0))
+    econ_score_b = -econ_score_a
+
+    return {
+        "econ_valid": True,
+        "endpoint_econ_d_alive_survival": d_alive_survival,
+        "endpoint_econ_d_alive_loadout": d_alive_loadout,
+        "endpoint_econ_d_alive_cash": d_alive_cash,
+        "endpoint_econ_score_a": econ_score_a,
+        "endpoint_econ_score_b": econ_score_b,
+    }
+
+
+def _compute_cs2_branch_endpoint_position_debug(
+    a_env_low: float,
+    a_env_high: float,
+    b_env_low: float,
+    b_env_high: float,
+    team_a_alive_count: float,
+    team_b_alive_count: float,
+    team_a_alive_loadout_total: float,
+    team_b_alive_loadout_total: float,
+    team_a_armor_alive_total: float,
+    team_b_armor_alive_total: float,
+    branch_temp: float = 0.40,
+) -> dict:
+    """Pure helper: branch-quality position inside endpoint envelopes from intraround microstate.
+    Dead-path diagnostics only; do not use for p_hat. Returns pos_valid=False and None fields on invalid input.
+    """
+    EPS = 1e-9
+    invalid = {
+        "pos_valid": False,
+        "branch_temp_used": None,
+        "endpoint_pos_d_alive": None,
+        "endpoint_pos_d_loadout": None,
+        "endpoint_pos_d_armor": None,
+        "endpoint_pos_score_a": None,
+        "endpoint_pos_score_b": None,
+        "endpoint_pos_a_quality_pos": None,
+        "endpoint_pos_b_quality_pos": None,
+        "endpoint_pos_a_active_dbg": None,
+        "endpoint_pos_b_active_dbg": None,
+        "endpoint_pos_a_active_within_env": None,
+        "endpoint_pos_b_active_within_env": None,
+        "endpoint_pos_loadout_sum": None,
+        "endpoint_pos_armor_sum": None,
+    }
+    try:
+        a_lo = float(a_env_low)
+        a_hi = float(a_env_high)
+        b_lo = float(b_env_low)
+        b_hi = float(b_env_high)
+        n_a = float(team_a_alive_count)
+        n_b = float(team_b_alive_count)
+        load_a = float(team_a_alive_loadout_total)
+        load_b = float(team_b_alive_loadout_total)
+        arm_a = float(team_a_armor_alive_total)
+        arm_b = float(team_b_armor_alive_total)
+        temp = float(branch_temp)
+    except (TypeError, ValueError):
+        return invalid
+    if not (np.isfinite(a_lo) and np.isfinite(a_hi) and np.isfinite(b_lo) and np.isfinite(b_hi)
+            and np.isfinite(n_a) and np.isfinite(n_b) and np.isfinite(load_a) and np.isfinite(load_b)
+            and np.isfinite(arm_a) and np.isfinite(arm_b) and np.isfinite(temp)):
+        return invalid
+    temp = max(float(temp), 1e-6)
+
+    # Normalized microstate diffs
+    d_alive = (n_a - n_b) / 5.0
+    d_alive = float(np.clip(d_alive, -1.0, 1.0))
+
+    loadout_sum = load_a + load_b
+    if loadout_sum > EPS:
+        d_loadout = (load_a - load_b) / loadout_sum
+    else:
+        d_loadout = 0.0
+    d_loadout = float(np.clip(d_loadout, -1.0, 1.0))
+
+    armor_sum = arm_a + arm_b
+    if armor_sum > EPS:
+        d_armor = (arm_a - arm_b) / armor_sum
+    else:
+        d_armor = 0.0
+    d_armor = float(np.clip(d_armor, -1.0, 1.0))
+
+    # Branch-quality score (50/30/20)
+    s_A = 0.50 * d_alive + 0.30 * d_loadout + 0.20 * d_armor
+    s_B = -s_A
+    s_A = float(np.clip(s_A, -5.0, 5.0))
+    s_B = float(np.clip(s_B, -5.0, 5.0))
+
+    # Map to [0,1] via sigmoid
+    a_quality_pos = _sigmoid_stable(s_A, temp)
+    b_quality_pos = _sigmoid_stable(s_B, temp)
+
+    # Active endpoints inside envelope (linear interpolation)
+    a_active_dbg = a_lo + (a_hi - a_lo) * a_quality_pos
+    b_active_dbg = b_lo + (b_hi - b_lo) * b_quality_pos
+
+    a_active_within_env = bool((a_lo - 1e-9) <= a_active_dbg <= (a_hi + 1e-9))
+    b_active_within_env = bool((b_lo - 1e-9) <= b_active_dbg <= (b_hi + 1e-9))
+
+    return {
+        "pos_valid": True,
+        "branch_temp_used": temp,
+        "endpoint_pos_d_alive": d_alive,
+        "endpoint_pos_d_loadout": d_loadout,
+        "endpoint_pos_d_armor": d_armor,
+        "endpoint_pos_score_a": s_A,
+        "endpoint_pos_score_b": s_B,
+        "endpoint_pos_a_quality_pos": a_quality_pos,
+        "endpoint_pos_b_quality_pos": b_quality_pos,
+        "endpoint_pos_a_active_dbg": a_active_dbg,
+        "endpoint_pos_b_active_dbg": b_active_dbg,
+        "endpoint_pos_a_active_within_env": a_active_within_env,
+        "endpoint_pos_b_active_within_env": b_active_within_env,
+        "endpoint_pos_loadout_sum": loadout_sum,
+        "endpoint_pos_armor_sum": armor_sum,
+    }
+
+
+def _debug_run_cs2_endpoint_model_scenarios() -> None:
+    """Print-only debug harness for CS2 endpoint envelope + position helpers. No session state or Streamlit.
+    Run manually by enabling the 'if False' block that calls this."""
+    scenarios = [
+        {
+            "name": "1. Neutral early BO3 map1",
+            "endpoint_a_base": 0.57,
+            "endpoint_b_base": 0.43,
+            "rounds_a": 2,
+            "rounds_b": 1,
+            "best_of": 3,
+            "maps_a_won": 0,
+            "maps_b_won": 0,
+            "a_alive": 5,
+            "b_alive": 5,
+            "a_loadout": 22000.0,
+            "b_loadout": 22000.0,
+            "a_armor": 500.0,
+            "b_armor": 500.0,
+            "q_intra_assumed": 0.50,
+        },
+        {
+            "name": "2. Mid-round A advantage (alive + loadout + armor)",
+            "endpoint_a_base": 0.57,
+            "endpoint_b_base": 0.43,
+            "rounds_a": 2,
+            "rounds_b": 1,
+            "best_of": 3,
+            "maps_a_won": 0,
+            "maps_b_won": 0,
+            "a_alive": 5,
+            "b_alive": 3,
+            "a_loadout": 24000.0,
+            "b_loadout": 14000.0,
+            "a_armor": 450.0,
+            "b_armor": 220.0,
+            "q_intra_assumed": 0.65,
+        },
+        {
+            "name": "3. Alive equal, A gear-trash",
+            "endpoint_a_base": 0.57,
+            "endpoint_b_base": 0.43,
+            "rounds_a": 2,
+            "rounds_b": 1,
+            "best_of": 3,
+            "maps_a_won": 0,
+            "maps_b_won": 0,
+            "a_alive": 3,
+            "b_alive": 3,
+            "a_loadout": 2500.0,
+            "b_loadout": 15000.0,
+            "a_armor": 50.0,
+            "b_armor": 250.0,
+            "q_intra_assumed": 0.50,
+        },
+        {
+            "name": "4. Armor-only advantage check",
+            "endpoint_a_base": 0.57,
+            "endpoint_b_base": 0.43,
+            "rounds_a": 2,
+            "rounds_b": 1,
+            "best_of": 3,
+            "maps_a_won": 0,
+            "maps_b_won": 0,
+            "a_alive": 4,
+            "b_alive": 4,
+            "a_loadout": 16000.0,
+            "b_loadout": 16000.0,
+            "a_armor": 380.0,
+            "b_armor": 80.0,
+            "q_intra_assumed": 0.50,
+        },
+        {
+            "name": "5. Close late BO3 decider (11-11, map3)",
+            "endpoint_a_base": 0.62,
+            "endpoint_b_base": 0.38,
+            "rounds_a": 11,
+            "rounds_b": 11,
+            "best_of": 3,
+            "maps_a_won": 1,
+            "maps_b_won": 1,
+            "a_alive": 5,
+            "b_alive": 2,
+            "a_loadout": 26000.0,
+            "b_loadout": 9000.0,
+            "a_armor": 500.0,
+            "b_armor": 120.0,
+            "q_intra_assumed": 0.80,
+        },
+        {
+            "name": "6. High-leverage but ugly A win path (1v1 low gear)",
+            "endpoint_a_base": 0.62,
+            "endpoint_b_base": 0.38,
+            "rounds_a": 11,
+            "rounds_b": 11,
+            "best_of": 3,
+            "maps_a_won": 1,
+            "maps_b_won": 1,
+            "a_alive": 1,
+            "b_alive": 1,
+            "a_loadout": 3500.0,
+            "b_loadout": 2500.0,
+            "a_armor": 0.0,
+            "b_armor": 0.0,
+            "q_intra_assumed": 0.60,
+        },
+        {
+            "name": "7. BO5 late-map leverage check (map4)",
+            "endpoint_a_base": 0.55,
+            "endpoint_b_base": 0.45,
+            "rounds_a": 10,
+            "rounds_b": 10,
+            "best_of": 5,
+            "maps_a_won": 2,
+            "maps_b_won": 1,
+            "a_alive": 4,
+            "b_alive": 3,
+            "a_loadout": 20000.0,
+            "b_loadout": 15000.0,
+            "a_armor": 300.0,
+            "b_armor": 180.0,
+            "q_intra_assumed": 0.60,
+        },
+        {
+            "name": "8. Invalid input smoke test (best_of=7)",
+            "endpoint_a_base": 0.55,
+            "endpoint_b_base": 0.45,
+            "rounds_a": 5,
+            "rounds_b": 5,
+            "best_of": 7,
+            "maps_a_won": 0,
+            "maps_b_won": 0,
+            "a_alive": 5,
+            "b_alive": 5,
+            "a_loadout": 20000.0,
+            "b_loadout": 20000.0,
+            "a_armor": 300.0,
+            "b_armor": 300.0,
+            "q_intra_assumed": 0.50,
+        },
+    ]
+    win_target = 13
+    for s in scenarios:
+        name = s.get("name", "?")
+        q_intra = float(s.get("q_intra_assumed", 0.50))
+        env = _compute_cs2_branch_endpoint_envelope_debug(
+            endpoint_a_base=s["endpoint_a_base"],
+            endpoint_b_base=s["endpoint_b_base"],
+            rounds_a=s["rounds_a"],
+            rounds_b=s["rounds_b"],
+            best_of=s["best_of"],
+            maps_a_won=s["maps_a_won"],
+            maps_b_won=s["maps_b_won"],
+            win_target=win_target,
+        )
+        a_lo = env.get("endpoint_a_env_low") if env.get("env_valid") else None
+        a_hi = env.get("endpoint_a_env_high") if env.get("env_valid") else None
+        b_lo = env.get("endpoint_b_env_low") if env.get("env_valid") else None
+        b_hi = env.get("endpoint_b_env_high") if env.get("env_valid") else None
+        pos = None
+        if a_lo is not None and a_hi is not None and b_lo is not None and b_hi is not None:
+            pos = _compute_cs2_branch_endpoint_position_debug(
+                a_env_low=a_lo,
+                a_env_high=a_hi,
+                b_env_low=b_lo,
+                b_env_high=b_hi,
+                team_a_alive_count=float(s["a_alive"]),
+                team_b_alive_count=float(s["b_alive"]),
+                team_a_alive_loadout_total=float(s["a_loadout"]),
+                team_b_alive_loadout_total=float(s["b_loadout"]),
+                team_a_armor_alive_total=float(s["a_armor"]),
+                team_b_armor_alive_total=float(s["b_armor"]),
+                branch_temp=0.40,
+            )
+        else:
+            pos = {"pos_valid": False}
+        p_hat_dynamic_dbg = None
+        if env.get("env_valid") and pos.get("pos_valid"):
+            aa = pos.get("endpoint_pos_a_active_dbg")
+            bb = pos.get("endpoint_pos_b_active_dbg")
+            if aa is not None and bb is not None:
+                p_hat_dynamic_dbg = q_intra * aa + (1.0 - q_intra) * bb
+        print("=" * 60)
+        print(name)
+        print("-" * 40)
+        print("  Envelope: valid=%s" % env.get("env_valid", False))
+        if env.get("env_valid"):
+            print("    base_span=%.4f  k=%.4f  L_round=%.4f  L_series=%.4f" % (
+                env.get("endpoint_base_span_abs", 0) or 0,
+                env.get("endpoint_env_fraction_k", 0) or 0,
+                env.get("endpoint_env_round_leverage", 0) or 0,
+                env.get("endpoint_env_series_leverage", 0) or 0,
+            ))
+            print("    A env [%.4f, %.4f]  B env [%.4f, %.4f]" % (
+                env.get("endpoint_a_env_low", 0) or 0,
+                env.get("endpoint_a_env_high", 0) or 0,
+                env.get("endpoint_b_env_low", 0) or 0,
+                env.get("endpoint_b_env_high", 0) or 0,
+            ))
+        else:
+            print("    (invalid envelope)")
+        print("  Position: valid=%s" % pos.get("pos_valid", False))
+        if pos.get("pos_valid"):
+            print("    d_alive=%.4f  d_loadout=%.4f  d_armor=%.4f" % (
+                pos.get("endpoint_pos_d_alive", 0) or 0,
+                pos.get("endpoint_pos_d_loadout", 0) or 0,
+                pos.get("endpoint_pos_d_armor", 0) or 0,
+            ))
+            print("    s_A=%.4f  s_B=%.4f" % (
+                pos.get("endpoint_pos_score_a", 0) or 0,
+                pos.get("endpoint_pos_score_b", 0) or 0,
+            ))
+            print("    a_quality_pos=%.4f  b_quality_pos=%.4f" % (
+                pos.get("endpoint_pos_a_quality_pos", 0) or 0,
+                pos.get("endpoint_pos_b_quality_pos", 0) or 0,
+            ))
+            print("    a_active_dbg=%.4f  b_active_dbg=%.4f" % (
+                pos.get("endpoint_pos_a_active_dbg", 0) or 0,
+                pos.get("endpoint_pos_b_active_dbg", 0) or 0,
+            ))
+            print("    a_within_env=%s  b_within_env=%s" % (
+                pos.get("endpoint_pos_a_active_within_env", False),
+                pos.get("endpoint_pos_b_active_within_env", False),
+            ))
+        else:
+            print("    (invalid position)")
+        print("  q_intra_assumed=%.2f" % q_intra)
+        if p_hat_dynamic_dbg is not None:
+            print("  p_hat_dynamic_dbg=%.4f" % p_hat_dynamic_dbg)
+        print("")
+    print("=" * 60)
+    print("debug scenarios done")
+
+
+def _compute_cs2_phat_intra_score_debug(
+    team_a_alive_count,
+    team_b_alive_count,
+    team_a_hp_alive_total,
+    team_b_hp_alive_total,
+    team_a_alive_loadout_est_total,
+    team_b_alive_loadout_est_total,
+    bomb_planted,
+    round_phase,
+    round_time_remaining_s,
+    team_a_side,
+    q_temp: float = 1.0,
+    reliability_mult: float = 1.0,
+) -> dict:
+    """Pure helper: structural q_intra candidate from BO3-normalized fields for diagnostics only.
+    Alive/HP/Loadout, bomb, clock, bomb×clock interaction, alive-quality scaling. No session state."""
+    _none = {
+        "phat_intra_valid": False,
+        "phat_intra_side_known": None,
+        "phat_intra_clock_known": None,
+        "phat_intra_bomb_planted_bool": None,
+        "phat_intra_round_phase_norm": None,
+        "phat_intra_phase_mult": None,
+        "phat_intra_urgency": None,
+        "phat_intra_d_alive": None,
+        "phat_intra_d_hp": None,
+        "phat_intra_d_loadout": None,
+        "phat_intra_bomb_term_signed": None,
+        "phat_intra_clock_term_signed": None,
+        "phat_intra_bomb_clock_combo_signed": None,
+        "phat_intra_loadout_presence": None,
+        "phat_intra_w_alive_eff": None,
+        "phat_intra_score_alive": None,
+        "phat_intra_score_hp": None,
+        "phat_intra_score_loadout": None,
+        "phat_intra_score_bomb": None,
+        "phat_intra_score_clock": None,
+        "phat_intra_score_bomb_clock_combo": None,
+        "phat_intra_score_raw_pre_reliability": None,
+        "phat_intra_score_raw_post_reliability": None,
+        "phat_intra_q_temp_used": None,
+        "phat_intra_q_intra_round_win_a_dbg": None,
+    }
+    try:
+        n_a = float(team_a_alive_count) if team_a_alive_count is not None else float("nan")
+        n_b = float(team_b_alive_count) if team_b_alive_count is not None else float("nan")
+        hp_a = float(team_a_hp_alive_total) if team_a_hp_alive_total is not None else float("nan")
+        hp_b = float(team_b_hp_alive_total) if team_b_hp_alive_total is not None else float("nan")
+        load_a = float(team_a_alive_loadout_est_total) if team_a_alive_loadout_est_total is not None else float("nan")
+        load_b = float(team_b_alive_loadout_est_total) if team_b_alive_loadout_est_total is not None else float("nan")
+        temp = float(q_temp) if q_temp is not None else 1.0
+        rel_mult = float(reliability_mult) if reliability_mult is not None else 1.0
+    except (TypeError, ValueError):
+        return _none
+    if not (np.isfinite(n_a) and np.isfinite(n_b)):
+        return _none
+    temp = max(temp, 1e-6)
+
+    # B) Normalized diffs (clip to [-1, 1])
+    d_alive = (n_a - n_b) / 5.0
+    d_alive = float(np.clip(d_alive, -1.0, 1.0))
+
+    hp_sum = (hp_a + hp_b) if (np.isfinite(hp_a) and np.isfinite(hp_b)) else 0.0
+    if hp_sum >= 1e-9:
+        d_hp = (hp_a - hp_b) / hp_sum
+    else:
+        d_hp = 0.0
+    d_hp = float(np.clip(d_hp, -1.0, 1.0))
+
+    _load_sum_raw = (load_a + load_b) if (np.isfinite(load_a) and np.isfinite(load_b)) else 0.0
+    if _load_sum_raw >= 1e-9:
+        d_loadout = (load_a - load_b) / _load_sum_raw
+    else:
+        d_loadout = 0.0
+    d_loadout = float(np.clip(d_loadout, -1.0, 1.0))
+
+    # C) Side normalization
+    side_str = str(team_a_side).strip().upper() if team_a_side is not None else ""
+    if side_str in ("T", "CT"):
+        side_known = True
+    else:
+        side_known = False
+        side_str = ""
+
+    # D) Bomb term (signed toward Team A)
+    bomb_bool = bool(bomb_planted) if bomb_planted is not None else False
+    if not bomb_bool:
+        bomb_term_signed = 0.0
+    elif side_str == "T":
+        bomb_term_signed = 1.0
+    elif side_str == "CT":
+        bomb_term_signed = -1.0
+    else:
+        bomb_term_signed = 0.0
+
+    # E) Clock / phase term
+    round_phase_norm = str(round_phase).lower() if round_phase is not None else ""
+    phase_is_freeze_buy = "freeze" in round_phase_norm or "buy" in round_phase_norm
+    phase_is_post_end = "end" in round_phase_norm or "post" in round_phase_norm
+    phase_mult = 0.0 if (phase_is_freeze_buy or phase_is_post_end) else 1.0
+
+    t_rem = float(round_time_remaining_s) if round_time_remaining_s is not None and np.isfinite(float(round_time_remaining_s)) else None
+    if t_rem is not None:
+        clock_known = True
+        time_clamped = float(np.clip(t_rem, 0.0, 40.0))
+        urgency = 1.0 - (time_clamped / 40.0)
+    else:
+        clock_known = False
+        urgency = 0.0
+
+    if bomb_bool:
+        if side_str == "T":
+            clock_term_signed = urgency
+        elif side_str == "CT":
+            clock_term_signed = -urgency
+        else:
+            clock_term_signed = 0.0
+    else:
+        if side_str == "CT":
+            clock_term_signed = urgency
+        elif side_str == "T":
+            clock_term_signed = -urgency
+        else:
+            clock_term_signed = 0.0
+
+    bomb_term_signed *= phase_mult
+    clock_term_signed *= phase_mult
+
+    # F) Alive-quality scaling
+    _load_sum = max(_load_sum_raw, 1e-9) if np.isfinite(_load_sum_raw) else 1e-9
+    loadout_presence = float(np.clip(_load_sum / 30000.0, 0.0, 1.0))
+    w_alive_base = 0.15
+    w_alive_bonus = 0.15
+    w_alive_eff = w_alive_base + w_alive_bonus * loadout_presence
+
+    # G) Component weights
+    w_hp = 0.20
+    w_loadout = 0.20
+    w_bomb = 0.10
+    w_clock = 0.05
+    w_bomb_clock_combo = 0.15
+
+    bomb_clock_combo_signed = bomb_term_signed * abs(clock_term_signed)
+
+    # H) Component scores
+    score_alive = w_alive_eff * d_alive
+    score_hp = w_hp * d_hp
+    score_loadout = w_loadout * d_loadout
+    score_bomb = w_bomb * bomb_term_signed
+    score_clock = w_clock * clock_term_signed
+    score_bomb_clock_combo = w_bomb_clock_combo * bomb_clock_combo_signed
+
+    # I) Raw score + q
+    raw_pre = score_alive + score_hp + score_loadout + score_bomb + score_clock + score_bomb_clock_combo
+    raw_post = raw_pre * rel_mult
+    q_dbg = _sigmoid_stable(raw_post, temp)
+
+    return {
+        "phat_intra_valid": True,
+        "phat_intra_side_known": side_known,
+        "phat_intra_clock_known": clock_known,
+        "phat_intra_bomb_planted_bool": bomb_bool,
+        "phat_intra_round_phase_norm": round_phase_norm,
+        "phat_intra_phase_mult": phase_mult,
+        "phat_intra_urgency": urgency,
+        "phat_intra_d_alive": d_alive,
+        "phat_intra_d_hp": d_hp,
+        "phat_intra_d_loadout": d_loadout,
+        "phat_intra_bomb_term_signed": bomb_term_signed,
+        "phat_intra_clock_term_signed": clock_term_signed,
+        "phat_intra_bomb_clock_combo_signed": bomb_clock_combo_signed,
+        "phat_intra_loadout_presence": loadout_presence,
+        "phat_intra_w_alive_eff": w_alive_eff,
+        "phat_intra_score_alive": score_alive,
+        "phat_intra_score_hp": score_hp,
+        "phat_intra_score_loadout": score_loadout,
+        "phat_intra_score_bomb": score_bomb,
+        "phat_intra_score_clock": score_clock,
+        "phat_intra_score_bomb_clock_combo": score_bomb_clock_combo,
+        "phat_intra_score_raw_pre_reliability": raw_pre,
+        "phat_intra_score_raw_post_reliability": raw_post,
+        "phat_intra_q_temp_used": temp,
+        "phat_intra_q_intra_round_win_a_dbg": q_dbg,
+    }
+
+
 def _compute_cs2_midround_features(
     team_a_alive_count=None,
     team_b_alive_count=None,
@@ -2072,6 +2987,8 @@ def _compute_cs2_midround_features(
         hp_a = float(team_a_hp_alive_total) if team_a_hp_alive_total is not None else 0.0
         hp_b = float(team_b_hp_alive_total) if team_b_hp_alive_total is not None else 0.0
         out["hp_diff_alive"] = hp_a - hp_b
+        out["hp_a_total"] = hp_a
+        out["hp_b_total"] = hp_b
         out["bomb_planted"] = 1 if bomb_planted else 0
         t_rem = float(round_time_remaining_s) if round_time_remaining_s is not None else None
         if t_rem is not None and t_rem >= 0:
@@ -2092,6 +3009,8 @@ def _compute_cs2_midround_features(
         load_a = float(team_a_alive_loadout_total) if team_a_alive_loadout_total is not None else 0.0
         load_b = float(team_b_alive_loadout_total) if team_b_alive_loadout_total is not None else 0.0
         out["loadout_diff_alive"] = load_a - load_b
+        out["load_a_total"] = load_a
+        out["load_b_total"] = load_b
         out["feature_has_alive_loadout"] = (team_a_alive_loadout_total is not None or team_b_alive_loadout_total is not None)
 
         # V2: reliability_mult from GRID debug keys
@@ -2119,6 +3038,70 @@ def _compute_cs2_midround_features(
     except Exception:
         pass
     return out
+
+
+def _sigmoid_stable(x: float, temp: float = 1.0) -> float:
+    """Numerically stable sigmoid; output in (0, 1). q = 1 / (1 + exp(-x/temp))."""
+    if temp is None or temp <= 0:
+        temp = 1.0
+    z = float(x) / float(temp)
+    if z >= 20.0:
+        return 1.0
+    if z <= -20.0:
+        return 0.0
+    return float(1.0 / (1.0 + math.exp(-z)))
+
+
+if False:  # OFF-by-default: set to True to run CS2 endpoint envelope+position scenarios
+    _debug_run_cs2_endpoint_model_scenarios()
+
+
+def _compute_cs2_intra_score(features: dict, settings: Optional[dict] = None) -> dict:
+    """
+    Compute intra-round round-win score (latent, unbounded) from same V2 components as mid-round adj.
+    Used for series-endpoint mixture: q_intra = sigmoid(intra_score_raw), p_hat = q*endpoint_A + (1-q)*endpoint_B.
+    Returns dict: intra_score_alive, intra_score_hp, intra_score_bomb, intra_score_armor, intra_score_loadout,
+    intra_score_post_reliability, intra_score_time_scale, intra_score_raw (unbounded).
+    """
+    if settings is None:
+        settings = {}
+    w_alive = float(settings.get("alive_weight", ALIVE_DIFF_WEIGHT_PER_PLAYER))
+    w_hp = float(settings.get("hp_weight", HP_DIFF_WEIGHT_PER_100HP))
+    w_bomb = float(settings.get("bomb_weight", BOMB_PLANTED_WEIGHT))
+    w_armor = float(settings.get("armor_weight", ARMOR_DIFF_WEIGHT_PER_100))
+    w_loadout = float(settings.get("loadout_weight", LOADOUT_DIFF_WEIGHT_PER_1000))
+    t_min = float(settings.get("time_scale_min", TIME_SCALE_MIN))
+    t_max = float(settings.get("time_scale_max", TIME_SCALE_MAX))
+    rel_min = float(settings.get("reliability_min_mult", RELIABILITY_MIN_MULT))
+    a_side = str(settings.get("a_side", "") or "").strip().upper()
+
+    intra_score_alive = float(features.get("alive_diff", 0)) * w_alive
+    intra_score_hp = (float(features.get("hp_diff_alive", 0)) / 100.0) * w_hp
+    bomb = features.get("bomb_planted", 0)
+    if bomb:
+        intra_score_bomb = w_bomb if a_side == "T" else -w_bomb
+    else:
+        intra_score_bomb = 0.0
+    intra_score_armor = (float(features.get("armor_diff_alive", 0)) / 100.0) * w_armor
+    intra_score_loadout = (float(features.get("loadout_diff_alive", 0)) / 1000.0) * w_loadout
+    reliability_mult = float(np.clip(features.get("reliability_mult", 1.0), rel_min, 1.0))
+
+    raw_pre_rel = intra_score_alive + intra_score_hp + intra_score_bomb + intra_score_armor + intra_score_loadout
+    intra_score_post_reliability = raw_pre_rel * reliability_mult
+    time_progress = float(np.clip(features.get("time_progress", 0.5), 0.0, 1.0))
+    intra_score_time_scale = t_min + (t_max - t_min) * time_progress
+    intra_score_raw = intra_score_post_reliability * intra_score_time_scale
+
+    return {
+        "intra_score_alive": intra_score_alive,
+        "intra_score_hp": intra_score_hp,
+        "intra_score_bomb": intra_score_bomb,
+        "intra_score_armor": intra_score_armor,
+        "intra_score_loadout": intra_score_loadout,
+        "intra_score_post_reliability": intra_score_post_reliability,
+        "intra_score_time_scale": intra_score_time_scale,
+        "intra_score_raw": intra_score_raw,
+    }
 
 
 def _apply_cs2_midround_adjustment_v1(
@@ -2250,6 +3233,89 @@ def _apply_cs2_midround_adjustment_v2(
         "mid_feature_has_alive_loadout": bool(features.get("feature_has_alive_loadout", False)),
         "mid_raw_total_pre_reliability": raw_total_pre_rel,
         "mid_raw_total_post_reliability": raw_total_post_rel,
+    }
+
+
+def _apply_cs2_midround_adjustment_v2_mixture(
+    p_if_a: float,
+    p_if_b: float,
+    features: dict,
+    settings: Optional[dict] = None,
+) -> dict:
+    """
+    Mid-round V2 mixture: q_intra from alive/hp/loadout/bomb/time; p_mid = p_if_b + q*(p_if_a - p_if_b); clamp to rails.
+    No live cash in intraround q. Returns q, raw_score, component scores, temp, urgency, p_mid_raw, p_mid_clamped, clamp_hit.
+    """
+    eps = 1e-6
+    if settings is None:
+        settings = {}
+    temp = float(settings.get("mixture_temp", 0.8))
+    w_alive = float(settings.get("alive_weight", ALIVE_DIFF_WEIGHT_PER_PLAYER))
+    w_hp = float(settings.get("hp_weight", HP_DIFF_WEIGHT_PER_100HP))
+    w_bomb = float(settings.get("bomb_weight", BOMB_PLANTED_WEIGHT))
+    w_loadout = float(settings.get("loadout_weight", LOADOUT_DIFF_WEIGHT_PER_1000))
+    a_side = str(settings.get("a_side", "") or "").strip().upper()
+
+    # alive_diff normalized by 5 (players)
+    alive_diff = float(features.get("alive_diff", 0))
+    score_alive = (alive_diff / 5.0) * w_alive if abs(w_alive) > 0 else 0.0
+
+    # hp_diff normalized by (hp_a+hp_b) or per-100
+    hp_diff = float(features.get("hp_diff_alive", 0))
+    hp_a = float(features.get("hp_a_total", 0))
+    hp_b = float(features.get("hp_b_total", 0))
+    hp_sum = hp_a + hp_b
+    if hp_sum > 0:
+        score_hp = (hp_diff / hp_sum) * 100.0 * w_hp
+    else:
+        score_hp = (hp_diff / 100.0) * w_hp
+
+    # loadout_diff normalized by (load_a+load_b) or use raw diff per 1000
+    load_diff = float(features.get("loadout_diff_alive", 0))
+    load_a = float(features.get("load_a_total", 0))
+    load_b = float(features.get("load_b_total", 0))
+    load_sum = load_a + load_b
+    if load_sum > 0:
+        score_loadout = (load_diff / load_sum) * 1000.0 * w_loadout
+    else:
+        score_loadout = (load_diff / 1000.0) * w_loadout
+
+    # bomb term signed by a_side (bomb favors T, hurts CT)
+    bomb = features.get("bomb_planted", 0)
+    if bomb:
+        score_bomb = w_bomb if a_side == "T" else -w_bomb
+    else:
+        score_bomb = 0.0
+
+    # time_progress-based urgency with nonzero floor: 0.15 + 0.85*time_progress
+    time_progress = float(np.clip(features.get("time_progress", 0.5), 0.0, 1.0))
+    urgency = 0.15 + 0.85 * time_progress
+
+    raw_score = (score_alive + score_hp + score_loadout + score_bomb) * urgency
+    q = _sigmoid_stable(raw_score, temp)
+
+    p_if_a_f = float(p_if_a)
+    p_if_b_f = float(p_if_b)
+    p_mid_raw = p_if_b_f + q * (p_if_a_f - p_if_b_f)
+
+    lo_ep = min(p_if_a_f, p_if_b_f) + eps
+    hi_ep = max(p_if_a_f, p_if_b_f) - eps
+    p_mid_clamped = float(np.clip(p_mid_raw, lo_ep, hi_ep))
+    clamp_hit = abs(p_mid_raw - p_mid_clamped) > 1e-9
+
+    return {
+        "q": q,
+        "raw_score": raw_score,
+        "score_alive": score_alive,
+        "score_hp": score_hp,
+        "score_loadout": score_loadout,
+        "score_bomb": score_bomb,
+        "temp": temp,
+        "urgency": urgency,
+        "p_mid_raw": p_mid_raw,
+        "p_mid_clamped": p_mid_clamped,
+        "clamp_hit": clamp_hit,
+        "mid_clamped_hit": clamp_hit,
     }
 
 
@@ -2959,15 +4025,75 @@ with tabs[3]:
         help="BO3.gg: feed from logs/bo3_live_feed.json when auto is on. GRID: feed from adapters/grid_probe normalized V2 file.",
     )
 
+    # BO3 Source: LIVE (poller) or REPLAY (from bo3_pulls.jsonl) — only when Live data source is BO3
+    if cs2_live_source == CS2_LIVE_SOURCE_BO3:
+        _bo3_src_default = st.session_state.get("cs2_bo3_source_mode", "LIVE (poller feed file)")
+        _bo3_src_opts = ["LIVE (poller feed file)", "REPLAY (from bo3_pulls.jsonl)"]
+        if _bo3_src_default not in _bo3_src_opts:
+            _bo3_src_default = "LIVE (poller feed file)"
+        cs2_bo3_source_mode = st.selectbox(
+            "BO3 Source",
+            options=_bo3_src_opts,
+            index=_bo3_src_opts.index(_bo3_src_default),
+            key="cs2_bo3_source_mode",
+            help="LIVE: poller writes logs/bo3_live_feed.json. REPLAY: replay recorded snapshots from JSONL into the same feed file.",
+        )
+    else:
+        cs2_bo3_source_mode = st.session_state.get("cs2_bo3_source_mode", "LIVE (poller feed file)")
+
     GRID_FEED_FILE = PROJECT_ROOT / "adapters" / "grid_probe" / "raw_grid_series_state_normalized_preview.json"
+    GRID_PULLS_JSONL = PROJECT_ROOT / "logs" / "grid_pulls.jsonl"
     GRID_COMPLETENESS_MIN = 0.5
     GRID_STALENESS_MAX_SEC = 180
 
-    # --- BO3.gg auto data pull: overwrite session_state from feed when active ---
+    # --- BO3.gg auto data pull / replay: overwrite session_state from feed when active or replay ---
     BO3_FEED_FILE = PROJECT_ROOT / "logs" / "bo3_live_feed.json"
     BO3_CONTROL_FILE = PROJECT_ROOT / "logs" / "bo3_live_control.json"
     BO3_FEED_STALE_SEC = 15
-    if cs2_live_source == CS2_LIVE_SOURCE_BO3 and st.session_state.get("cs2_bo3_auto_active") and BO3_FEED_FILE.exists():
+    _bo3_feed_active = (
+        cs2_live_source == CS2_LIVE_SOURCE_BO3
+        and (
+            st.session_state.get("cs2_bo3_auto_active")
+            or st.session_state.get("cs2_bo3_source_mode") == "REPLAY (from bo3_pulls.jsonl)"
+        )
+        and BO3_FEED_FILE.exists()
+    )
+
+    # When REPLAY: init state, load JSONL, advance idx if playing, write current frame to feed (so feed read below sees it)
+    _replay_wrote_frame = False
+    if cs2_live_source == CS2_LIVE_SOURCE_BO3 and cs2_bo3_source_mode == "REPLAY (from bo3_pulls.jsonl)":
+        if "cs2_bo3_replay_idx" not in st.session_state:
+            st.session_state["cs2_bo3_replay_idx"] = 0
+        if "cs2_bo3_replay_playing" not in st.session_state:
+            st.session_state["cs2_bo3_replay_playing"] = False
+        if "cs2_bo3_replay_speed" not in st.session_state:
+            st.session_state["cs2_bo3_replay_speed"] = 1.0
+        replay_path = st.session_state.get("cs2_bo3_replay_path") or str(PROJECT_ROOT / "logs" / "bo3_pulls.jsonl")
+        try:
+            entries_list, by_match = _load_bo3_replay_jsonl(replay_path)
+        except Exception:
+            entries_list = []
+            by_match = {}
+        match_id = st.session_state.get("cs2_bo3_replay_match_id")
+        entries = list(by_match.get(match_id, [])) if match_id is not None else []
+        if st.session_state.get("cs2_bo3_replay_playing") and entries:
+            idx = st.session_state.get("cs2_bo3_replay_idx", 0)
+            idx = min(idx + 1, max(0, len(entries) - 1))
+            idx = _replay_skip_duplicate_frames(entries, idx)
+            st.session_state["cs2_bo3_replay_idx"] = idx
+            if len(entries) > 0 and idx >= len(entries) - 1:
+                st.session_state["cs2_bo3_replay_playing"] = False
+        idx = st.session_state.get("cs2_bo3_replay_idx", 0)
+        if match_id is not None and entries and 0 <= idx < len(entries):
+            frame = entries[idx]
+            team_a_is_team_one = st.session_state.get("cs2_bo3_replay_team_a_is_team_one", True)
+            write_replay_frame_to_feed(BO3_FEED_FILE, frame.get("payload") or {}, team_a_is_team_one, error=None)
+            _replay_wrote_frame = True
+    if _replay_wrote_frame:
+        _bo3_feed_active = True
+        st.session_state["cs2_auto_add_snapshot_this_run"] = True
+
+    if _bo3_feed_active:
         try:
             with open(BO3_FEED_FILE, "r", encoding="utf-8") as f:
                 feed = json.load(f)
@@ -2990,15 +4116,56 @@ with tabs[3]:
             if normalized:
                 st.session_state["cs2_live_team_a"] = str(normalized.get("team_a", st.session_state.get("cs2_live_team_a", "")))
                 st.session_state["cs2_live_team_b"] = str(normalized.get("team_b", st.session_state.get("cs2_live_team_b", "")))
-                st.session_state["cs2_live_rounds_a"] = int(normalized.get("rounds_a", 0))
-                st.session_state["cs2_live_rounds_b"] = int(normalized.get("rounds_b", 0))
-                st.session_state["cs2_live_maps_a_won"] = int(normalized.get("maps_a_won", 0))
-                st.session_state["cs2_live_maps_b_won"] = int(normalized.get("maps_b_won", 0))
+                # Detect maps_won change before applying rounds/map/side so we can reset for next map when a map just ended
+                _prev_ma = int(st.session_state.get("cs2_prev_maps_a_won", 0))
+                _prev_mb = int(st.session_state.get("cs2_prev_maps_b_won", 0))
+                _now_ma = int(normalized.get("maps_a_won", 0))
+                _now_mb = int(normalized.get("maps_b_won", 0))
+                _maps_just_changed = (_now_ma, _now_mb) != (_prev_ma, _prev_mb)
+                if _maps_just_changed:
+                    # Persist map result before resetting (use current session state for winner / map name)
+                    _winner = ""
+                    if _now_ma == _prev_ma + 1 and _now_mb == _prev_mb:
+                        _winner = str(st.session_state.get("cs2_live_team_a", "")).strip()
+                    elif _now_mb == _prev_mb + 1 and _now_ma == _prev_ma:
+                        _winner = str(st.session_state.get("cs2_live_team_b", "")).strip()
+                    _mid = str(st.session_state.get("cs2_inplay_match_id", "")).strip()
+                    if _winner and _mid and st.session_state.get("cs2_inplay_persist", False):
+                        _cur_map_idx = int(st.session_state.get("cs2_inplay_map_index", 0))
+                        _cur_map_name = str(st.session_state.get("cs2_live_map_name", ""))
+                        _ta = str(st.session_state.get("cs2_live_team_a", "")).strip()
+                        _tb = str(st.session_state.get("cs2_live_team_b", "")).strip()
+                        if _ta and _tb:
+                            persist_inplay_map_result(_mid, "CS2", _cur_map_idx, _cur_map_name, _ta, _tb, _winner)
+                    st.session_state["cs2_prev_maps_a_won"] = _now_ma
+                    st.session_state["cs2_prev_maps_b_won"] = _now_mb
+                # Apply series score and then rounds/map/side (use defaults when map just ended or game ended)
+                st.session_state["cs2_live_maps_a_won"] = _now_ma
+                st.session_state["cs2_live_maps_b_won"] = _now_mb
+                _game_ended = bool(normalized.get("game_ended", False))
+                _match_ended = bool(normalized.get("match_ended", False))
+                # Use 0-0 and defaults when map just ended, or when feed says game/match ended (between maps)
+                if _maps_just_changed or _game_ended or _match_ended:
+                    st.session_state["cs2_live_rounds_a"] = 0
+                    st.session_state["cs2_live_rounds_b"] = 0
+                    st.session_state["cs2_live_map_name"] = "Average (no map)"
+                    st.session_state["cs2_live_a_side"] = "Unknown"
+                    if _maps_just_changed:
+                        st.session_state["cs2_live_buy_a"] = "Pistol"
+                        st.session_state["cs2_live_buy_b"] = "Pistol"
+                        st.session_state["cs2_live_pistol_a"] = False
+                        st.session_state["cs2_live_pistol_b"] = False
+                        st.session_state["cs2_live_chaos"] = 0.00
+                        st.session_state["cs2_inplay_map_index"] = int(st.session_state.get("cs2_inplay_map_index", 0)) + 1
+                        st.session_state["cs2_inplay_last_total_rounds"] = None
+                else:
+                    st.session_state["cs2_live_rounds_a"] = int(normalized.get("rounds_a", 0))
+                    st.session_state["cs2_live_rounds_b"] = int(normalized.get("rounds_b", 0))
+                    st.session_state["cs2_live_map_name"] = str(normalized.get("map_name", "Average (no map)"))
+                    st.session_state["cs2_live_a_side"] = str(normalized.get("a_side", "Unknown"))
                 st.session_state["cs2_live_game_ended"] = bool(normalized.get("game_ended", False))
                 st.session_state["cs2_live_match_ended"] = bool(normalized.get("match_ended", False))
                 st.session_state["cs2_live_match_status"] = str(normalized.get("match_status", "") or "").strip().lower()
-                st.session_state["cs2_live_map_name"] = str(normalized.get("map_name", "Average (no map)"))
-                st.session_state["cs2_live_a_side"] = str(normalized.get("a_side", "Unknown"))
                 # BO3 canonical V2: team_a_side / team_b_side (normalized CT/T) from payload when available
                 if isinstance(payload, dict) and (payload.get("team_one") or payload.get("team_two")):
                     def _norm_side_bo3(s):
@@ -3029,6 +4196,11 @@ with tabs[3]:
                 if normalized.get("round_number") is not None:
                     try:
                         st.session_state["cs2_live_round_number"] = int(normalized["round_number"])
+                    except (TypeError, ValueError):
+                        pass
+                if normalized.get("game_number") is not None:
+                    try:
+                        st.session_state["cs2_live_game_number"] = int(normalized["game_number"])
                     except (TypeError, ValueError):
                         pass
                 # BO3 ECON — prefer derived total_resources (cash + loadout) when available, else balance+equipment
@@ -3087,6 +4259,23 @@ with tabs[3]:
                             st.session_state["cs2_live_latched_econ_a"] = feed_a
                             st.session_state["cs2_live_latched_econ_b"] = feed_b
                             st.session_state["cs2_live_econ_is_total_resources"] = bool(use_total_resources)
+                # BO3 state hygiene: phase / bomb / clock every tick when present (decoupled from loadout validity)
+                _bp = normalized.get("bomb_planted")
+                if _bp is None and isinstance(payload, dict) and "is_bomb_planted" in payload:
+                    _bp = payload.get("is_bomb_planted")
+                if _bp is not None:
+                    st.session_state["cs2_live_bomb_planted"] = bool(_bp)
+                tr = normalized.get("round_time_remaining_s")
+                if tr is None and isinstance(payload, dict):
+                    tr = payload.get("round_time_remaining")
+                if tr is not None and isinstance(tr, (int, float)):
+                    tr = float(tr) / 1000.0 if float(tr) > 120 else float(tr)
+                    st.session_state["cs2_live_round_time_remaining_s"] = tr
+                _phase = normalized.get("round_phase")
+                if _phase is None and isinstance(payload, dict):
+                    _phase = payload.get("round_phase")
+                if _phase is not None:
+                    st.session_state["cs2_live_round_phase"] = _phase
                 # BO3 LOADOUT VALUE FIX — compute and store cash/loadout/total resources (only when snapshot valid)
                 if normalized.get("loadout_derived_valid"):
                     try:
@@ -3143,16 +4332,8 @@ with tabs[3]:
                                 st.session_state["cs2_live_team_b_armor_alive_total"] = arm1
                                 st.session_state["cs2_live_team_a_alive_loadout_total"] = load2
                                 st.session_state["cs2_live_team_b_alive_loadout_total"] = load1
-                        # BO3 MIDROUND V1 — bomb/time/phase (canonical keys; round_time_remaining ms -> s when > 120)
-                        _bp = normalized.get("bomb_planted", False)
-                        if isinstance(payload, dict) and "is_bomb_planted" in payload:
-                            _bp = bool(payload.get("is_bomb_planted"))
-                        st.session_state["cs2_live_bomb_planted"] = bool(_bp)
-                        tr = normalized.get("round_time_remaining_s") or (payload.get("round_time_remaining") if isinstance(payload, dict) else None)
-                        if tr is not None and isinstance(tr, (int, float)):
-                            tr = float(tr) / 1000.0 if tr > 120 else float(tr)
-                        st.session_state["cs2_live_round_time_remaining_s"] = tr if tr is not None else None
-                        st.session_state["cs2_live_round_phase"] = normalized.get("round_phase") or (payload.get("round_phase") if isinstance(payload, dict) else None)
+                        st.session_state["cs2_live_intraround_state_valid"] = True
+                        st.session_state["cs2_live_intraround_state_source"] = "bo3_player_states"
                     except (TypeError, ValueError):
                         pass
                     # BO3 LOADOUT VALUE FIX — unknown-item tracking
@@ -3161,6 +4342,50 @@ with tabs[3]:
                             if "cs2_bo3_unknown_items_seen" not in st.session_state:
                                 st.session_state["cs2_bo3_unknown_items_seen"] = set()
                             st.session_state["cs2_bo3_unknown_items_seen"].add(str(item).strip())
+                else:
+                    # Intraround microstate invalid: clear so stale values do not leak across round/map transitions
+                    st.session_state["cs2_live_team_a_alive_count"] = None
+                    st.session_state["cs2_live_team_b_alive_count"] = None
+                    st.session_state["cs2_live_team_a_hp_alive_total"] = None
+                    st.session_state["cs2_live_team_b_hp_alive_total"] = None
+                    st.session_state["cs2_live_team_a_armor_alive_total"] = None
+                    st.session_state["cs2_live_team_b_armor_alive_total"] = None
+                    st.session_state["cs2_live_team_a_alive_loadout_total"] = None
+                    st.session_state["cs2_live_team_b_alive_loadout_total"] = None
+                    st.session_state["cs2_live_intraround_state_valid"] = False
+                    st.session_state["cs2_live_intraround_state_source"] = "stale_cleared"
+                # CS2 raw payload debug stream: append one row per BO3 live tick (display-only; rolling 50)
+                _buf = st.session_state.get("cs2_live_raw_payload_debug_rows") or []
+                _idx = len(_buf)
+                try:
+                    _norm_copy = copy.deepcopy(normalized) if normalized else None
+                    _raw_copy = copy.deepcopy(payload) if isinstance(payload, dict) and payload else None
+                except Exception:
+                    _norm_copy = None
+                    _raw_copy = None
+                _ss = st.session_state
+                _buf.append({
+                    "ts_local": datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+                    "debug_index": _idx,
+                    "cs2_live_game_number": _ss.get("cs2_live_game_number"),
+                    "cs2_live_round_number": _ss.get("cs2_live_round_number"),
+                    "cs2_live_round_phase": _ss.get("cs2_live_round_phase"),
+                    "cs2_live_round_time_remaining_s": _ss.get("cs2_live_round_time_remaining_s"),
+                    "cs2_live_bomb_planted": _ss.get("cs2_live_bomb_planted"),
+                    "cs2_live_team_a_alive_count": _ss.get("cs2_live_team_a_alive_count"),
+                    "cs2_live_team_b_alive_count": _ss.get("cs2_live_team_b_alive_count"),
+                    "cs2_live_team_a_alive_loadout_total": _ss.get("cs2_live_team_a_alive_loadout_total"),
+                    "cs2_live_team_b_alive_loadout_total": _ss.get("cs2_live_team_b_alive_loadout_total"),
+                    "cs2_live_team_a_armor_alive_total": _ss.get("cs2_live_team_a_armor_alive_total"),
+                    "cs2_live_team_b_armor_alive_total": _ss.get("cs2_live_team_b_armor_alive_total"),
+                    "cs2_live_intraround_state_valid": _ss.get("cs2_live_intraround_state_valid"),
+                    "cs2_live_intraround_state_source": _ss.get("cs2_live_intraround_state_source"),
+                    "normalized_payload": _norm_copy,
+                    "raw_payload": _raw_copy,
+                })
+                if len(_buf) > 50:
+                    _buf = _buf[-50:]
+                st.session_state["cs2_live_raw_payload_debug_rows"] = _buf
         except Exception:
             pass
     else:
@@ -3175,11 +4400,14 @@ with tabs[3]:
             from adapters.grid_probe import grid_queries
             from adapters.grid_probe.grid_normalize_series_state_probe import _normalize_series_state
             api_key = grid_graphql_client.load_api_key(PROJECT_ROOT / ".env")
+            _grid_record_path = GRID_PULLS_JSONL if st.session_state.get("cs2_grid_record_jsonl", True) else None
             state_resp = grid_graphql_client.post_graphql(
                 grid_graphql_client.SERIES_STATE_GRAPHQL_URL,
                 grid_queries.QUERY_SERIES_STATE_RICH.strip(),
                 variables={"id": _selected},
                 api_key=api_key,
+                record_jsonl_path=_grid_record_path,
+                record_label="series_state_poll",
             )
             if not state_resp.get("errors"):
                 data = state_resp.get("data") or {}
@@ -3408,6 +4636,40 @@ with tabs[3]:
                         _vb = st.session_state.get(_kb)
                         st.session_state[_ka] = _vb
                         st.session_state[_kb] = _va
+                # When maps_won changes (map just finished): series score already updated from feed;
+                # reset round/map/side to defaults for next map until new data fills in; persist map result if enabled.
+                prev_a = int(st.session_state.get("cs2_prev_maps_a_won", 0))
+                prev_b = int(st.session_state.get("cs2_prev_maps_b_won", 0))
+                now_a = int(st.session_state.get("cs2_live_maps_a_won", 0))
+                now_b = int(st.session_state.get("cs2_live_maps_b_won", 0))
+                if (now_a, now_b) != (prev_a, prev_b):
+                    winner = ""
+                    if now_a == prev_a + 1 and now_b == prev_b:
+                        winner = str(st.session_state.get("cs2_live_team_a", "")).strip()
+                    elif now_b == prev_b + 1 and now_a == prev_a:
+                        winner = str(st.session_state.get("cs2_live_team_b", "")).strip()
+                    _mid = str(st.session_state.get("cs2_inplay_match_id", "")).strip()
+                    if winner and _mid and st.session_state.get("cs2_inplay_persist", False):
+                        cur_map_index = int(st.session_state.get("cs2_inplay_map_index", 0))
+                        cur_map_name = str(st.session_state.get("cs2_live_map_name", ""))
+                        team_a = str(st.session_state.get("cs2_live_team_a", "")).strip()
+                        team_b = str(st.session_state.get("cs2_live_team_b", "")).strip()
+                        if team_a and team_b:
+                            persist_inplay_map_result(_mid, "CS2", cur_map_index, cur_map_name, team_a, team_b, winner)
+                    # Reset mid-map state for next map until new data fills in
+                    st.session_state["cs2_live_rounds_a"] = 0
+                    st.session_state["cs2_live_rounds_b"] = 0
+                    st.session_state["cs2_live_map_name"] = "Average (no map)"
+                    st.session_state["cs2_live_a_side"] = "Unknown"
+                    st.session_state["cs2_live_buy_a"] = "Pistol"
+                    st.session_state["cs2_live_buy_b"] = "Pistol"
+                    st.session_state["cs2_live_pistol_a"] = False
+                    st.session_state["cs2_live_pistol_b"] = False
+                    st.session_state["cs2_live_chaos"] = 0.00
+                    st.session_state["cs2_inplay_map_index"] = int(st.session_state.get("cs2_inplay_map_index", 0)) + 1
+                    st.session_state["cs2_inplay_last_total_rounds"] = None
+                    st.session_state["cs2_prev_maps_a_won"] = now_a
+                    st.session_state["cs2_prev_maps_b_won"] = now_b
         except Exception as _grid_err:
             grid_used_reduced_features = True
             st.session_state["cs2_grid_used_reduced_features"] = True
@@ -3473,197 +4735,275 @@ with tabs[3]:
     st.caption("When **Live data source** is BO3.gg: load matches below, pick one, choose Team A, then **Activate auto data pull**. Auto refresh runs every 5 s. Use **Deactivate** to stop.")
     with st.expander("Auto data pull (BO3.gg) — match selection & activate", expanded=True):
         bo3_active = st.session_state.get("cs2_bo3_auto_active", False)
-        if bo3_active:
-            st.success("Auto data pull ON (every 5 s). Live scores and sides are updating from BO3.gg.")
-            # Read feed file for current status so UI matches logs/bo3_live_feed.json
-            feed_err = st.session_state.get("cs2_bo3_feed_error")
-            snap_status = st.session_state.get("cs2_bo3_feed_snapshot_status")
-            if BO3_FEED_FILE.exists():
+        if cs2_live_source == CS2_LIVE_SOURCE_BO3 and cs2_bo3_source_mode == "REPLAY (from bo3_pulls.jsonl)":
+            # REPLAY mode: no poller activation; replay controls only
+            default_replay_path = str(PROJECT_ROOT / "logs" / "bo3_pulls.jsonl")
+            replay_path = st.text_input(
+                "Replay file path",
+                value=st.session_state.get("cs2_bo3_replay_path") or default_replay_path,
+                key="cs2_bo3_replay_path",
+            )
+            if st.button("Reload JSONL", key="cs2_bo3_replay_reload_jsonl", help="Clear cache and re-read the JSONL file (e.g. when bo3_pulls.jsonl is growing)."):
                 try:
-                    with open(BO3_FEED_FILE, "r", encoding="utf-8") as f:
-                        _feed = json.load(f)
-                    snap_status = _feed.get("snapshot_status", snap_status)
-                    feed_err = _feed.get("error", feed_err)
+                    _load_bo3_replay_jsonl.clear()
                 except Exception:
                     pass
-            # Poller writes "poller_starting" once at start before first fetch; treat as transient
-            if feed_err == "poller_starting":
-                st.info("**Polling starting…** Data and (when Kalshi) market/chart update every 5 s automatically.")
-            else:
-                is_empty = snap_status == "empty" or (feed_err and feed_err != "inactive")
-                if is_empty:
-                    if feed_err and ("empty" in str(feed_err).lower() or "snapshot" in str(feed_err).lower()):
-                        st.info("**Last poll: no snapshot** — match may not be live yet, or BO3.gg returned no data. Rounds/map/economy will update when live. In `logs/bo3_live_feed.json`, `snapshot_status` = empty means not live.")
-                    else:
-                        st.info(f"**Last poll: no snapshot** — {feed_err or 'snapshot_status: empty'}. Match may not be live yet.")
-                else:
-                    st.caption("Last poll: live data received. Rounds, map, side, and economy are updating from the feed.")
-            # Diagnostics: what the app read from the feed (for evaluating auto data pull)
-            with st.expander("Diagnostics", expanded=False):
-                feed_path = str(BO3_FEED_FILE)
-                feed_exists = BO3_FEED_FILE.exists()
-                st.text(f"Feed file path: {feed_path}")
-                st.text(f"File exists: {feed_exists}")
-                if feed_exists:
-                    try:
-                        mtime = BO3_FEED_FILE.stat().st_mtime
-                        st.text(f"Last modified: {datetime.fromtimestamp(mtime).isoformat()} (UTC)")
-                    except Exception:
-                        st.text("Last modified: (could not read)")
-                    try:
-                        with open(BO3_FEED_FILE, "r", encoding="utf-8") as _f:
-                            _d = json.load(_f)
-                        payload_keys = list((_d.get("payload") or {}).keys())
-                        st.text(f"Payload keys: {', '.join(payload_keys) if payload_keys else 'empty'}")
-                        st.text(f"snapshot_status: {_d.get('snapshot_status', '—')}")
-                        st.text(f"error: {_d.get('error', '—')}")
-                    except Exception as e:
-                        st.text(f"Read error: {e}")
-                else:
-                    st.text("Payload keys: (file missing)")
-                    st.text("snapshot_status: —")
-                    st.text("error: —")
-                # BO3 LOADOUT VALUE FIX — unknown BO3 items seen (from weapon/loadout parsing)
-                _unknown = st.session_state.get("cs2_bo3_unknown_items_seen") or set()
-                st.text(f"Unknown BO3 items seen: {len(_unknown)}")
-                # BO3 LOADOUT VALUE FIX
-            if st.session_state.get("cs2_mkt_fetch_venue") == "Kalshi":
-                if st.button("Refresh Kalshi + Add snapshot", key="cs2_bo3_refresh_kalshi_snap", help="Fetch Kalshi bid/ask and add one chart point"):
-                    tkr, err = _cs2_kalshi_resolve_ticker()
-                    if err or not tkr:
-                        st.error(err or "Load teams and select a market, or paste a Kalshi URL and click Load teams.")
-                    else:
-                        try:
-                            bid_f, ask_f, meta = fetch_kalshi_bid_ask(tkr)
-                            _b = float(bid_f) if bid_f is not None else 0.0
-                            _a = float(ask_f) if ask_f is not None else 1.0
-                            st.session_state["cs2_live_market_bid"] = max(0.0, min(1.0, _b))
-                            st.session_state["cs2_live_market_ask"] = max(0.0, min(1.0, _a))
-                            if meta is not None:
-                                st.session_state["cs2_mkt_fetch_meta"] = meta
-                            # BO3 MARKET DELAY ALIGN
-                            if bid_f is not None and ask_f is not None:
-                                _cs2_market_delay_push(float(bid_f), float(ask_f))
-                            # BO3 MARKET DELAY ALIGN
-                            st.session_state["cs2_auto_add_snapshot_this_run"] = True
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Kalshi + snapshot failed: {e}")
-            if st.button("Deactivate auto data pull", key="cs2_bo3_deactivate"):
-                try:
-                    BO3_CONTROL_FILE.parent.mkdir(parents=True, exist_ok=True)
-                    with open(BO3_CONTROL_FILE, "w", encoding="utf-8") as f:
-                        json.dump({"active": False}, f)
-                except Exception:
-                    pass
-                st.session_state["cs2_bo3_auto_active"] = False
                 st.rerun()
-            st.caption("With auto on: score, status, and (when Kalshi) market + chart update every 5 s. Use **Refresh Kalshi + Add snapshot** above for an immediate update.")
-        else:
-            bo3_matches = st.session_state.get("cs2_bo3_live_matches") or []
-            if st.button("Load live matches", key="cs2_bo3_load_matches"):
-                try:
-                    matches = fetch_bo3_live_matches()
-                    st.session_state["cs2_bo3_live_matches"] = matches
-                    st.session_state["cs2_bo3_load_error"] = None
-                except Exception as e:
-                    st.session_state["cs2_bo3_live_matches"] = []
-                    st.session_state["cs2_bo3_load_error"] = str(e)
-                st.rerun()
-            if st.session_state.get("cs2_bo3_load_error"):
-                st.error(st.session_state["cs2_bo3_load_error"])
-            if not bo3_matches:
-                st.caption("Click **Load live matches** to fetch current BO3.gg live matches.")
+            try:
+                _replay_entries, _replay_by_match = _load_bo3_replay_jsonl(replay_path or default_replay_path)
+            except Exception:
+                _replay_entries = []
+                _replay_by_match = {}
+            if not _replay_by_match:
+                st.warning("No BO3 snapshots found in JSONL (or file missing/empty). Use LIVE mode or record pulls first.")
             else:
-                opts = [f"{m.get('team1_name', '?')} vs {m.get('team2_name', '?')} (id: {m.get('id', '')})" for m in bo3_matches]
-                sel_idx = st.selectbox(
-                    "Select match",
-                    range(len(opts)),
-                    format_func=lambda i: opts[i],
-                    key="cs2_bo3_match_idx",
+                match_ids = sorted(_replay_by_match.keys())
+                opts = [
+                    f"{_replay_match_display_label(_replay_by_match[mid])} ({len(_replay_by_match[mid])} frames)"
+                    for mid in match_ids
+                ]
+                sel_idx = st.selectbox("Match", range(len(opts)), format_func=lambda i: opts[i], key="cs2_bo3_replay_match_sel_idx")
+                if sel_idx is not None and 0 <= sel_idx < len(match_ids):
+                    current_match_id = match_ids[int(sel_idx)]
+                    prev_match_id = st.session_state.get("cs2_bo3_replay_prev_match_id")
+                    if prev_match_id != current_match_id:
+                        st.session_state["cs2_bo3_replay_idx"] = 0
+                        st.session_state["cs2_bo3_replay_playing"] = False
+                        st.session_state["cs2_bo3_replay_prev_match_id"] = current_match_id
+                    st.session_state["cs2_bo3_replay_match_id"] = current_match_id
+                _replay_entries_for_match = list(_replay_by_match.get(st.session_state.get("cs2_bo3_replay_match_id"), []))
+                st.checkbox(
+                    "Team A is team one", value=st.session_state.get("cs2_bo3_replay_team_a_is_team_one", True), key="cs2_bo3_replay_team_a_is_team_one"
                 )
-                if sel_idx is not None and 0 <= sel_idx < len(bo3_matches):
-                    m = bo3_matches[int(sel_idx)]
-                    team1_name = m.get("team1_name") or "Team 1"
-                    team2_name = m.get("team2_name") or "Team 2"
-                    team_a_choice = st.radio(
-                        "Team A is",
-                        options=[team1_name, team2_name],
-                        index=0,
-                        key="cs2_bo3_team_a_choice",
-                        horizontal=True,
-                    )
-                    if team_a_choice is None:
-                        team_a_choice = team1_name
-                    team_a_is_team_one = team_a_choice == team1_name
-                    if st.button("Activate auto data pull", key="cs2_bo3_activate"):
-                        match_id = m.get("id") or m.get("match_id")
-                        if not match_id:
-                            st.error("No match id.")
+                speed_opts = [0.5, 1.0, 2.0, 5.0, 10.0]
+                _speed_val = st.session_state.get("cs2_bo3_replay_speed", 1.0)
+                _speed_idx = speed_opts.index(_speed_val) if _speed_val in speed_opts else 1
+                st.session_state["cs2_bo3_replay_speed"] = st.selectbox(
+                    "Speed", options=speed_opts, index=_speed_idx, format_func=lambda x: f"{x}x", key="cs2_bo3_replay_speed_sb"
+                )
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    if st.button("Step", key="cs2_bo3_replay_step"):
+                        idx = st.session_state.get("cs2_bo3_replay_idx", 0)
+                        idx = min(idx + 1, max(0, len(_replay_entries_for_match) - 1))
+                        idx = _replay_skip_duplicate_frames(_replay_entries_for_match, idx)
+                        st.session_state["cs2_bo3_replay_idx"] = idx
+                        st.rerun()
+                with col2:
+                    if st.button("Play" if not st.session_state.get("cs2_bo3_replay_playing") else "Pause", key="cs2_bo3_replay_play_pause"):
+                        st.session_state["cs2_bo3_replay_playing"] = not st.session_state.get("cs2_bo3_replay_playing", False)
+                        st.rerun()
+                with col3:
+                    if st.button("Restart", key="cs2_bo3_replay_restart"):
+                        st.session_state["cs2_bo3_replay_idx"] = 0
+                        st.session_state["cs2_bo3_replay_playing"] = False
+                        st.rerun()
+                idx = st.session_state.get("cs2_bo3_replay_idx", 0)
+                if _replay_entries_for_match and 0 <= idx < len(_replay_entries_for_match):
+                    frame = _replay_entries_for_match[idx]
+                    payload_keys_count = len((frame.get("payload") or {}).keys())
+                    st.caption(f"Frame {idx + 1} / {len(_replay_entries_for_match)} | ts_utc: {frame.get('ts_utc', '—')} | payload keys: {payload_keys_count}")
+                if st.session_state.get("cs2_bo3_replay_playing"):
+                    interval_ms = max(250, int(5000 / st.session_state.get("cs2_bo3_replay_speed", 1.0)))
+                    _replay_mid = st.session_state.get("cs2_bo3_replay_match_id")
+                    _replay_speed = st.session_state.get("cs2_bo3_replay_speed", 1.0)
+                    st_autorefresh(interval=interval_ms, limit=None, key=f"bo3_replay_autorefresh_{_replay_mid}_{_replay_speed}")
+        else:
+            cs2_bo3_record_jsonl = st.checkbox("Record BO3 pulls (JSONL) for replay", value=True, key="cs2_bo3_record_jsonl", help="Append each poll to logs/bo3_pulls.jsonl for later replay without market data.")
+            if bo3_active:
+                st.success("Auto data pull ON (every 5 s). Live scores and sides are updating from BO3.gg.")
+            # Read feed file for current status so UI matches logs/bo3_live_feed.json
+                feed_err = st.session_state.get("cs2_bo3_feed_error")
+                snap_status = st.session_state.get("cs2_bo3_feed_snapshot_status")
+                if BO3_FEED_FILE.exists():
+                    try:
+                        with open(BO3_FEED_FILE, "r", encoding="utf-8") as f:
+                            _feed = json.load(f)
+                        snap_status = _feed.get("snapshot_status", snap_status)
+                        feed_err = _feed.get("error", feed_err)
+                    except Exception:
+                        pass
+                # Poller writes "poller_starting" once at start before first fetch; treat as transient
+                if feed_err == "poller_starting":
+                    st.info("**Polling starting…** Data and (when Kalshi) market/chart update every 5 s automatically.")
+                else:
+                    is_empty = snap_status == "empty" or (feed_err and feed_err != "inactive")
+                    if is_empty:
+                        if feed_err and ("empty" in str(feed_err).lower() or "snapshot" in str(feed_err).lower()):
+                            st.info("**Last poll: no snapshot** — match may not be live yet, or BO3.gg returned no data. Rounds/map/economy will update when live. In `logs/bo3_live_feed.json`, `snapshot_status` = empty means not live.")
+                        else:
+                            st.info(f"**Last poll: no snapshot** — {feed_err or 'snapshot_status: empty'}. Match may not be live yet.")
+                    else:
+                        st.caption("Last poll: live data received. Rounds, map, side, and economy are updating from the feed.")
+                # Diagnostics: what the app read from the feed (for evaluating auto data pull)
+                with st.expander("Diagnostics", expanded=False):
+                    feed_path = str(BO3_FEED_FILE)
+                    feed_exists = BO3_FEED_FILE.exists()
+                    st.text(f"Feed file path: {feed_path}")
+                    st.text(f"File exists: {feed_exists}")
+                    if feed_exists:
+                        try:
+                            mtime = BO3_FEED_FILE.stat().st_mtime
+                            st.text(f"Last modified: {datetime.fromtimestamp(mtime).isoformat()} (UTC)")
+                        except Exception:
+                            st.text("Last modified: (could not read)")
+                        try:
+                            with open(BO3_FEED_FILE, "r", encoding="utf-8") as _f:
+                                _d = json.load(_f)
+                            payload_keys = list((_d.get("payload") or {}).keys())
+                            st.text(f"Payload keys: {', '.join(payload_keys) if payload_keys else 'empty'}")
+                            st.text(f"snapshot_status: {_d.get('snapshot_status', '—')}")
+                            st.text(f"error: {_d.get('error', '—')}")
+                        except Exception as e:
+                            st.text(f"Read error: {e}")
+                    else:
+                        st.text("Payload keys: (file missing)")
+                        st.text("snapshot_status: —")
+                        st.text("error: —")
+                    # BO3 LOADOUT VALUE FIX — unknown BO3 items seen (from weapon/loadout parsing)
+                    _unknown = st.session_state.get("cs2_bo3_unknown_items_seen") or set()
+                    st.text(f"Unknown BO3 items seen: {len(_unknown)}")
+                    # BO3 LOADOUT VALUE FIX
+                if st.session_state.get("cs2_mkt_fetch_venue") == "Kalshi":
+                    if st.button("Refresh Kalshi + Add snapshot", key="cs2_bo3_refresh_kalshi_snap", help="Fetch Kalshi bid/ask and add one chart point"):
+                        tkr, err = _cs2_kalshi_resolve_ticker()
+                        if err or not tkr:
+                            st.error(err or "Load teams and select a market, or paste a Kalshi URL and click Load teams.")
                         else:
                             try:
-                                BO3_CONTROL_FILE.parent.mkdir(parents=True, exist_ok=True)
-                                with open(BO3_CONTROL_FILE, "w", encoding="utf-8") as f:
-                                    json.dump({
-                                        "active": True,
-                                        "match_id": int(match_id),
-                                        "team_a_is_team_one": team_a_is_team_one,
-                                    }, f)
-                                # Write initial feed so file exists and app can show team names until poller overwrites
-                                team_a_name = team1_name if team_a_is_team_one else team2_name
-                                team_b_name = team2_name if team_a_is_team_one else team1_name
-                                initial_payload = {
-                                    "team_a": team_a_name,
-                                    "team_b": team_b_name,
-                                    "rounds_a": 0,
-                                    "rounds_b": 0,
-                                    "maps_a_won": 0,
-                                    "maps_b_won": 0,
-                                    "map_name": "Average (no map)",
-                                    "a_side": "Unknown",
-                                    "series_fmt": "BO3",
-                                }
-                                BO3_FEED_FILE = PROJECT_ROOT / "logs" / "bo3_live_feed.json"
-                                BO3_FEED_FILE.parent.mkdir(parents=True, exist_ok=True)
-                                with open(BO3_FEED_FILE, "w", encoding="utf-8") as f:
-                                    json.dump({"timestamp": time.time(), "payload": initial_payload}, f, indent=2)
-                                st.session_state["cs2_bo3_auto_active"] = True
-                                st.session_state["cs2_bo3_pending_match_id"] = str(match_id)
-                                # Set initial live fields so they show after rerun even if poller overwrites feed with empty payload
-                                st.session_state["cs2_live_team_a"] = team_a_name
-                                st.session_state["cs2_live_team_b"] = team_b_name
-                                st.session_state["cs2_live_rounds_a"] = 0
-                                st.session_state["cs2_live_rounds_b"] = 0
-                                st.session_state["cs2_live_maps_a_won"] = 0
-                                st.session_state["cs2_live_maps_b_won"] = 0
-                                st.session_state["cs2_live_map_name"] = "Average (no map)"
-                                st.session_state["cs2_live_a_side"] = "Unknown"
-                                st.session_state["cs2_live_series_fmt_idx"] = 1
-                                st.session_state["cs2_live_econ_a"] = 0
-                                st.session_state["cs2_live_econ_b"] = 0
-                                # Start poller subprocess (runs in background).
-                                # Run as script (bo3.gg is a folder name, not package bo3.gg for -m).
-                                try:
-                                    env = os.environ.copy()
-                                    env["PYTHONPATH"] = str(PROJECT_ROOT)
-                                    poller_script = PROJECT_ROOT / "bo3.gg" / "poller.py"
-                                    subprocess.Popen(
-                                        [sys.executable, str(poller_script)],
-                                        cwd=str(PROJECT_ROOT),
-                                        env=env,
-                                        stdin=subprocess.DEVNULL,
-                                        stdout=subprocess.DEVNULL,
-                                        stderr=subprocess.DEVNULL,
-                                    )
-                                except Exception:
-                                    pass
+                                bid_f, ask_f, meta = fetch_kalshi_bid_ask(tkr)
+                                _b = float(bid_f) if bid_f is not None else 0.0
+                                _a = float(ask_f) if ask_f is not None else 1.0
+                                st.session_state["cs2_live_market_bid"] = max(0.0, min(1.0, _b))
+                                st.session_state["cs2_live_market_ask"] = max(0.0, min(1.0, _a))
+                                if meta is not None:
+                                    st.session_state["cs2_mkt_fetch_meta"] = meta
+                                # BO3 MARKET DELAY ALIGN
+                                if bid_f is not None and ask_f is not None:
+                                    _cs2_market_delay_push(float(bid_f), float(ask_f))
+                                # BO3 MARKET DELAY ALIGN
+                                st.session_state["cs2_auto_add_snapshot_this_run"] = True
                                 st.rerun()
                             except Exception as e:
-                                st.error(str(e))
+                                st.error(f"Kalshi + snapshot failed: {e}")
+                if st.button("Deactivate auto data pull", key="cs2_bo3_deactivate"):
+                    try:
+                        BO3_CONTROL_FILE.parent.mkdir(parents=True, exist_ok=True)
+                        with open(BO3_CONTROL_FILE, "w", encoding="utf-8") as f:
+                            json.dump({"active": False}, f)
+                    except Exception:
+                        pass
+                    st.session_state["cs2_bo3_auto_active"] = False
+                    st.rerun()
+                st.caption("With auto on: score, status, and (when Kalshi) market + chart update every 5 s. Use **Refresh Kalshi + Add snapshot** above for an immediate update.")
+            else:
+                bo3_matches = st.session_state.get("cs2_bo3_live_matches") or []
+                if st.button("Load live matches", key="cs2_bo3_load_matches"):
+                    try:
+                        matches = fetch_bo3_live_matches()
+                        st.session_state["cs2_bo3_live_matches"] = matches
+                        st.session_state["cs2_bo3_load_error"] = None
+                    except Exception as e:
+                        st.session_state["cs2_bo3_live_matches"] = []
+                        st.session_state["cs2_bo3_load_error"] = str(e)
+                    st.rerun()
+                if st.session_state.get("cs2_bo3_load_error"):
+                    st.error(st.session_state["cs2_bo3_load_error"])
+                if not bo3_matches:
+                    st.caption("Click **Load live matches** to fetch current BO3.gg live matches.")
+                else:
+                    opts = [f"{m.get('team1_name', '?')} vs {m.get('team2_name', '?')} (id: {m.get('id', '')})" for m in bo3_matches]
+                    sel_idx = st.selectbox(
+                        "Select match",
+                        range(len(opts)),
+                        format_func=lambda i: opts[i],
+                        key="cs2_bo3_match_idx",
+                    )
+                    if sel_idx is not None and 0 <= sel_idx < len(bo3_matches):
+                        m = bo3_matches[int(sel_idx)]
+                        team1_name = m.get("team1_name") or "Team 1"
+                        team2_name = m.get("team2_name") or "Team 2"
+                        team_a_choice = st.radio(
+                            "Team A is",
+                            options=[team1_name, team2_name],
+                            index=0,
+                            key="cs2_bo3_team_a_choice",
+                            horizontal=True,
+                        )
+                        if team_a_choice is None:
+                            team_a_choice = team1_name
+                        team_a_is_team_one = team_a_choice == team1_name
+                        if st.button("Activate auto data pull", key="cs2_bo3_activate"):
+                            match_id = m.get("id") or m.get("match_id")
+                            if not match_id:
+                                st.error("No match id.")
+                            else:
+                                try:
+                                    BO3_CONTROL_FILE.parent.mkdir(parents=True, exist_ok=True)
+                                    with open(BO3_CONTROL_FILE, "w", encoding="utf-8") as f:
+                                        json.dump({
+                                            "active": True,
+                                            "match_id": int(match_id),
+                                            "team_a_is_team_one": team_a_is_team_one,
+                                            "record_enabled": st.session_state.get("cs2_bo3_record_jsonl", True),
+                                            "record_path": str(PROJECT_ROOT / "logs" / "bo3_pulls.jsonl"),
+                                        }, f)
+                                    # Write initial feed so file exists and app can show team names until poller overwrites
+                                    team_a_name = team1_name if team_a_is_team_one else team2_name
+                                    team_b_name = team2_name if team_a_is_team_one else team1_name
+                                    initial_payload = {
+                                        "team_a": team_a_name,
+                                        "team_b": team_b_name,
+                                        "rounds_a": 0,
+                                        "rounds_b": 0,
+                                        "maps_a_won": 0,
+                                        "maps_b_won": 0,
+                                        "map_name": "Average (no map)",
+                                        "a_side": "Unknown",
+                                        "series_fmt": "BO3",
+                                    }
+                                    BO3_FEED_FILE = PROJECT_ROOT / "logs" / "bo3_live_feed.json"
+                                    BO3_FEED_FILE.parent.mkdir(parents=True, exist_ok=True)
+                                    with open(BO3_FEED_FILE, "w", encoding="utf-8") as f:
+                                        json.dump({"timestamp": time.time(), "payload": initial_payload}, f, indent=2)
+                                    st.session_state["cs2_bo3_auto_active"] = True
+                                    st.session_state["cs2_bo3_pending_match_id"] = str(match_id)
+                                    # Set initial live fields so they show after rerun even if poller overwrites feed with empty payload
+                                    st.session_state["cs2_live_team_a"] = team_a_name
+                                    st.session_state["cs2_live_team_b"] = team_b_name
+                                    st.session_state["cs2_live_rounds_a"] = 0
+                                    st.session_state["cs2_live_rounds_b"] = 0
+                                    st.session_state["cs2_live_maps_a_won"] = 0
+                                    st.session_state["cs2_live_maps_b_won"] = 0
+                                    st.session_state["cs2_live_map_name"] = "Average (no map)"
+                                    st.session_state["cs2_live_a_side"] = "Unknown"
+                                    st.session_state["cs2_live_series_fmt_idx"] = 1
+                                    st.session_state["cs2_live_econ_a"] = 0
+                                    st.session_state["cs2_live_econ_b"] = 0
+                                    # Start poller subprocess (runs in background).
+                                    # Run as script (bo3.gg is a folder name, not package bo3.gg for -m).
+                                    try:
+                                        env = os.environ.copy()
+                                        env["PYTHONPATH"] = str(PROJECT_ROOT)
+                                        poller_script = PROJECT_ROOT / "bo3.gg" / "poller.py"
+                                        subprocess.Popen(
+                                            [sys.executable, str(poller_script)],
+                                            cwd=str(PROJECT_ROOT),
+                                            env=env,
+                                            stdin=subprocess.DEVNULL,
+                                            stdout=subprocess.DEVNULL,
+                                            stderr=subprocess.DEVNULL,
+                                        )
+                                    except Exception:
+                                        pass
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(str(e))
 
     # --- GRID data: refresh & status (when Live data source is GRID) ---
     st.markdown("#### GRID data — refresh & status")
     st.caption("When **Live data source** is GRID: data is read from the normalized preview file. **Activate auto pull** to refresh every 10 s (Pull + Kalshi + snapshot), or use **Pull** and **Apply** below.")
+    cs2_grid_record_jsonl = st.checkbox("Record GRID pulls (JSONL) for replay", value=True, key="cs2_grid_record_jsonl", help="Append each GraphQL request/response to logs/grid_pulls.jsonl for later replay.")
     with st.expander("GRID data — auto pull", expanded=True):
         if cs2_live_source != CS2_LIVE_SOURCE_GRID:
             st.caption("Select **GRID** as Live data source above to use these controls.")
@@ -3727,11 +5067,14 @@ with tabs[3]:
                         "first": 50,
                         "filter": _filter,
                     }
+                    _grid_record_path = GRID_PULLS_JSONL if st.session_state.get("cs2_grid_record_jsonl", True) else None
                     central = grid_graphql_client.post_graphql(
                         grid_graphql_client.CENTRAL_DATA_GRAPHQL_URL,
                         grid_queries.QUERY_FIND_CS2_SERIES.strip(),
                         variables=central_vars,
                         api_key=api_key,
+                        record_jsonl_path=_grid_record_path,
+                        record_label="central_find_series",
                     )
                     if central.get("errors"):
                         st.session_state["cs2_grid_last_error"] = str(central.get("errors"))
@@ -3926,11 +5269,14 @@ with tabs[3]:
                             from adapters.grid_probe import grid_queries
                             from adapters.grid_probe.grid_normalize_series_state_probe import _normalize_series_state
                             api_key = grid_graphql_client.load_api_key(PROJECT_ROOT / ".env")
+                            _grid_record_path = GRID_PULLS_JSONL if st.session_state.get("cs2_grid_record_jsonl", True) else None
                             state_resp = grid_graphql_client.post_graphql(
                                 grid_graphql_client.SERIES_STATE_GRAPHQL_URL,
                                 grid_queries.QUERY_SERIES_STATE_RICH.strip(),
                                 variables={"id": _selected},
                                 api_key=api_key,
+                                record_jsonl_path=_grid_record_path,
+                                record_label="series_state_poll",
                             )
                             if state_resp.get("errors"):
                                 st.session_state["cs2_grid_last_error"] = str(state_resp.get("errors"))
@@ -4123,6 +5469,8 @@ with tabs[3]:
     st.markdown("### Step 2 — Live map inputs (update whenever you want)")
     if "cs2_live_rows" not in st.session_state:
         st.session_state["cs2_live_rows"] = []
+    if "cs2_live_raw_payload_debug_rows" not in st.session_state:
+        st.session_state["cs2_live_raw_payload_debug_rows"] = []
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
@@ -4530,6 +5878,18 @@ with tabs[3]:
         key="cs2_midround_v1_enabled",
         help="Move p_hat within frozen round-state corridor using alive count, HP, and bomb. Rails update only when score changes.",
     )
+    # Mid-Round Mode: OFF / V1 (additive) / V2 (mixture)
+    _midround_mode_opts = ["OFF", "V1 (additive)", "V2 (mixture)"]
+    _midround_mode_default = st.session_state.get("cs2_midround_mode", "V2 (mixture)")
+    if _midround_mode_default not in _midround_mode_opts:
+        _midround_mode_default = "V2 (mixture)"
+    cs2_midround_mode = st.selectbox(
+        "Mid-Round Mode",
+        options=_midround_mode_opts,
+        index=_midround_mode_opts.index(_midround_mode_default),
+        key="cs2_midround_mode",
+        help="OFF = no intraround adjustment. V1 = additive corridor. V2 = mixture q*(p_if_a) + (1-q)*(p_if_b) from features.",
+    )
     # CS2 Bounds Mode — diagnostic: compare raw vs bounded p_hat without changing pipeline
     _bounds_mode_opts = ["Normal (bounded)", "No bounds (diagnostic)", "Map-only bounds", "Round-only bounds"]
     st.session_state.setdefault("cs2_bounds_mode", "Normal (bounded)")
@@ -4627,6 +5987,101 @@ with tabs[3]:
             line_label = "Map fair p(A)"
     # BO3 STATE BANDS CONSISTENCY
 
+    # BO3 MIDROUND V1 — detect round transition BEFORE rail computation so new-round rails use new-round latched context
+    game_number_for_key = st.session_state.get("cs2_live_game_number")
+    current_round_key = _build_cs2_round_key(
+        map_name, int(rounds_a), int(rounds_b), int(maps_a_won), int(maps_b_won), str(contract_scope), int(n_maps),
+        game_number=game_number_for_key,
+    )
+    prev_round_key = st.session_state.get("cs2_midround_round_key")
+    st.session_state.pop("cs2_midround_transition_tick", None)
+    st.session_state["cs2_live_round_finalization_snap_occurred"] = False
+    st.session_state["cs2_round_snap_applied_this_tick"] = False
+    st.session_state["cs2_rail_round_end_latched"] = False
+    st.session_state["cs2_rail_resolved_to_prev_endpoint"] = False
+    use_snap_this_tick = False
+    round_transition_detected = False
+    round_transition_prev_key = None
+    round_transition_new_key = None
+    round_transition_winner = None
+    round_transition_resolved_p = None
+    round_transition_resolution_source = "none"
+    transition_this_tick = False
+    p_hat_pre_snap = float(p_hat)
+    used_prev_frozen_for_snap = False
+    latched_new_round_context = False
+
+    if current_round_key != prev_round_key:
+        transition_this_tick = True
+        round_transition_detected = True
+        round_transition_prev_key = prev_round_key
+        round_transition_new_key = current_round_key
+        prev_band_if_a = st.session_state.get("cs2_midround_band_if_a_round_frozen")
+        prev_band_if_b = st.session_state.get("cs2_midround_band_if_b_round_frozen")
+        prev_rounds_a = st.session_state.get("cs2_midround_prev_rounds_a")
+        prev_rounds_b = st.session_state.get("cs2_midround_prev_rounds_b")
+        prev_frozen_lo = st.session_state.get("cs2_midround_band_state_lo_frozen")
+        prev_frozen_hi = st.session_state.get("cs2_midround_band_state_hi_frozen")
+        prev_p_base = st.session_state.get("cs2_midround_p_base_frozen")
+        st.session_state["cs2_live_latched_band_lo"] = float(prev_frozen_lo) if prev_frozen_lo is not None else None
+        st.session_state["cs2_live_latched_band_hi"] = float(prev_frozen_hi) if prev_frozen_hi is not None else None
+        st.session_state["cs2_live_latched_p_base"] = float(prev_p_base) if prev_p_base is not None else None
+        st.session_state["cs2_live_latched_round_key"] = prev_round_key
+        delta_a = (int(rounds_a) - prev_rounds_a) if prev_rounds_a is not None else None
+        delta_b = (int(rounds_b) - prev_rounds_b) if prev_rounds_b is not None else None
+        p_hat_pre_snap = float(p_hat)
+        if delta_a == 1 and delta_b == 0 and prev_band_if_a is not None:
+            round_transition_winner = "A"
+            round_transition_resolved_p = float(prev_band_if_a)
+            round_transition_resolution_source = "prev_band_if_a"
+            p_hat = float(prev_band_if_a)
+            st.session_state["cs2_midround_transition_tick"] = True
+            st.session_state["cs2_live_round_finalization_snap_occurred"] = True
+            st.session_state["cs2_rail_round_end_latched"] = True
+            st.session_state["cs2_rail_resolved_to_prev_endpoint"] = True
+            use_snap_this_tick = True
+            used_prev_frozen_for_snap = True
+            st.session_state["cs2_round_snap_used"] = True
+            st.session_state["cs2_round_snap_target_side"] = "A"
+            st.session_state["cs2_round_snap_value"] = float(prev_band_if_a)
+            st.session_state["cs2_round_snap_prev_freeze_key"] = prev_round_key
+        elif delta_a == 0 and delta_b == 1 and prev_band_if_b is not None:
+            round_transition_winner = "B"
+            round_transition_resolved_p = float(prev_band_if_b)
+            round_transition_resolution_source = "prev_band_if_b"
+            p_hat = float(prev_band_if_b)
+            st.session_state["cs2_midround_transition_tick"] = True
+            st.session_state["cs2_live_round_finalization_snap_occurred"] = True
+            st.session_state["cs2_rail_round_end_latched"] = True
+            st.session_state["cs2_rail_resolved_to_prev_endpoint"] = True
+            use_snap_this_tick = True
+            used_prev_frozen_for_snap = True
+            st.session_state["cs2_round_snap_used"] = True
+            st.session_state["cs2_round_snap_target_side"] = "B"
+            st.session_state["cs2_round_snap_value"] = float(prev_band_if_b)
+            st.session_state["cs2_round_snap_prev_freeze_key"] = prev_round_key
+        else:
+            round_transition_winner = None
+            st.session_state["cs2_round_snap_used"] = False
+            st.session_state["cs2_round_snap_target_side"] = None
+            st.session_state["cs2_round_snap_value"] = None
+            st.session_state["cs2_round_snap_prev_freeze_key"] = prev_round_key
+        # Latch NEW round-start context FIRST so rail computation below uses it (not stale previous-round context)
+        st.session_state["round_start_team_a_econ_total"] = st.session_state.get("cs2_live_econ_a")
+        st.session_state["round_start_team_b_econ_total"] = st.session_state.get("cs2_live_econ_b")
+        st.session_state["round_start_team_a_loadout_total"] = st.session_state.get("cs2_live_team_a_loadout_est_total")
+        st.session_state["round_start_team_b_loadout_total"] = st.session_state.get("cs2_live_team_b_loadout_est_total")
+        st.session_state["round_start_team_a_armor_total"] = st.session_state.get("cs2_live_team_a_armor_alive_total")
+        st.session_state["round_start_team_b_armor_total"] = st.session_state.get("cs2_live_team_b_armor_alive_total")
+        st.session_state["round_start_team_a_side"] = st.session_state.get("cs2_live_team_a_side")
+        st.session_state["round_start_team_b_side"] = st.session_state.get("cs2_live_team_b_side")
+        st.session_state["round_start_map_name"] = st.session_state.get("cs2_live_map_name")
+        st.session_state["round_start_game_number"] = st.session_state.get("cs2_live_game_number")
+        st.session_state["cs2_midround_round_key"] = current_round_key
+        st.session_state["cs2_midround_prev_rounds_a"] = int(rounds_a)
+        st.session_state["cs2_midround_prev_rounds_b"] = int(rounds_b)
+        latched_new_round_context = True
+
     # BO3 STATE BANDS: round-state endpoint bands (if A wins round / if B wins round)
     # MAP RESOLVED: when one team has reached win_target, map is over — force resolved 0/1 so chart doesn't oscillate
     win_target = cs2_current_win_target(int(rounds_a), int(rounds_b))
@@ -4648,6 +6103,7 @@ with tabs[3]:
         # Rail inputs use round-start latched values when available to avoid mid-round drift
         current_round_key_rail = _build_cs2_round_key(
             map_name, int(rounds_a), int(rounds_b), int(maps_a_won), int(maps_b_won), str(contract_scope), int(n_maps),
+            game_number=game_number_for_key,
         )
         prev_round_key_rail = st.session_state.get("cs2_midround_round_key")
         econ_a_rail = st.session_state.get("round_start_team_a_econ_total")
@@ -4685,6 +6141,9 @@ with tabs[3]:
             maps_b_won=int(maps_b_won) if maps_b_won is not None else None,
             canonical_econ_a=float(econ_a) if econ_a is not None else None,
             canonical_econ_b=float(econ_b) if econ_b is not None else None,
+            rail_mode=st.session_state.get("cs2_rail_mode", "ANCHOR_PULLED"),
+            rail_pull_scale=st.session_state.get("cs2_rail_pull_scale", 0.7),
+            rail_pull_cap=st.session_state.get("cs2_rail_pull_cap", 0.6),
         )
         band_if_a_round = v2_rails.get("band_if_a_round")
         band_if_b_round = v2_rails.get("band_if_b_round")
@@ -4733,103 +6192,247 @@ with tabs[3]:
         st.session_state["cs2_live_band_if_b_round"] = band_if_b_round
         st.session_state["cs2_live_band_lo"] = band_state_lo
         st.session_state["cs2_live_band_hi"] = band_state_hi
+    # Round-endpoint counterfactual trace diagnostics (no math changes)
+    _ra = int(rounds_a)
+    _rb = int(rounds_b)
+    st.session_state["cs2_rail_base_rounds_a"] = _ra
+    st.session_state["cs2_rail_base_rounds_b"] = _rb
+    st.session_state["cs2_rail_base_maps_a_won"] = int(maps_a_won) if maps_a_won is not None else None
+    st.session_state["cs2_rail_base_maps_b_won"] = int(maps_b_won) if maps_b_won is not None else None
+    st.session_state["cs2_rail_base_game_number"] = game_number_for_key
+    st.session_state["cs2_rail_base_series_fmt"] = f"BO{int(n_maps)}" if n_maps is not None else "BO3"
+    st.session_state["cs2_rail_base_side_a"] = str(a_side) if a_side is not None else None
+    st.session_state["cs2_rail_base_side_b"] = "CT" if str(a_side or "").strip().upper() == "T" else ("T" if str(a_side or "").strip().upper() == "CT" else None)
+    st.session_state["cs2_rail_cf_a_rounds_a"] = _ra + 1
+    st.session_state["cs2_rail_cf_a_rounds_b"] = _rb
+    st.session_state["cs2_rail_cf_b_rounds_a"] = _ra
+    st.session_state["cs2_rail_cf_b_rounds_b"] = _rb + 1
+    st.session_state["cs2_rail_cf_a_maps_a_won"] = int(maps_a_won) if maps_a_won is not None else None
+    st.session_state["cs2_rail_cf_a_maps_b_won"] = int(maps_b_won) if maps_b_won is not None else None
+    st.session_state["cs2_rail_cf_b_maps_a_won"] = int(maps_a_won) if maps_a_won is not None else None
+    st.session_state["cs2_rail_cf_b_maps_b_won"] = int(maps_b_won) if maps_b_won is not None else None
+    st.session_state["cs2_rail_endpoint_if_a_round"] = float(band_if_a_round) if band_if_a_round is not None else None
+    st.session_state["cs2_rail_endpoint_if_b_round"] = float(band_if_b_round) if band_if_b_round is not None else None
+    _span = None
+    if band_if_a_round is not None and band_if_b_round is not None:
+        _span = float(abs(float(band_if_a_round) - float(band_if_b_round)))
+    st.session_state["cs2_rail_endpoint_span_abs"] = _span
+    st.session_state["cs2_rail_endpoint_degenerate"] = bool(_span is not None and _span < 1e-4)
+    st.session_state["cs2_rail_map_winprob_if_a_round"] = None
+    st.session_state["cs2_rail_map_winprob_if_b_round"] = None
+    st.session_state["cs2_rail_series_prob_if_a_round"] = float(band_if_a_round) if band_if_a_round is not None else None
+    st.session_state["cs2_rail_series_prob_if_b_round"] = float(band_if_b_round) if band_if_b_round is not None else None
+    # Dead-path envelope diagnostics (from v2_rails / cs2_rail_debug)
+    _ed = st.session_state.get("cs2_rail_debug") or {}
+    st.session_state["cs2_rail_endpoint_env_valid"] = bool(_ed.get("rail_endpoint_env_valid", False))
+    st.session_state["cs2_rail_endpoint_a_base_dbg"] = float(_ed["rail_endpoint_a_base_dbg"]) if _ed.get("rail_endpoint_a_base_dbg") is not None else None
+    st.session_state["cs2_rail_endpoint_b_base_dbg"] = float(_ed["rail_endpoint_b_base_dbg"]) if _ed.get("rail_endpoint_b_base_dbg") is not None else None
+    st.session_state["cs2_rail_endpoint_env_base_span_abs"] = float(_ed["rail_endpoint_env_base_span_abs"]) if _ed.get("rail_endpoint_env_base_span_abs") is not None else None
+    st.session_state["cs2_rail_endpoint_env_fraction_k"] = float(_ed["rail_endpoint_env_fraction_k"]) if _ed.get("rail_endpoint_env_fraction_k") is not None else None
+    st.session_state["cs2_rail_endpoint_env_round_leverage"] = float(_ed["rail_endpoint_env_round_leverage"]) if _ed.get("rail_endpoint_env_round_leverage") is not None else None
+    st.session_state["cs2_rail_endpoint_env_series_leverage"] = float(_ed["rail_endpoint_env_series_leverage"]) if _ed.get("rail_endpoint_env_series_leverage") is not None else None
+    st.session_state["cs2_rail_endpoint_env_half_width"] = float(_ed["rail_endpoint_env_half_width"]) if _ed.get("rail_endpoint_env_half_width") is not None else None
+    st.session_state["cs2_rail_endpoint_a_env_low"] = float(_ed["rail_endpoint_a_env_low"]) if _ed.get("rail_endpoint_a_env_low") is not None else None
+    st.session_state["cs2_rail_endpoint_a_env_high"] = float(_ed["rail_endpoint_a_env_high"]) if _ed.get("rail_endpoint_a_env_high") is not None else None
+    st.session_state["cs2_rail_endpoint_b_env_low"] = float(_ed["rail_endpoint_b_env_low"]) if _ed.get("rail_endpoint_b_env_low") is not None else None
+    st.session_state["cs2_rail_endpoint_b_env_high"] = float(_ed["rail_endpoint_b_env_high"]) if _ed.get("rail_endpoint_b_env_high") is not None else None
+    st.session_state["cs2_rail_endpoint_a_env_center"] = float(_ed["rail_endpoint_a_env_center"]) if _ed.get("rail_endpoint_a_env_center") is not None else None
+    st.session_state["cs2_rail_endpoint_b_env_center"] = float(_ed["rail_endpoint_b_env_center"]) if _ed.get("rail_endpoint_b_env_center") is not None else None
+    st.session_state["cs2_rail_endpoint_env_map_index"] = int(_ed["rail_endpoint_env_map_index"]) if _ed.get("rail_endpoint_env_map_index") is not None else None
+    st.session_state["cs2_rail_endpoint_env_best_of"] = int(_ed["rail_endpoint_env_best_of"]) if _ed.get("rail_endpoint_env_best_of") is not None else None
+    st.session_state["cs2_rail_endpoint_env_win_target"] = int(_ed["rail_endpoint_env_win_target"]) if _ed.get("rail_endpoint_env_win_target") is not None else None
+    # Canonical debug driver bundle (shared by endpoint/phat debug helpers; do not leave stale values)
+    _drv_na = st.session_state.get("cs2_live_team_a_alive_count")
+    _drv_nb = st.session_state.get("cs2_live_team_b_alive_count")
+    _drv_hp_a = st.session_state.get("cs2_live_team_a_hp_alive_total")
+    _drv_hp_b = st.session_state.get("cs2_live_team_b_hp_alive_total")
+    _drv_load_a = st.session_state.get("cs2_live_team_a_alive_loadout_est_total") if st.session_state.get("cs2_live_team_a_alive_loadout_est_total") is not None else st.session_state.get("cs2_live_team_a_alive_loadout_total")
+    _drv_load_b = st.session_state.get("cs2_live_team_b_alive_loadout_est_total") if st.session_state.get("cs2_live_team_b_alive_loadout_est_total") is not None else st.session_state.get("cs2_live_team_b_alive_loadout_total")
+    _drv_cash_a = st.session_state.get("cs2_live_team_a_alive_cash_total")
+    _drv_cash_b = st.session_state.get("cs2_live_team_b_alive_cash_total")
+    _drv_bomb = st.session_state.get("cs2_live_bomb_planted")
+    _drv_phase = st.session_state.get("cs2_live_round_phase")
+    _drv_clock = st.session_state.get("cs2_live_round_time_remaining_s")
+    _drv_side = st.session_state.get("cs2_live_team_a_side") if st.session_state.get("cs2_live_team_a_side") is not None else st.session_state.get("cs2_round_start_team_a_side")
+    st.session_state["cs2_drv_alive_count_a"] = _drv_na
+    st.session_state["cs2_drv_alive_count_b"] = _drv_nb
+    st.session_state["cs2_drv_hp_alive_total_a"] = _drv_hp_a
+    st.session_state["cs2_drv_hp_alive_total_b"] = _drv_hp_b
+    st.session_state["cs2_drv_alive_loadout_est_total_a"] = _drv_load_a
+    st.session_state["cs2_drv_alive_loadout_est_total_b"] = _drv_load_b
+    st.session_state["cs2_drv_alive_cash_total_a"] = _drv_cash_a
+    st.session_state["cs2_drv_alive_cash_total_b"] = _drv_cash_b
+    st.session_state["cs2_drv_bomb_planted"] = _drv_bomb
+    st.session_state["cs2_drv_round_phase"] = _drv_phase
+    st.session_state["cs2_drv_round_time_remaining_s"] = _drv_clock
+    st.session_state["cs2_drv_team_a_side"] = _drv_side
+    st.session_state["cs2_drv_source_contract"] = "live_normalized_bundle"
+    # valid_microstate: alive counts + hp totals + alive loadout est totals all non-None
+    st.session_state["cs2_drv_valid_microstate"] = (
+        _drv_na is not None and _drv_nb is not None
+        and _drv_hp_a is not None and _drv_hp_b is not None
+        and _drv_load_a is not None and _drv_load_b is not None
+    )
+    # valid_roundstate: bomb/phase/side present (clock may be None and still valid)
+    st.session_state["cs2_drv_valid_roundstate"] = (
+        _drv_bomb is not None and _drv_phase is not None and _drv_side is not None
+    )
+    # Dead-path branch econ consequence (reads from cs2_drv_* only)
+    _econ_na = st.session_state.get("cs2_drv_alive_count_a")
+    _econ_nb = st.session_state.get("cs2_drv_alive_count_b")
+    _econ_load_a = st.session_state.get("cs2_drv_alive_loadout_est_total_a")
+    _econ_load_b = st.session_state.get("cs2_drv_alive_loadout_est_total_b")
+    _econ_cash_a = st.session_state.get("cs2_drv_alive_cash_total_a")
+    _econ_cash_b = st.session_state.get("cs2_drv_alive_cash_total_b")
+    _econ = _compute_cs2_branch_econ_consequence_debug(
+        float(_econ_na) if _econ_na is not None else 0.0,
+        float(_econ_nb) if _econ_nb is not None else 0.0,
+        float(_econ_load_a) if _econ_load_a is not None else 0.0,
+        float(_econ_load_b) if _econ_load_b is not None else 0.0,
+        float(_econ_cash_a) if _econ_cash_a is not None else 0.0,
+        float(_econ_cash_b) if _econ_cash_b is not None else 0.0,
+    )
+    if _econ.get("econ_valid"):
+        st.session_state["cs2_endpoint_econ_valid"] = True
+        st.session_state["cs2_endpoint_econ_d_alive_survival"] = float(_econ["endpoint_econ_d_alive_survival"]) if _econ.get("endpoint_econ_d_alive_survival") is not None else None
+        st.session_state["cs2_endpoint_econ_d_alive_loadout"] = float(_econ["endpoint_econ_d_alive_loadout"]) if _econ.get("endpoint_econ_d_alive_loadout") is not None else None
+        st.session_state["cs2_endpoint_econ_d_alive_cash"] = float(_econ["endpoint_econ_d_alive_cash"]) if _econ.get("endpoint_econ_d_alive_cash") is not None else None
+        st.session_state["cs2_endpoint_econ_score_a"] = float(_econ["endpoint_econ_score_a"]) if _econ.get("endpoint_econ_score_a") is not None else None
+        st.session_state["cs2_endpoint_econ_score_b"] = float(_econ["endpoint_econ_score_b"]) if _econ.get("endpoint_econ_score_b") is not None else None
+    else:
+        st.session_state["cs2_endpoint_econ_valid"] = False
+        st.session_state["cs2_endpoint_econ_d_alive_survival"] = None
+        st.session_state["cs2_endpoint_econ_d_alive_loadout"] = None
+        st.session_state["cs2_endpoint_econ_d_alive_cash"] = None
+        st.session_state["cs2_endpoint_econ_score_a"] = None
+        st.session_state["cs2_endpoint_econ_score_b"] = None
+    # Dead-path PHat intraround debug (reads from cs2_drv_* only)
+    _pi = _compute_cs2_phat_intra_score_debug(
+        team_a_alive_count=st.session_state.get("cs2_drv_alive_count_a"),
+        team_b_alive_count=st.session_state.get("cs2_drv_alive_count_b"),
+        team_a_hp_alive_total=st.session_state.get("cs2_drv_hp_alive_total_a"),
+        team_b_hp_alive_total=st.session_state.get("cs2_drv_hp_alive_total_b"),
+        team_a_alive_loadout_est_total=st.session_state.get("cs2_drv_alive_loadout_est_total_a"),
+        team_b_alive_loadout_est_total=st.session_state.get("cs2_drv_alive_loadout_est_total_b"),
+        bomb_planted=st.session_state.get("cs2_drv_bomb_planted"),
+        round_phase=st.session_state.get("cs2_drv_round_phase"),
+        round_time_remaining_s=st.session_state.get("cs2_drv_round_time_remaining_s"),
+        team_a_side=st.session_state.get("cs2_drv_team_a_side"),
+        q_temp=1.0,
+        reliability_mult=1.0,
+    )
+    for _k, _v in _pi.items():
+        st.session_state["cs2_" + _k] = _v
+    # Dead-path branch endpoint position diagnostics (no behavior change)
+    _a_lo = st.session_state.get("cs2_rail_endpoint_a_env_low")
+    _a_hi = st.session_state.get("cs2_rail_endpoint_a_env_high")
+    _b_lo = st.session_state.get("cs2_rail_endpoint_b_env_low")
+    _b_hi = st.session_state.get("cs2_rail_endpoint_b_env_high")
+    _env_ok = bool(st.session_state.get("cs2_rail_endpoint_env_valid", False))
+    if _env_ok and _a_lo is not None and _a_hi is not None and _b_lo is not None and _b_hi is not None:
+        _pos = _compute_cs2_branch_endpoint_position_debug(
+            a_env_low=float(_a_lo),
+            a_env_high=float(_a_hi),
+            b_env_low=float(_b_lo),
+            b_env_high=float(_b_hi),
+            team_a_alive_count=float(st.session_state.get("cs2_live_team_a_alive_count") or 0),
+            team_b_alive_count=float(st.session_state.get("cs2_live_team_b_alive_count") or 0),
+            team_a_alive_loadout_total=float(st.session_state.get("cs2_live_team_a_alive_loadout_total") or 0),
+            team_b_alive_loadout_total=float(st.session_state.get("cs2_live_team_b_alive_loadout_total") or 0),
+            team_a_armor_alive_total=float(st.session_state.get("cs2_live_team_a_armor_alive_total") or 0),
+            team_b_armor_alive_total=float(st.session_state.get("cs2_live_team_b_armor_alive_total") or 0),
+            branch_temp=0.30,
+        )
+        st.session_state["cs2_endpoint_pos_valid"] = bool(_pos.get("pos_valid", False))
+        st.session_state["cs2_endpoint_pos_branch_temp_used"] = float(_pos["branch_temp_used"]) if _pos.get("branch_temp_used") is not None else None
+        st.session_state["cs2_endpoint_pos_d_alive"] = float(_pos["endpoint_pos_d_alive"]) if _pos.get("endpoint_pos_d_alive") is not None else None
+        st.session_state["cs2_endpoint_pos_d_loadout"] = float(_pos["endpoint_pos_d_loadout"]) if _pos.get("endpoint_pos_d_loadout") is not None else None
+        st.session_state["cs2_endpoint_pos_d_armor"] = float(_pos["endpoint_pos_d_armor"]) if _pos.get("endpoint_pos_d_armor") is not None else None
+        st.session_state["cs2_endpoint_pos_score_a"] = float(_pos["endpoint_pos_score_a"]) if _pos.get("endpoint_pos_score_a") is not None else None
+        st.session_state["cs2_endpoint_pos_score_b"] = float(_pos["endpoint_pos_score_b"]) if _pos.get("endpoint_pos_score_b") is not None else None
+        st.session_state["cs2_endpoint_pos_a_quality_pos"] = float(_pos["endpoint_pos_a_quality_pos"]) if _pos.get("endpoint_pos_a_quality_pos") is not None else None
+        st.session_state["cs2_endpoint_pos_b_quality_pos"] = float(_pos["endpoint_pos_b_quality_pos"]) if _pos.get("endpoint_pos_b_quality_pos") is not None else None
+        st.session_state["cs2_endpoint_pos_a_active_dbg"] = float(_pos["endpoint_pos_a_active_dbg"]) if _pos.get("endpoint_pos_a_active_dbg") is not None else None
+        st.session_state["cs2_endpoint_pos_b_active_dbg"] = float(_pos["endpoint_pos_b_active_dbg"]) if _pos.get("endpoint_pos_b_active_dbg") is not None else None
+        st.session_state["cs2_endpoint_pos_a_active_within_env"] = bool(_pos.get("endpoint_pos_a_active_within_env", False))
+        st.session_state["cs2_endpoint_pos_b_active_within_env"] = bool(_pos.get("endpoint_pos_b_active_within_env", False))
+        # Dynamic endpoints (debug): use econ consequence only; never armor. If econ invalid, mark position invalid.
+        _branch_src = st.session_state.get("cs2_branch_endpoint_source_mode", "Frozen endpoints (current)")
+        _econ_ok = bool(st.session_state.get("cs2_endpoint_econ_valid", False))
+        _econ_score_a = st.session_state.get("cs2_endpoint_econ_score_a")
+        if _branch_src == "Dynamic endpoints (debug)":
+            if _econ_ok and _econ_score_a is not None and np.isfinite(float(_econ_score_a)):
+                _d_alive = _pos.get("endpoint_pos_d_alive")
+                _d_loadout = _pos.get("endpoint_pos_d_loadout")
+                _temp = float(_pos.get("branch_temp_used") or 0.30)
+                if _d_alive is not None and _d_loadout is not None and np.isfinite(_d_alive) and np.isfinite(_d_loadout):
+                    _s_a = 0.50 * float(_d_alive) + 0.30 * float(_d_loadout) + 0.20 * float(_econ_score_a)
+                    _s_a = float(np.clip(_s_a, -5.0, 5.0))
+                    _s_b = -_s_a
+                    _a_q = _sigmoid_stable(_s_a, _temp)
+                    _b_q = _sigmoid_stable(_s_b, _temp)
+                    _a_lo_f = float(_a_lo)
+                    _a_hi_f = float(_a_hi)
+                    _b_lo_f = float(_b_lo)
+                    _b_hi_f = float(_b_hi)
+                    st.session_state["cs2_endpoint_pos_score_a"] = _s_a
+                    st.session_state["cs2_endpoint_pos_score_b"] = _s_b
+                    st.session_state["cs2_endpoint_pos_a_quality_pos"] = _a_q
+                    st.session_state["cs2_endpoint_pos_b_quality_pos"] = _b_q
+                    st.session_state["cs2_endpoint_pos_a_active_dbg"] = _a_lo_f + (_a_hi_f - _a_lo_f) * _a_q
+                    st.session_state["cs2_endpoint_pos_b_active_dbg"] = _b_lo_f + (_b_hi_f - _b_lo_f) * _b_q
+                    st.session_state["cs2_endpoint_pos_a_active_within_env"] = bool((_a_lo_f - 1e-9) <= st.session_state["cs2_endpoint_pos_a_active_dbg"] <= (_a_hi_f + 1e-9))
+                    st.session_state["cs2_endpoint_pos_b_active_within_env"] = bool((_b_lo_f - 1e-9) <= st.session_state["cs2_endpoint_pos_b_active_dbg"] <= (_b_hi_f + 1e-9))
+                st.session_state["cs2_endpoint_pos_third_driver_source"] = "econ_debug"
+            else:
+                # Econ invalid: do not fallback to armor; mark dynamic endpoint position debug invalid
+                st.session_state["cs2_endpoint_pos_valid"] = False
+                st.session_state["cs2_endpoint_pos_score_a"] = None
+                st.session_state["cs2_endpoint_pos_score_b"] = None
+                st.session_state["cs2_endpoint_pos_a_quality_pos"] = None
+                st.session_state["cs2_endpoint_pos_b_quality_pos"] = None
+                st.session_state["cs2_endpoint_pos_a_active_dbg"] = None
+                st.session_state["cs2_endpoint_pos_b_active_dbg"] = None
+                st.session_state["cs2_endpoint_pos_a_active_within_env"] = False
+                st.session_state["cs2_endpoint_pos_b_active_within_env"] = False
+                st.session_state["cs2_endpoint_pos_third_driver_source"] = "econ_missing_invalid"
+        else:
+            st.session_state["cs2_endpoint_pos_third_driver_source"] = "legacy_non_dynamic"
+    else:
+        st.session_state["cs2_endpoint_pos_valid"] = False
+        st.session_state["cs2_endpoint_pos_branch_temp_used"] = None
+        st.session_state["cs2_endpoint_pos_d_alive"] = None
+        st.session_state["cs2_endpoint_pos_d_loadout"] = None
+        st.session_state["cs2_endpoint_pos_d_armor"] = None
+        st.session_state["cs2_endpoint_pos_score_a"] = None
+        st.session_state["cs2_endpoint_pos_score_b"] = None
+        st.session_state["cs2_endpoint_pos_a_quality_pos"] = None
+        st.session_state["cs2_endpoint_pos_b_quality_pos"] = None
+        st.session_state["cs2_endpoint_pos_a_active_dbg"] = None
+        st.session_state["cs2_endpoint_pos_b_active_dbg"] = None
+        st.session_state["cs2_endpoint_pos_a_active_within_env"] = False
+        st.session_state["cs2_endpoint_pos_b_active_within_env"] = False
+        st.session_state["cs2_endpoint_pos_third_driver_source"] = "legacy_non_dynamic"
     # BO3 STATE BANDS
 
-    # BO3 MIDROUND V1 — round-state latching: freeze corridor and p_base only when round key changes
-    # Round-end snap: on transition, p_hat must resolve to the JUST-FINISHED round's rail (one-tick only).
-    current_round_key = _build_cs2_round_key(
-        map_name, int(rounds_a), int(rounds_b), int(maps_a_won), int(maps_b_won), str(contract_scope), int(n_maps),
-    )
-    prev_round_key = st.session_state.get("cs2_midround_round_key")
-    # Consume transition tick from previous run so it cannot affect this run (snap is one-tick only)
-    st.session_state.pop("cs2_midround_transition_tick", None)
-    st.session_state["cs2_live_round_finalization_snap_occurred"] = False
-    st.session_state["cs2_round_snap_applied_this_tick"] = False
-    st.session_state["cs2_rail_round_end_latched"] = False
-    st.session_state["cs2_rail_resolved_to_prev_endpoint"] = False
-    use_snap_this_tick = False  # local: True only on the single run where we apply round-end snap
-    round_transition_detected = False
-    round_transition_prev_key = None
-    round_transition_new_key = None
-    round_transition_winner = None
-    round_transition_resolved_p = None
-    round_transition_resolution_source = "none"
-
-    if current_round_key != prev_round_key:
-        # Round-end snap: p_hat must resolve to the PRIOR round's winning endpoint (not the new round's anchor).
-        # We read prev_band_if_a / prev_band_if_b from frozen state (from last run, before score incremented).
-        # Only after applying this snap do we latch the NEW round's rails into frozen state.
-        prev_band_if_a = st.session_state.get("cs2_midround_band_if_a_round_frozen")
-        prev_band_if_b = st.session_state.get("cs2_midround_band_if_b_round_frozen")
-        prev_rounds_a = st.session_state.get("cs2_midround_prev_rounds_a")
-        prev_rounds_b = st.session_state.get("cs2_midround_prev_rounds_b")
-        # Persist just-finished round's latched rail (before we overwrite frozen state)
-        prev_frozen_lo = st.session_state.get("cs2_midround_band_state_lo_frozen")
-        prev_frozen_hi = st.session_state.get("cs2_midround_band_state_hi_frozen")
-        prev_p_base = st.session_state.get("cs2_midround_p_base_frozen")
-        st.session_state["cs2_live_latched_band_lo"] = float(prev_frozen_lo) if prev_frozen_lo is not None else None
-        st.session_state["cs2_live_latched_band_hi"] = float(prev_frozen_hi) if prev_frozen_hi is not None else None
-        st.session_state["cs2_live_latched_p_base"] = float(prev_p_base) if prev_p_base is not None else None
-        st.session_state["cs2_live_latched_round_key"] = prev_round_key
-        round_transition_detected = True
-        round_transition_prev_key = prev_round_key
-        round_transition_new_key = current_round_key
-        delta_a = (int(rounds_a) - prev_rounds_a) if prev_rounds_a is not None else None
-        delta_b = (int(rounds_b) - prev_rounds_b) if prev_rounds_b is not None else None
-        # New round's base probability (for p_base_frozen); use BEFORE we overwrite p_hat with snap
-        p_hat_new_round_base = float(p_hat)
-        if delta_a == 1 and delta_b == 0 and prev_band_if_a is not None:
-            round_transition_winner = "A"
-            round_transition_resolved_p = float(prev_band_if_a)
-            round_transition_resolution_source = "prev_band_if_a"
-            p_hat = float(prev_band_if_a)
-            st.session_state["cs2_midround_transition_tick"] = True
-            st.session_state["cs2_live_round_finalization_snap_occurred"] = True
-            st.session_state["cs2_rail_round_end_latched"] = True
-            st.session_state["cs2_rail_resolved_to_prev_endpoint"] = True
-            use_snap_this_tick = True
-        elif delta_a == 0 and delta_b == 1 and prev_band_if_b is not None:
-            round_transition_winner = "B"
-            round_transition_resolved_p = float(prev_band_if_b)
-            round_transition_resolution_source = "prev_band_if_b"
-            p_hat = float(prev_band_if_b)
-            st.session_state["cs2_midround_transition_tick"] = True
-            st.session_state["cs2_live_round_finalization_snap_occurred"] = True
-            st.session_state["cs2_rail_round_end_latched"] = True
-            st.session_state["cs2_rail_resolved_to_prev_endpoint"] = True
-            use_snap_this_tick = True
-        else:
-            round_transition_winner = None
-
-        # Latch NEW round's rails (do not use post-score band for the snap; snap already used prev rail)
-        st.session_state["cs2_midround_round_key"] = current_round_key
-        st.session_state["cs2_midround_band_state_lo_frozen"] = float(band_state_lo) if band_state_lo is not None else None
-        st.session_state["cs2_midround_band_state_hi_frozen"] = float(band_state_hi) if band_state_hi is not None else None
+    # Freeze rails ONLY after rail computation, and only on transition ticks (rails were computed from newly latched context)
+    if transition_this_tick and band_state_lo is not None and band_state_hi is not None:
+        st.session_state["cs2_midround_band_state_lo_frozen"] = float(band_state_lo)
+        st.session_state["cs2_midround_band_state_hi_frozen"] = float(band_state_hi)
         st.session_state["cs2_midround_band_if_a_round_frozen"] = float(band_if_a_round) if band_if_a_round is not None else None
         st.session_state["cs2_midround_band_if_b_round_frozen"] = float(band_if_b_round) if band_if_b_round is not None else None
-        st.session_state["cs2_midround_p_base_frozen"] = p_hat_new_round_base
+        st.session_state["cs2_midround_p_base_frozen"] = p_hat_pre_snap
         st.session_state["cs2_midround_round_start_ts"] = time.time()
+        st.session_state["cs2_round_freeze_game_number"] = st.session_state.get("cs2_live_game_number")
+        st.session_state["cs2_round_freeze_rounds_a"] = int(rounds_a)
+        st.session_state["cs2_round_freeze_rounds_b"] = int(rounds_b)
+        st.session_state["cs2_round_freeze_phase_at_capture"] = st.session_state.get("cs2_live_round_phase")
+        st.session_state["cs2_round_freeze_band_if_a"] = float(band_if_a_round) if band_if_a_round is not None else None
+        st.session_state["cs2_round_freeze_band_if_b"] = float(band_if_b_round) if band_if_b_round is not None else None
+        st.session_state["cs2_round_freeze_tick_ts"] = time.time()
         st.session_state["cs2_midround_latched_team_a_alive_count"] = st.session_state.get("cs2_live_team_a_alive_count")
         st.session_state["cs2_midround_latched_team_b_alive_count"] = st.session_state.get("cs2_live_team_b_alive_count")
-        st.session_state["cs2_midround_prev_rounds_a"] = int(rounds_a)
-        st.session_state["cs2_midround_prev_rounds_b"] = int(rounds_b)
-        # Latch round-start context once per round (econ/loadout/armor/sides/map)
-        st.session_state["round_start_team_a_econ_total"] = st.session_state.get("cs2_live_econ_a")
-        st.session_state["round_start_team_b_econ_total"] = st.session_state.get("cs2_live_econ_b")
-        st.session_state["round_start_team_a_loadout_total"] = st.session_state.get("cs2_live_team_a_loadout_est_total")
-        st.session_state["round_start_team_b_loadout_total"] = st.session_state.get("cs2_live_team_b_loadout_est_total")
-        st.session_state["round_start_team_a_armor_total"] = st.session_state.get("cs2_live_team_a_armor_alive_total")
-        st.session_state["round_start_team_b_armor_total"] = st.session_state.get("cs2_live_team_b_armor_alive_total")
-        st.session_state["round_start_team_a_side"] = st.session_state.get("cs2_live_team_a_side")
-        st.session_state["round_start_team_b_side"] = st.session_state.get("cs2_live_team_b_side")
-        st.session_state["round_start_map_name"] = st.session_state.get("cs2_live_map_name")
-        st.session_state["round_transition_detected"] = round_transition_detected
-        st.session_state["round_transition_prev_key"] = round_transition_prev_key
-        st.session_state["round_transition_new_key"] = round_transition_new_key
-        st.session_state["round_transition_winner"] = round_transition_winner
-        st.session_state["round_transition_resolved_p"] = round_transition_resolved_p
-        st.session_state["round_transition_resolution_source"] = round_transition_resolution_source
-    else:
+    if not transition_this_tick:
         st.session_state["cs2_midround_prev_rounds_a"] = int(rounds_a)
         st.session_state["cs2_midround_prev_rounds_b"] = int(rounds_b)
         st.session_state["round_transition_detected"] = False
@@ -4838,6 +6441,34 @@ with tabs[3]:
         st.session_state["round_transition_winner"] = None
         st.session_state["round_transition_resolved_p"] = None
         st.session_state["round_transition_resolution_source"] = "none"
+        st.session_state["cs2_round_snap_used"] = False
+        st.session_state["cs2_round_snap_target_side"] = None
+        st.session_state["cs2_round_snap_value"] = None
+        st.session_state["cs2_round_snap_prev_freeze_key"] = None
+        st.session_state["cs2_round_transition_tick_detected"] = False
+        st.session_state["cs2_round_transition_used_prev_frozen_for_snap"] = False
+        st.session_state["cs2_round_transition_latched_new_round_context"] = False
+        st.session_state["cs2_round_transition_rail_computed_after_latch"] = False
+        st.session_state["cs2_round_transition_game_number"] = None
+        st.session_state["cs2_round_transition_prev_round_key"] = None
+        st.session_state["cs2_round_transition_new_round_key"] = None
+    st.session_state["round_transition_detected"] = round_transition_detected
+    st.session_state["round_transition_prev_key"] = round_transition_prev_key
+    st.session_state["round_transition_new_key"] = round_transition_new_key
+    st.session_state["round_transition_winner"] = round_transition_winner
+    st.session_state["round_transition_resolved_p"] = round_transition_resolved_p
+    st.session_state["round_transition_resolution_source"] = round_transition_resolution_source
+    if transition_this_tick:
+        st.session_state["cs2_round_transition_tick_detected"] = True
+        st.session_state["cs2_round_transition_used_prev_frozen_for_snap"] = used_prev_frozen_for_snap
+        st.session_state["cs2_round_transition_latched_new_round_context"] = latched_new_round_context
+        st.session_state["cs2_round_transition_rail_computed_after_latch"] = True
+        st.session_state["cs2_round_transition_game_number"] = game_number_for_key
+        st.session_state["cs2_round_transition_prev_round_key"] = round_transition_prev_key
+        st.session_state["cs2_round_transition_new_round_key"] = round_transition_new_key
+
+    st.session_state["cs2_round_freeze_active"] = (st.session_state.get("cs2_midround_round_key") is not None)
+    st.session_state["cs2_round_freeze_key"] = st.session_state.get("cs2_midround_round_key")
 
     p_base_frozen = st.session_state.get("cs2_midround_p_base_frozen")
     frozen_lo = st.session_state.get("cs2_midround_band_state_lo_frozen")
@@ -4872,12 +6503,33 @@ with tabs[3]:
 
     midround_result = None
     p_hat_final_source = "base_frozen"
-    # Use snap only on the single tick where we detected round end (use_snap_this_tick); then resume mid-round V2
+    p_hat_pre_bounds_source = float(p_hat)
+    # Series-endpoint mixture: semantic endpoints + q_intra from intraround microstate (structural p_hat in [0,1] by construction)
+    p_series_if_a_wins_next_round = None
+    p_series_if_b_wins_next_round = None
+    q_intra_round_win_a = None
+    intra_score_raw = None
+    intra_score_alive = None
+    intra_score_hp = None
+    intra_score_bomb = None
+    intra_score_armor = None
+    intra_score_loadout = None
+    intra_score_post_reliability = None
+    intra_score_time_scale = None
+    p_hat_structural_mixture = None
+    p_hat_between_endpoints = None
+    endpoint_span_abs = None
+    branch_endpoint_source_used = "n/a"
+    branch_endpoint_selected_a = None
+    branch_endpoint_selected_b = None
+    branch_endpoint_selected_span_abs = None
+
+    # Use snap only on the single tick where we detected round end (use_snap_this_tick); then resume mid-round
     if use_snap_this_tick:
         p_hat_final_source = "round_transition_resolved"
         st.session_state.pop("cs2_midround_transition_tick", None)
         st.session_state["cs2_round_snap_applied_this_tick"] = True
-    elif cs2_midround_v1_enabled and frozen_lo is not None and frozen_hi is not None and frozen_hi > frozen_lo:
+    elif cs2_midround_mode != "OFF" and frozen_lo is not None and frozen_hi is not None and frozen_hi > frozen_lo:
         features = _compute_cs2_midround_features(
             team_a_alive_count=st.session_state.get("cs2_live_team_a_alive_count"),
             team_b_alive_count=st.session_state.get("cs2_live_team_b_alive_count"),
@@ -4898,25 +6550,46 @@ with tabs[3]:
             grid_has_players=st.session_state.get("cs2_grid_has_players"),
             grid_has_clock=st.session_state.get("cs2_grid_has_clock"),
         )
-        if features.get("feature_ok"):
-            midround_result = _apply_cs2_midround_adjustment_v2(
+        if not features.get("feature_ok"):
+            p_hat = float(p_round_context)
+            p_hat_pre_bounds_source = float(p_hat)
+        elif cs2_midround_mode == "V2 (mixture)":
+            frozen_a = st.session_state.get("cs2_midround_band_if_a_round_frozen")
+            frozen_b = st.session_state.get("cs2_midround_band_if_b_round_frozen")
+            if frozen_a is not None and frozen_b is not None:
+                midround_result = _apply_cs2_midround_adjustment_v2_mixture(
+                    float(frozen_a), float(frozen_b), features, settings={"a_side": a_side},
+                )
+                st.session_state["cs2_midround_last_result"] = midround_result
+                st.session_state["cs2_midround_last_features"] = features
+                p_hat = float(midround_result["p_mid_clamped"])
+                p_hat_final_source = "midround_v2_mixture"
+                p_hat_pre_bounds_source = float(midround_result.get("p_mid_raw", p_hat))
+            else:
+                p_hat = float(p_round_context)
+                p_hat_pre_bounds_source = float(p_hat)
+        elif cs2_midround_mode == "V1 (additive)":
+            midround_result = _apply_cs2_midround_adjustment_v1(
                 float(p_round_context), float(frozen_lo), float(frozen_hi), features, settings={"a_side": a_side},
             )
-            p_hat = float(midround_result["p_mid_clamped"])
-            p_hat_final_source = "midround_v2"
             st.session_state["cs2_midround_last_result"] = midround_result
             st.session_state["cs2_midround_last_features"] = features
+            p_hat = float(midround_result["p_mid_clamped"])
+            p_hat_final_source = "midround_v1"
+            p_hat_pre_bounds_source = float(midround_result.get("p_mid_raw", p_hat))
         else:
             p_hat = float(p_round_context)
+            p_hat_pre_bounds_source = float(p_hat)
     else:
         p_hat = float(p_round_context)
+        p_hat_pre_bounds_source = float(p_hat)
     st.session_state["cs2_midround_p_hat_final_source"] = p_hat_final_source
     if midround_result is not None:
         st.session_state["cs2_midround_last_result"] = midround_result
     # BO3 MIDROUND V1
 
-    # Raw p_hat (pre-bounds): after mid-round adjustment, before round/map clamps
-    p_hat_pre_bounds = float(midround_result.get("p_mid_raw", p_hat)) if midround_result and midround_result.get("p_mid_raw") is not None else float(p_hat)
+    # Raw p_hat (pre-bounds): structural mixture when used, else mid-round raw or p_hat
+    p_hat_pre_bounds = float(p_hat_pre_bounds_source)
 
     # State bounds (map resolution): compute here so bounds-mode can apply map clamp
     state_bound_upper, state_bound_lower = None, None
@@ -4997,6 +6670,33 @@ with tabs[3]:
     st.session_state["cs2_p_hat_round_clip_delta"] = p_hat_round_clip_delta
     st.session_state["cs2_p_hat_map_clip_delta"] = p_hat_map_clip_delta
     st.session_state["cs2_p_hat_round_anchor_before_mid"] = p_hat_round_anchor_before_mid
+    st.session_state["cs2_p_series_if_a_wins_next_round"] = p_series_if_a_wins_next_round
+    st.session_state["cs2_p_series_if_b_wins_next_round"] = p_series_if_b_wins_next_round
+    st.session_state["cs2_q_intra_round_win_a"] = q_intra_round_win_a
+    st.session_state["cs2_intra_score_raw"] = intra_score_raw
+    st.session_state["cs2_intra_score_alive"] = intra_score_alive
+    st.session_state["cs2_intra_score_hp"] = intra_score_hp
+    st.session_state["cs2_intra_score_bomb"] = intra_score_bomb
+    st.session_state["cs2_intra_score_armor"] = intra_score_armor
+    st.session_state["cs2_intra_score_loadout"] = intra_score_loadout
+    st.session_state["cs2_intra_score_post_reliability"] = intra_score_post_reliability
+    st.session_state["cs2_intra_score_time_scale"] = intra_score_time_scale
+    st.session_state["cs2_p_hat_structural_mixture"] = p_hat_structural_mixture
+    st.session_state["cs2_p_hat_between_endpoints"] = p_hat_between_endpoints
+    st.session_state["cs2_endpoint_span_abs"] = endpoint_span_abs
+    # Do NOT assign to cs2_branch_endpoint_source_mode (widget-owned; assign only in selectbox key).
+    st.session_state["cs2_branch_endpoint_source_used"] = branch_endpoint_source_used
+    st.session_state["cs2_branch_endpoint_selected_a"] = float(branch_endpoint_selected_a) if branch_endpoint_selected_a is not None else None
+    st.session_state["cs2_branch_endpoint_selected_b"] = float(branch_endpoint_selected_b) if branch_endpoint_selected_b is not None else None
+    st.session_state["cs2_branch_endpoint_selected_span_abs"] = float(branch_endpoint_selected_span_abs) if branch_endpoint_selected_span_abs is not None else None
+    _dyn_avail = (
+        bool(st.session_state.get("cs2_endpoint_pos_valid", False))
+        and st.session_state.get("cs2_endpoint_pos_a_active_dbg") is not None
+        and st.session_state.get("cs2_endpoint_pos_b_active_dbg") is not None
+        and np.isfinite(float(st.session_state.get("cs2_endpoint_pos_a_active_dbg") or 0))
+        and np.isfinite(float(st.session_state.get("cs2_endpoint_pos_b_active_dbg") or 0))
+    )
+    st.session_state["cs2_branch_endpoint_dynamic_available"] = _dyn_avail
     st.session_state["cs2_p_hat_round_soft_damped"] = p_hat_round_soft_damped
     st.session_state["cs2_p_hat_round_soft_edge_factor"] = p_hat_round_soft_edge_factor
     st.session_state["cs2_p_hat_round_soft_room_frac"] = p_hat_round_soft_room_frac
@@ -5093,7 +6793,7 @@ with tabs[3]:
     # BO3 MIDROUND V1 — optional compact debug line
     _mf = st.session_state.get("cs2_midround_last_features") or {}
     _mr = st.session_state.get("cs2_midround_last_result")
-    if _mr is not None and st.session_state.get("cs2_midround_p_hat_final_source") in ("midround_v1", "midround_v2"):
+    if _mr is not None and st.session_state.get("cs2_midround_p_hat_final_source") in ("midround_v1", "midround_v2", "midround_v2_mixture"):
         st.caption(f"Mid-round: alive_diff={_mf.get('alive_diff', '—')} hp_diff={_mf.get('hp_diff_alive', 0):.0f} bomb={_mf.get('bomb_planted', 0)} adj={_mr.get('mid_adj_total', 0):+.3f} clamped={_mr.get('mid_clamped_hit', False)}")
 
     # informational differences (not signals)
@@ -5127,6 +6827,7 @@ with tabs[3]:
             st.button("Add snapshot")
             or (bool(st.session_state.get("cs2_auto_add_snapshot_this_run")) and bool(st.session_state.get("cs2_bo3_auto_active")))
             or (bool(st.session_state.get("cs2_auto_add_snapshot_this_run")) and st.session_state.get("cs2_live_source") == "GRID")
+            or (bool(st.session_state.get("cs2_auto_add_snapshot_this_run")) and st.session_state.get("cs2_live_source") == CS2_LIVE_SOURCE_BO3 and st.session_state.get("cs2_bo3_source_mode") == "REPLAY (from bo3_pulls.jsonl)")
         )
         if _do_add_snapshot:
             st.session_state["cs2_auto_add_snapshot_this_run"] = False
@@ -5285,6 +6986,84 @@ with tabs[3]:
                 "rail_anchor": float(_rd["anchor"]) if (_rd := st.session_state.get("cs2_rail_debug")) and _rd.get("anchor") is not None else None,
                 "rail_if_a_wins": float(_rd["p_if_a_wins"]) if (_rd := st.session_state.get("cs2_rail_debug")) and _rd.get("p_if_a_wins") is not None else None,
                 "rail_if_b_wins": float(_rd["p_if_b_wins"]) if (_rd := st.session_state.get("cs2_rail_debug")) and _rd.get("p_if_b_wins") is not None else None,
+                "rail_base_rounds_a": int(st.session_state["cs2_rail_base_rounds_a"]) if st.session_state.get("cs2_rail_base_rounds_a") is not None else None,
+                "rail_base_rounds_b": int(st.session_state["cs2_rail_base_rounds_b"]) if st.session_state.get("cs2_rail_base_rounds_b") is not None else None,
+                "rail_cf_a_rounds_a": int(st.session_state["cs2_rail_cf_a_rounds_a"]) if st.session_state.get("cs2_rail_cf_a_rounds_a") is not None else None,
+                "rail_cf_a_rounds_b": int(st.session_state["cs2_rail_cf_a_rounds_b"]) if st.session_state.get("cs2_rail_cf_a_rounds_b") is not None else None,
+                "rail_cf_b_rounds_a": int(st.session_state["cs2_rail_cf_b_rounds_a"]) if st.session_state.get("cs2_rail_cf_b_rounds_a") is not None else None,
+                "rail_cf_b_rounds_b": int(st.session_state["cs2_rail_cf_b_rounds_b"]) if st.session_state.get("cs2_rail_cf_b_rounds_b") is not None else None,
+                "rail_endpoint_if_a_round": float(st.session_state["cs2_rail_endpoint_if_a_round"]) if st.session_state.get("cs2_rail_endpoint_if_a_round") is not None else None,
+                "rail_endpoint_if_b_round": float(st.session_state["cs2_rail_endpoint_if_b_round"]) if st.session_state.get("cs2_rail_endpoint_if_b_round") is not None else None,
+                "rail_endpoint_span_abs": float(st.session_state["cs2_rail_endpoint_span_abs"]) if st.session_state.get("cs2_rail_endpoint_span_abs") is not None else None,
+                "rail_endpoint_degenerate": bool(st.session_state.get("cs2_rail_endpoint_degenerate", False)),
+                "rail_endpoint_env_valid": bool(st.session_state.get("cs2_rail_endpoint_env_valid", False)),
+                "rail_endpoint_env_base_span_abs": float(st.session_state["cs2_rail_endpoint_env_base_span_abs"]) if st.session_state.get("cs2_rail_endpoint_env_base_span_abs") is not None else None,
+                "rail_endpoint_env_fraction_k": float(st.session_state["cs2_rail_endpoint_env_fraction_k"]) if st.session_state.get("cs2_rail_endpoint_env_fraction_k") is not None else None,
+                "rail_endpoint_env_round_leverage": float(st.session_state["cs2_rail_endpoint_env_round_leverage"]) if st.session_state.get("cs2_rail_endpoint_env_round_leverage") is not None else None,
+                "rail_endpoint_env_series_leverage": float(st.session_state["cs2_rail_endpoint_env_series_leverage"]) if st.session_state.get("cs2_rail_endpoint_env_series_leverage") is not None else None,
+                "rail_endpoint_env_half_width": float(st.session_state["cs2_rail_endpoint_env_half_width"]) if st.session_state.get("cs2_rail_endpoint_env_half_width") is not None else None,
+                "rail_endpoint_a_env_low": float(st.session_state["cs2_rail_endpoint_a_env_low"]) if st.session_state.get("cs2_rail_endpoint_a_env_low") is not None else None,
+                "rail_endpoint_a_env_high": float(st.session_state["cs2_rail_endpoint_a_env_high"]) if st.session_state.get("cs2_rail_endpoint_a_env_high") is not None else None,
+                "rail_endpoint_b_env_low": float(st.session_state["cs2_rail_endpoint_b_env_low"]) if st.session_state.get("cs2_rail_endpoint_b_env_low") is not None else None,
+                "rail_endpoint_b_env_high": float(st.session_state["cs2_rail_endpoint_b_env_high"]) if st.session_state.get("cs2_rail_endpoint_b_env_high") is not None else None,
+                "rail_endpoint_a_env_center": float(st.session_state["cs2_rail_endpoint_a_env_center"]) if st.session_state.get("cs2_rail_endpoint_a_env_center") is not None else None,
+                "rail_endpoint_b_env_center": float(st.session_state["cs2_rail_endpoint_b_env_center"]) if st.session_state.get("cs2_rail_endpoint_b_env_center") is not None else None,
+                "endpoint_pos_valid": bool(st.session_state.get("cs2_endpoint_pos_valid", False)),
+                "endpoint_pos_d_alive": float(st.session_state["cs2_endpoint_pos_d_alive"]) if st.session_state.get("cs2_endpoint_pos_d_alive") is not None else None,
+                "endpoint_pos_d_loadout": float(st.session_state["cs2_endpoint_pos_d_loadout"]) if st.session_state.get("cs2_endpoint_pos_d_loadout") is not None else None,
+                "endpoint_pos_d_armor": float(st.session_state["cs2_endpoint_pos_d_armor"]) if st.session_state.get("cs2_endpoint_pos_d_armor") is not None else None,
+                "endpoint_pos_score_a": float(st.session_state["cs2_endpoint_pos_score_a"]) if st.session_state.get("cs2_endpoint_pos_score_a") is not None else None,
+                "endpoint_pos_score_b": float(st.session_state["cs2_endpoint_pos_score_b"]) if st.session_state.get("cs2_endpoint_pos_score_b") is not None else None,
+                "endpoint_pos_a_quality_pos": float(st.session_state["cs2_endpoint_pos_a_quality_pos"]) if st.session_state.get("cs2_endpoint_pos_a_quality_pos") is not None else None,
+                "endpoint_pos_b_quality_pos": float(st.session_state["cs2_endpoint_pos_b_quality_pos"]) if st.session_state.get("cs2_endpoint_pos_b_quality_pos") is not None else None,
+                "endpoint_pos_a_active_dbg": float(st.session_state["cs2_endpoint_pos_a_active_dbg"]) if st.session_state.get("cs2_endpoint_pos_a_active_dbg") is not None else None,
+                "endpoint_pos_b_active_dbg": float(st.session_state["cs2_endpoint_pos_b_active_dbg"]) if st.session_state.get("cs2_endpoint_pos_b_active_dbg") is not None else None,
+                "endpoint_pos_a_active_within_env": bool(st.session_state.get("cs2_endpoint_pos_a_active_within_env", False)),
+                "endpoint_pos_b_active_within_env": bool(st.session_state.get("cs2_endpoint_pos_b_active_within_env", False)),
+                "endpoint_econ_valid": bool(st.session_state.get("cs2_endpoint_econ_valid", False)),
+                "endpoint_econ_d_alive_survival": float(st.session_state.get("cs2_endpoint_econ_d_alive_survival")) if st.session_state.get("cs2_endpoint_econ_d_alive_survival") is not None else None,
+                "endpoint_econ_d_alive_loadout": float(st.session_state.get("cs2_endpoint_econ_d_alive_loadout")) if st.session_state.get("cs2_endpoint_econ_d_alive_loadout") is not None else None,
+                "endpoint_econ_d_alive_cash": float(st.session_state.get("cs2_endpoint_econ_d_alive_cash")) if st.session_state.get("cs2_endpoint_econ_d_alive_cash") is not None else None,
+                "endpoint_econ_score_a": float(st.session_state.get("cs2_endpoint_econ_score_a")) if st.session_state.get("cs2_endpoint_econ_score_a") is not None else None,
+                "endpoint_econ_score_b": float(st.session_state.get("cs2_endpoint_econ_score_b")) if st.session_state.get("cs2_endpoint_econ_score_b") is not None else None,
+                "endpoint_pos_third_driver_source": str(st.session_state.get("cs2_endpoint_pos_third_driver_source", "legacy_non_dynamic")),
+                "drv_valid_microstate": bool(st.session_state.get("cs2_drv_valid_microstate", False)),
+                "drv_valid_roundstate": bool(st.session_state.get("cs2_drv_valid_roundstate", False)),
+                "drv_team_a_side": st.session_state.get("cs2_drv_team_a_side"),
+                "drv_bomb_planted": st.session_state.get("cs2_drv_bomb_planted"),
+                "drv_round_phase": st.session_state.get("cs2_drv_round_phase"),
+                "drv_round_time_remaining_s": float(st.session_state.get("cs2_drv_round_time_remaining_s")) if st.session_state.get("cs2_drv_round_time_remaining_s") is not None else None,
+                "drv_alive_count_a": st.session_state.get("cs2_drv_alive_count_a"),
+                "drv_alive_count_b": st.session_state.get("cs2_drv_alive_count_b"),
+                "drv_hp_alive_total_a": float(st.session_state.get("cs2_drv_hp_alive_total_a")) if st.session_state.get("cs2_drv_hp_alive_total_a") is not None else None,
+                "drv_hp_alive_total_b": float(st.session_state.get("cs2_drv_hp_alive_total_b")) if st.session_state.get("cs2_drv_hp_alive_total_b") is not None else None,
+                "drv_alive_loadout_est_total_a": float(st.session_state.get("cs2_drv_alive_loadout_est_total_a")) if st.session_state.get("cs2_drv_alive_loadout_est_total_a") is not None else None,
+                "drv_alive_loadout_est_total_b": float(st.session_state.get("cs2_drv_alive_loadout_est_total_b")) if st.session_state.get("cs2_drv_alive_loadout_est_total_b") is not None else None,
+                "drv_alive_cash_total_a": float(st.session_state.get("cs2_drv_alive_cash_total_a")) if st.session_state.get("cs2_drv_alive_cash_total_a") is not None else None,
+                "drv_alive_cash_total_b": float(st.session_state.get("cs2_drv_alive_cash_total_b")) if st.session_state.get("cs2_drv_alive_cash_total_b") is not None else None,
+                "drv_source_contract": st.session_state.get("cs2_drv_source_contract"),
+                "phat_intra_valid": bool(st.session_state.get("cs2_phat_intra_valid", False)),
+                "phat_intra_side_known": st.session_state.get("cs2_phat_intra_side_known"),
+                "phat_intra_clock_known": st.session_state.get("cs2_phat_intra_clock_known"),
+                "phat_intra_phase_mult": float(st.session_state.get("cs2_phat_intra_phase_mult")) if st.session_state.get("cs2_phat_intra_phase_mult") is not None else None,
+                "phat_intra_urgency": float(st.session_state.get("cs2_phat_intra_urgency")) if st.session_state.get("cs2_phat_intra_urgency") is not None else None,
+                "phat_intra_d_alive": float(st.session_state.get("cs2_phat_intra_d_alive")) if st.session_state.get("cs2_phat_intra_d_alive") is not None else None,
+                "phat_intra_d_hp": float(st.session_state.get("cs2_phat_intra_d_hp")) if st.session_state.get("cs2_phat_intra_d_hp") is not None else None,
+                "phat_intra_d_loadout": float(st.session_state.get("cs2_phat_intra_d_loadout")) if st.session_state.get("cs2_phat_intra_d_loadout") is not None else None,
+                "phat_intra_bomb_term_signed": float(st.session_state.get("cs2_phat_intra_bomb_term_signed")) if st.session_state.get("cs2_phat_intra_bomb_term_signed") is not None else None,
+                "phat_intra_clock_term_signed": float(st.session_state.get("cs2_phat_intra_clock_term_signed")) if st.session_state.get("cs2_phat_intra_clock_term_signed") is not None else None,
+                "phat_intra_bomb_clock_combo_signed": float(st.session_state.get("cs2_phat_intra_bomb_clock_combo_signed")) if st.session_state.get("cs2_phat_intra_bomb_clock_combo_signed") is not None else None,
+                "phat_intra_loadout_presence": float(st.session_state.get("cs2_phat_intra_loadout_presence")) if st.session_state.get("cs2_phat_intra_loadout_presence") is not None else None,
+                "phat_intra_w_alive_eff": float(st.session_state.get("cs2_phat_intra_w_alive_eff")) if st.session_state.get("cs2_phat_intra_w_alive_eff") is not None else None,
+                "phat_intra_score_alive": float(st.session_state.get("cs2_phat_intra_score_alive")) if st.session_state.get("cs2_phat_intra_score_alive") is not None else None,
+                "phat_intra_score_hp": float(st.session_state.get("cs2_phat_intra_score_hp")) if st.session_state.get("cs2_phat_intra_score_hp") is not None else None,
+                "phat_intra_score_loadout": float(st.session_state.get("cs2_phat_intra_score_loadout")) if st.session_state.get("cs2_phat_intra_score_loadout") is not None else None,
+                "phat_intra_score_bomb": float(st.session_state.get("cs2_phat_intra_score_bomb")) if st.session_state.get("cs2_phat_intra_score_bomb") is not None else None,
+                "phat_intra_score_clock": float(st.session_state.get("cs2_phat_intra_score_clock")) if st.session_state.get("cs2_phat_intra_score_clock") is not None else None,
+                "phat_intra_score_bomb_clock_combo": float(st.session_state.get("cs2_phat_intra_score_bomb_clock_combo")) if st.session_state.get("cs2_phat_intra_score_bomb_clock_combo") is not None else None,
+                "phat_intra_score_raw_pre_reliability": float(st.session_state.get("cs2_phat_intra_score_raw_pre_reliability")) if st.session_state.get("cs2_phat_intra_score_raw_pre_reliability") is not None else None,
+                "phat_intra_score_raw_post_reliability": float(st.session_state.get("cs2_phat_intra_score_raw_post_reliability")) if st.session_state.get("cs2_phat_intra_score_raw_post_reliability") is not None else None,
+                "phat_intra_q_intra_round_win_a_dbg": float(st.session_state.get("cs2_phat_intra_q_intra_round_win_a_dbg")) if st.session_state.get("cs2_phat_intra_q_intra_round_win_a_dbg") is not None else None,
                 "rail_score_term": float(_rd["rail_score_term"]) if (_rd := st.session_state.get("cs2_rail_debug")) and _rd.get("rail_score_term") is not None else None,
                 "rail_side_term": float(_rd["rail_side_term"]) if (_rd := st.session_state.get("cs2_rail_debug")) and _rd.get("rail_side_term") is not None else None,
                 "rail_econ_term": float(_rd["rail_econ_term"]) if (_rd := st.session_state.get("cs2_rail_debug")) and _rd.get("rail_econ_term") is not None else None,
@@ -5349,12 +7128,55 @@ with tabs[3]:
                 "p_hat_round_soft_delta_applied": float(st.session_state["cs2_p_hat_round_soft_delta_applied"]) if st.session_state.get("cs2_p_hat_round_soft_delta_applied") is not None else None,
                 "p_hat_round_soft_direction": str(st.session_state.get("cs2_p_hat_round_soft_direction")) if st.session_state.get("cs2_p_hat_round_soft_direction") is not None else None,
                 "p_hat_round_soft_hit": bool(st.session_state.get("cs2_p_hat_round_soft_hit", False)) if st.session_state.get("cs2_p_hat_round_soft_hit") is not None else None,
+                # Series-endpoint mixture (structural p_hat)
+                "p_series_if_a_wins_next_round": float(st.session_state["cs2_p_series_if_a_wins_next_round"]) if st.session_state.get("cs2_p_series_if_a_wins_next_round") is not None else None,
+                "p_series_if_b_wins_next_round": float(st.session_state["cs2_p_series_if_b_wins_next_round"]) if st.session_state.get("cs2_p_series_if_b_wins_next_round") is not None else None,
+                "q_intra_round_win_a": float(st.session_state["cs2_q_intra_round_win_a"]) if st.session_state.get("cs2_q_intra_round_win_a") is not None else None,
+                "intra_score_raw": float(st.session_state["cs2_intra_score_raw"]) if st.session_state.get("cs2_intra_score_raw") is not None else None,
+                "intra_score_alive": float(st.session_state["cs2_intra_score_alive"]) if st.session_state.get("cs2_intra_score_alive") is not None else None,
+                "intra_score_hp": float(st.session_state["cs2_intra_score_hp"]) if st.session_state.get("cs2_intra_score_hp") is not None else None,
+                "intra_score_bomb": float(st.session_state["cs2_intra_score_bomb"]) if st.session_state.get("cs2_intra_score_bomb") is not None else None,
+                "intra_score_armor": float(st.session_state["cs2_intra_score_armor"]) if st.session_state.get("cs2_intra_score_armor") is not None else None,
+                "intra_score_loadout": float(st.session_state["cs2_intra_score_loadout"]) if st.session_state.get("cs2_intra_score_loadout") is not None else None,
+                "intra_score_post_reliability": float(st.session_state["cs2_intra_score_post_reliability"]) if st.session_state.get("cs2_intra_score_post_reliability") is not None else None,
+                "intra_score_time_scale": float(st.session_state["cs2_intra_score_time_scale"]) if st.session_state.get("cs2_intra_score_time_scale") is not None else None,
+                "p_hat_structural_mixture": float(st.session_state["cs2_p_hat_structural_mixture"]) if st.session_state.get("cs2_p_hat_structural_mixture") is not None else None,
+                "p_hat_between_endpoints": bool(st.session_state.get("cs2_p_hat_between_endpoints", False)) if st.session_state.get("cs2_p_hat_between_endpoints") is not None else None,
+                "endpoint_span_abs": float(st.session_state["cs2_endpoint_span_abs"]) if st.session_state.get("cs2_endpoint_span_abs") is not None else None,
+                "branch_endpoint_source_mode": str(st.session_state.get("cs2_branch_endpoint_source_mode", "Frozen endpoints (current)")),
+                "branch_endpoint_source_used": str(st.session_state.get("cs2_branch_endpoint_source_used", "n/a")),
+                "branch_endpoint_selected_a": float(st.session_state["cs2_branch_endpoint_selected_a"]) if st.session_state.get("cs2_branch_endpoint_selected_a") is not None else None,
+                "branch_endpoint_selected_b": float(st.session_state["cs2_branch_endpoint_selected_b"]) if st.session_state.get("cs2_branch_endpoint_selected_b") is not None else None,
+                "branch_endpoint_selected_span_abs": float(st.session_state["cs2_branch_endpoint_selected_span_abs"]) if st.session_state.get("cs2_branch_endpoint_selected_span_abs") is not None else None,
+                "branch_endpoint_dynamic_available": bool(st.session_state.get("cs2_branch_endpoint_dynamic_available", False)),
                 "bo3_game_ended_flag": bool(st.session_state.get("cs2_bo3_game_ended_flag", False)),
                 "bo3_match_ended_flag": bool(st.session_state.get("cs2_bo3_match_ended_flag", False)),
                 "bo3_match_status_flag": bool(st.session_state.get("cs2_bo3_match_status_flag", False)),
                 "feed_terminal_used": bool(st.session_state.get("cs2_feed_terminal_used", False)),
                 "round_key_current": st.session_state.get("cs2_midround_round_key"),
                 "round_key_frozen": st.session_state.get("cs2_midround_round_key"),
+                # Round-endpoint freeze timing diagnostics
+                "round_freeze_active": bool(st.session_state.get("cs2_round_freeze_active", False)),
+                "round_freeze_key": str(st.session_state["cs2_round_freeze_key"]) if st.session_state.get("cs2_round_freeze_key") is not None else None,
+                "round_freeze_game_number": int(st.session_state["cs2_round_freeze_game_number"]) if st.session_state.get("cs2_round_freeze_game_number") is not None else None,
+                "round_freeze_rounds_a": int(st.session_state["cs2_round_freeze_rounds_a"]) if st.session_state.get("cs2_round_freeze_rounds_a") is not None else None,
+                "round_freeze_rounds_b": int(st.session_state["cs2_round_freeze_rounds_b"]) if st.session_state.get("cs2_round_freeze_rounds_b") is not None else None,
+                "round_freeze_phase_at_capture": str(st.session_state.get("cs2_round_freeze_phase_at_capture")) if st.session_state.get("cs2_round_freeze_phase_at_capture") is not None else None,
+                "round_freeze_band_if_a": float(st.session_state["cs2_round_freeze_band_if_a"]) if st.session_state.get("cs2_round_freeze_band_if_a") is not None else None,
+                "round_freeze_band_if_b": float(st.session_state["cs2_round_freeze_band_if_b"]) if st.session_state.get("cs2_round_freeze_band_if_b") is not None else None,
+                "round_freeze_tick_ts": float(st.session_state["cs2_round_freeze_tick_ts"]) if st.session_state.get("cs2_round_freeze_tick_ts") is not None else None,
+                # Round-end snap diagnostics
+                "round_snap_used": bool(st.session_state.get("cs2_round_snap_used", False)),
+                "round_snap_target_side": str(st.session_state.get("cs2_round_snap_target_side")) if st.session_state.get("cs2_round_snap_target_side") is not None else None,
+                "round_snap_value": float(st.session_state["cs2_round_snap_value"]) if st.session_state.get("cs2_round_snap_value") is not None else None,
+                "round_snap_prev_freeze_key": str(st.session_state.get("cs2_round_snap_prev_freeze_key")) if st.session_state.get("cs2_round_snap_prev_freeze_key") is not None else None,
+                "round_transition_tick_detected": bool(st.session_state.get("cs2_round_transition_tick_detected", False)),
+                "round_transition_used_prev_frozen_for_snap": bool(st.session_state.get("cs2_round_transition_used_prev_frozen_for_snap", False)),
+                "round_transition_latched_new_round_context": bool(st.session_state.get("cs2_round_transition_latched_new_round_context", False)),
+                "round_transition_rail_computed_after_latch": bool(st.session_state.get("cs2_round_transition_rail_computed_after_latch", False)),
+                "round_transition_game_number": int(st.session_state["cs2_round_transition_game_number"]) if st.session_state.get("cs2_round_transition_game_number") is not None else None,
+                "round_transition_prev_round_key": str(st.session_state.get("cs2_round_transition_prev_round_key")) if st.session_state.get("cs2_round_transition_prev_round_key") is not None else None,
+                "round_transition_new_round_key": str(st.session_state.get("cs2_round_transition_new_round_key")) if st.session_state.get("cs2_round_transition_new_round_key") is not None else None,
                 "latched_band_lo": float(st.session_state["cs2_live_latched_band_lo"]) if st.session_state.get("cs2_live_latched_band_lo") is not None else None,
                 "latched_p_base": float(st.session_state["cs2_live_latched_p_base"]) if st.session_state.get("cs2_live_latched_p_base") is not None else None,
                 "latched_round_key": st.session_state.get("cs2_live_latched_round_key"),
@@ -5527,7 +7349,7 @@ with colClear:
     # Restore chart settings after GRID-triggered rerun so show p_cal, round state bands, chart window etc. stay
     _CS2_CHART_PRESERVE_KEYS = (
         "cs2_show_pcal", "cs2_show_round_state_bands", "cs2_show_state_bounds", "cs2_show_kappa_bands", "cs2_chart_window",
-        "cs2_show_raw_phat_debug_line",
+        "cs2_show_raw_phat_debug_line", "cs2_branch_endpoint_source_mode", "cs2_show_endpoint_numeric_debug",
     )
     if "cs2_chart_preserve" in st.session_state:
         _pres = st.session_state.pop("cs2_chart_preserve", None)
@@ -5569,6 +7391,102 @@ with colClear:
             help="Show the K-band (band_lo / band_hi) fair-odds interval on the chart.")
         show_raw_phat_debug = st.checkbox("Show raw p_hat (pre-bounds) debug line", value=False, key="cs2_show_raw_phat_debug_line",
             help="Faint line for p_hat before round/map clamps (diagnostic). Only visible if snapshots include bounds-mode fields.")
+        show_dynamic_phat_debug = st.checkbox("Show dynamic structural p_hat debug line", value=False, key="cs2_show_dynamic_structural_phat_debug_line",
+            help="Faint dotted line for diagnostic p_hat = q_intra * endpoint_pos_a_active_dbg + (1-q_intra) * endpoint_pos_b_active_dbg when row has data.")
+        # CS2 Branch Endpoint Source: structural mixture endpoint source (widget here to avoid post-widget writes; read-only elsewhere)
+        _branch_endpoint_opts = ["Frozen endpoints (current)", "Dynamic endpoints (debug)"]
+        _branch_endpoint_current = st.session_state.get("cs2_branch_endpoint_source_mode", "Frozen endpoints (current)")
+        if _branch_endpoint_current not in _branch_endpoint_opts:
+            _branch_endpoint_current = "Frozen endpoints (current)"
+        _branch_endpoint_index = _branch_endpoint_opts.index(_branch_endpoint_current)
+        st.selectbox(
+            "CS2 Branch Endpoint Source",
+            options=_branch_endpoint_opts,
+            index=_branch_endpoint_index,
+            key="cs2_branch_endpoint_source_mode",
+            help="Structural mixture endpoint source: Frozen = current frozen round endpoints; Dynamic = envelope+position debug endpoints when available.",
+        )
+        # CS2 rail mode: anchor-pulled vs raw counterfactual
+        _rail_mode_opts = ["ANCHOR_PULLED", "RAW_COUNTERFACTUAL"]
+        _rail_mode_current = st.session_state.get("cs2_rail_mode", "ANCHOR_PULLED")
+        if _rail_mode_current not in _rail_mode_opts:
+            _rail_mode_current = "ANCHOR_PULLED"
+        st.selectbox(
+            "CS2 rail mode",
+            options=_rail_mode_opts,
+            index=_rail_mode_opts.index(_rail_mode_current),
+            key="cs2_rail_mode",
+            help="ANCHOR_PULLED = pull round-state bands toward 1/0 by steps-to-win; RAW_COUNTERFACTUAL = use p_if_a/p_if_b from fair(ra±1,rb±1) directly.",
+        )
+        if st.session_state.get("cs2_rail_mode", "ANCHOR_PULLED") == "ANCHOR_PULLED":
+            st.number_input(
+                "Rail pull scale",
+                min_value=0.0, max_value=2.0, value=float(st.session_state.get("cs2_rail_pull_scale", 0.7)),
+                step=0.05, format="%.2f", key="cs2_rail_pull_scale",
+                help="Scale applied to steps-to-win pull before capping (default 0.7).",
+            )
+            st.number_input(
+                "Rail pull cap",
+                min_value=0.0, max_value=1.0, value=float(st.session_state.get("cs2_rail_pull_cap", 0.6)),
+                step=0.05, format="%.2f", key="cs2_rail_pull_cap",
+                help="Max pull magnitude toward 1/0 (default 0.6).",
+            )
+        show_endpoint_numeric_debug = st.checkbox("Show CS2 endpoint numeric debug", value=False, key="cs2_show_endpoint_numeric_debug",
+            help="Display latest endpoint envelope and position diagnostics from session state (display-only).")
+
+        if show_endpoint_numeric_debug:
+            def _fmt4(v):
+                if v is None:
+                    return None
+                if isinstance(v, (int, float)) and np.isfinite(v):
+                    return round(float(v), 4)
+                return v
+            ss = st.session_state
+            _a_center = ss.get("cs2_rail_endpoint_a_env_center")
+            _b_center = ss.get("cs2_rail_endpoint_b_env_center")
+            _a_active = ss.get("cs2_endpoint_pos_a_active_dbg")
+            _b_active = ss.get("cs2_endpoint_pos_b_active_dbg")
+            a_env_offset = (_a_active - _a_center) if _a_active is not None and _a_center is not None and np.isfinite(_a_active) and np.isfinite(_a_center) else None
+            b_env_offset = (_b_active - _b_center) if _b_active is not None and _b_center is not None and np.isfinite(_b_active) and np.isfinite(_b_center) else None
+            with st.expander("CS2 endpoint numeric debug (latest)", expanded=True):
+                st.write("**Core**")
+                st.write("branch_endpoint_source_mode:", ss.get("cs2_branch_endpoint_source_mode"))
+                st.write("branch_endpoint_source_used:", ss.get("cs2_branch_endpoint_source_used"))
+                st.write("branch_endpoint_dynamic_available:", ss.get("cs2_branch_endpoint_dynamic_available"))
+                st.write("q_intra_round_win_a:", _fmt4(ss.get("cs2_q_intra_round_win_a")))
+                st.write("**Canonical debug driver bundle**")
+                st.write("drv_valid_microstate:", ss.get("cs2_drv_valid_microstate"), "| drv_valid_roundstate:", ss.get("cs2_drv_valid_roundstate"), "| drv_team_a_side:", ss.get("cs2_drv_team_a_side"))
+                st.write("drv_bomb_planted:", ss.get("cs2_drv_bomb_planted"), "| drv_round_phase:", ss.get("cs2_drv_round_phase"), "| drv_round_time_remaining_s:", _fmt4(ss.get("cs2_drv_round_time_remaining_s")))
+                st.write("drv_alive_count_a:", ss.get("cs2_drv_alive_count_a"), "| drv_alive_count_b:", ss.get("cs2_drv_alive_count_b"))
+                st.write("drv_hp_alive_total_a:", _fmt4(ss.get("cs2_drv_hp_alive_total_a")), "| drv_hp_alive_total_b:", _fmt4(ss.get("cs2_drv_hp_alive_total_b")))
+                st.write("drv_alive_loadout_est_total_a:", _fmt4(ss.get("cs2_drv_alive_loadout_est_total_a")), "| drv_alive_loadout_est_total_b:", _fmt4(ss.get("cs2_drv_alive_loadout_est_total_b")))
+                st.write("drv_alive_cash_total_a:", _fmt4(ss.get("cs2_drv_alive_cash_total_a")), "| drv_alive_cash_total_b:", _fmt4(ss.get("cs2_drv_alive_cash_total_b")))
+                st.write("drv_source_contract:", ss.get("cs2_drv_source_contract"))
+                st.write("**A/B branch envelope + active position**")
+                st.write("a_env_low:", _fmt4(ss.get("cs2_rail_endpoint_a_env_low")), "| a_env_high:", _fmt4(ss.get("cs2_rail_endpoint_a_env_high")), "| a_env_center:", _fmt4(_a_center))
+                st.write("a_active_dbg:", _fmt4(_a_active), "| A offset from center:", _fmt4(a_env_offset))
+                st.write("b_env_low:", _fmt4(ss.get("cs2_rail_endpoint_b_env_low")), "| b_env_high:", _fmt4(ss.get("cs2_rail_endpoint_b_env_high")), "| b_env_center:", _fmt4(_b_center))
+                st.write("b_active_dbg:", _fmt4(_b_active), "| B offset from center:", _fmt4(b_env_offset))
+                st.write("endpoint_position_raw_diffs d_alive:", _fmt4(ss.get("cs2_endpoint_pos_d_alive")), "| d_loadout:", _fmt4(ss.get("cs2_endpoint_pos_d_loadout")))
+                st.write("endpoint_pos_third_driver_source:", ss.get("cs2_endpoint_pos_third_driver_source"))
+                st.write("**Branch econ consequence (debug)**")
+                st.write("endpoint_econ_valid:", ss.get("cs2_endpoint_econ_valid"))
+                st.write("endpoint_econ_d_alive_survival:", _fmt4(ss.get("cs2_endpoint_econ_d_alive_survival")), "| endpoint_econ_d_alive_loadout:", _fmt4(ss.get("cs2_endpoint_econ_d_alive_loadout")), "| endpoint_econ_d_alive_cash:", _fmt4(ss.get("cs2_endpoint_econ_d_alive_cash")))
+                st.write("endpoint_econ_score_a:", _fmt4(ss.get("cs2_endpoint_econ_score_a")), "| endpoint_econ_score_b:", _fmt4(ss.get("cs2_endpoint_econ_score_b")))
+                st.write("**PHat intraround (debug helper)**")
+                st.write("phat_intra_valid:", ss.get("cs2_phat_intra_valid"), "| phat_intra_side_known:", ss.get("cs2_phat_intra_side_known"), "| phat_intra_clock_known:", ss.get("cs2_phat_intra_clock_known"))
+                st.write("phat_intra_phase_mult:", _fmt4(ss.get("cs2_phat_intra_phase_mult")), "| phat_intra_urgency:", _fmt4(ss.get("cs2_phat_intra_urgency")))
+                st.write("phat_intra_d_alive:", _fmt4(ss.get("cs2_phat_intra_d_alive")), "| phat_intra_d_hp:", _fmt4(ss.get("cs2_phat_intra_d_hp")), "| phat_intra_d_loadout:", _fmt4(ss.get("cs2_phat_intra_d_loadout")))
+                st.write("phat_intra_loadout_presence:", _fmt4(ss.get("cs2_phat_intra_loadout_presence")), "| phat_intra_w_alive_eff:", _fmt4(ss.get("cs2_phat_intra_w_alive_eff")))
+                st.write("phat_intra_bomb_term_signed:", _fmt4(ss.get("cs2_phat_intra_bomb_term_signed")), "| phat_intra_clock_term_signed:", _fmt4(ss.get("cs2_phat_intra_clock_term_signed")), "| phat_intra_bomb_clock_combo_signed:", _fmt4(ss.get("cs2_phat_intra_bomb_clock_combo_signed")))
+                st.write("phat_intra_score_alive:", _fmt4(ss.get("cs2_phat_intra_score_alive")), "| score_hp:", _fmt4(ss.get("cs2_phat_intra_score_hp")), "| score_loadout:", _fmt4(ss.get("cs2_phat_intra_score_loadout")), "| score_bomb:", _fmt4(ss.get("cs2_phat_intra_score_bomb")), "| score_clock:", _fmt4(ss.get("cs2_phat_intra_score_clock")), "| score_bomb_clock_combo:", _fmt4(ss.get("cs2_phat_intra_score_bomb_clock_combo")))
+                st.write("phat_intra_score_raw_post_reliability:", _fmt4(ss.get("cs2_phat_intra_score_raw_post_reliability")), "| phat_intra_q_intra_round_win_a_dbg:", _fmt4(ss.get("cs2_phat_intra_q_intra_round_win_a_dbg")))
+                _ed = ss.get("cs2_rail_debug") or {}
+                st.write("**Rail mode / pull (fallback)**")
+                st.write("rail_mode_used:", _ed.get("rail_mode_used"), "| rail_pull_win_used:", _fmt4(_ed.get("rail_pull_win_used")), "| rail_pull_loss_used:", _fmt4(_ed.get("rail_pull_loss_used")))
+                st.write("rail_steps_to_a_win:", _ed.get("rail_steps_to_a_win"), "| rail_steps_to_b_win:", _ed.get("rail_steps_to_b_win"))
+                st.write("band_if_a_round_raw:", _fmt4(_ed.get("band_if_a_round_raw")), "| band_if_b_round_raw:", _fmt4(_ed.get("band_if_b_round_raw")))
+                st.write("rail_terminal_override_a_used:", _ed.get("rail_terminal_override_a_used"), "| rail_terminal_override_b_used:", _ed.get("rail_terminal_override_b_used"), "| rail_terminal_if_a:", _fmt4(_ed.get("rail_terminal_if_a")), "| rail_terminal_if_b:", _fmt4(_ed.get("rail_terminal_if_b")))
 
         plot_df = chart_display_df[["t","p_hat","band_lo","band_hi","market_mid"]].copy()
         if show_pcal and pcal:
@@ -5583,6 +7501,11 @@ with colClear:
             plot_df["state_bound_upper"] = chart_display_df["state_bound_upper"]
         if show_raw_phat_debug and "p_hat_pre_bounds" in chart_display_df.columns:
             plot_df["p_hat_pre_bounds"] = chart_display_df["p_hat_pre_bounds"]
+        if show_dynamic_phat_debug and "q_intra_round_win_a" in chart_display_df.columns and "endpoint_pos_a_active_dbg" in chart_display_df.columns and "endpoint_pos_b_active_dbg" in chart_display_df.columns:
+            q = chart_display_df["q_intra_round_win_a"].fillna(np.nan)
+            a = chart_display_df["endpoint_pos_a_active_dbg"].fillna(np.nan)
+            b = chart_display_df["endpoint_pos_b_active_dbg"].fillna(np.nan)
+            plot_df["p_hat_structural_dynamic_dbg"] = np.where(np.isfinite(q) & np.isfinite(a) & np.isfinite(b), q * a + (1.0 - q) * b, np.nan)
         plot_df = plot_df.set_index("t")
         # Use Plotly so we can overlay backtest entry/exit markers on the same chart
         try:
@@ -5602,6 +7525,9 @@ with colClear:
             if show_raw_phat_debug and "p_hat_pre_bounds" in plot_df.columns:
                 fig_cs2.add_trace(go.Scatter(x=t_vals, y=plot_df["p_hat_pre_bounds"].tolist(), name="p_hat_pre_bounds (raw)", mode="lines",
                     line=dict(dash="dot", width=1, color="rgba(128,128,128,0.6)")))
+            if show_dynamic_phat_debug and "p_hat_structural_dynamic_dbg" in plot_df.columns:
+                fig_cs2.add_trace(go.Scatter(x=t_vals, y=plot_df["p_hat_structural_dynamic_dbg"].tolist(), name="p_hat_structural_dynamic_dbg", mode="lines",
+                    line=dict(dash="dot", width=1, color="rgba(180,100,200,0.5)")))
             # Overlay backtest entry/exit for current match when we have trades and snapshot_ts for alignment
             cs2_match_id = str(st.session_state.get("cs2_inplay_match_id", "")).strip()
             bt_trades = st.session_state.get("inplay_bt_trades") or {}
@@ -5722,6 +7648,39 @@ with colClear:
 
         # Also show the raw table
         st.dataframe(chart_df, use_container_width=True)
+
+        st.markdown("---")
+        st.caption("CS2 Raw Live Payload Debug")
+        cs2_show_raw_payload_debug_stream = st.checkbox("Show CS2 raw payload debug stream", value=False, key="cs2_show_raw_payload_debug_stream",
+            help="Show rolling stream of full BO3 live payload snapshots and focused summary per tick.")
+        if cs2_show_raw_payload_debug_stream:
+            _debug_rows = st.session_state.get("cs2_live_raw_payload_debug_rows") or []
+            with st.expander("CS2 Raw Live Payload Debug Stream", expanded=True):
+                if not _debug_rows:
+                    st.caption("No debug rows yet. Enable BO3 auto and ensure feed is updating.")
+                else:
+                    # Compact table: summary columns, newest first
+                    _summary_keys = [
+                        "debug_index", "ts_local",
+                        "cs2_live_game_number", "cs2_live_round_number", "cs2_live_round_phase",
+                        "cs2_live_round_time_remaining_s", "cs2_live_bomb_planted",
+                        "cs2_live_team_a_alive_count", "cs2_live_team_b_alive_count",
+                        "cs2_live_team_a_alive_loadout_total", "cs2_live_team_b_alive_loadout_total",
+                        "cs2_live_team_a_armor_alive_total", "cs2_live_team_b_armor_alive_total",
+                        "cs2_live_intraround_state_valid", "cs2_live_intraround_state_source",
+                    ]
+                    _table_data = []
+                    for _r in reversed(_debug_rows):
+                        _table_data.append({k: _r.get(k) for k in _summary_keys})
+                    _table_df = pd.DataFrame(_table_data)
+                    st.dataframe(_table_df, use_container_width=True)
+                    # Selectbox: choose row by debug index / timestamp
+                    _options = [f"{_r.get('debug_index')} — {_r.get('ts_local', '')}" for _r in reversed(_debug_rows)]
+                    _sel_idx = st.selectbox("Select row (debug index — timestamp)", range(len(_options)), format_func=lambda i: _options[i], key="cs2_raw_payload_debug_sel")
+                    _chosen = _debug_rows[-(_sel_idx + 1)] if 0 <= _sel_idx < len(_debug_rows) else None
+                    if _chosen is not None:
+                        st.json(_chosen)
+                        st.code(json.dumps(_chosen, indent=2, default=str), language="json")
     else:
         st.info("Add at least one snapshot to see the chart.")
 

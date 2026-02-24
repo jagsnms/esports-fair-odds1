@@ -4,8 +4,10 @@ BO3.gg / cs2api adapter: sync wrappers for live matches and snapshot, and normal
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 import sys
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 # Optional: only import cs2api when used
@@ -25,7 +27,9 @@ def _run_async(coro):
     return asyncio.run(coro)
 
 
-def fetch_bo3_live_matches() -> List[Dict[str, Any]]:
+def fetch_bo3_live_matches(
+    record_jsonl_path: Optional[Path] = None,
+) -> List[Dict[str, Any]]:
     """
     Fetch live matches from BO3.gg. Returns list of dicts with id, team1_name, team2_name, bo_type, etc.
     """
@@ -37,7 +41,13 @@ def fetch_bo3_live_matches() -> List[Dict[str, Any]]:
             raw = await cs2.get_live_matches()
             return raw
 
-    raw = _run_async(_fetch())
+    ok = False
+    raw = None
+    try:
+        raw = _run_async(_fetch())
+        ok = True
+    except Exception:
+        pass
 
     # Normalize to list of match dicts
     if isinstance(raw, list):
@@ -56,7 +66,6 @@ def fetch_bo3_live_matches() -> List[Dict[str, Any]]:
         mid = m.get("id") or m.get("match_id") or m.get("matchId")
         if mid is None:
             continue
-        # Team names: from bet_updates or from snapshot later
         bet = m.get("bet_updates") or {}
         t1 = bet.get("team_1") or {}
         t2 = bet.get("team_2") or {}
@@ -72,10 +81,31 @@ def fetch_bo3_live_matches() -> List[Dict[str, Any]]:
             "team1_score": m.get("team1_score"),
             "team2_score": m.get("team2_score"),
         })
+
+    path = record_jsonl_path
+    if path is None and os.environ.get("BO3_RECORD_JSONL"):
+        path = Path(os.environ["BO3_RECORD_JSONL"].strip())
+    if path:
+        try:
+            from fair_odds.record_jsonl import append_jsonl, utc_iso_z
+            rec = {
+                "ts_utc": utc_iso_z(),
+                "source": "BO3",
+                "label": "live_matches",
+                "ok": ok,
+                "payload": out,
+            }
+            append_jsonl(Path(path), rec)
+        except Exception:
+            pass
+
     return out
 
 
-def fetch_bo3_snapshot(match_id: int) -> Optional[Dict[str, Any]]:
+def fetch_bo3_snapshot(
+    match_id: int,
+    record_jsonl_path: Optional[Path] = None,
+) -> Optional[Dict[str, Any]]:
     """Fetch live match snapshot for match_id. Returns raw snapshot dict or None on failure."""
     if CS2 is None:
         raise ImportError("cs2api is not installed. pip install cs2api>=0.1.3")
@@ -84,10 +114,31 @@ def fetch_bo3_snapshot(match_id: int) -> Optional[Dict[str, Any]]:
         async with CS2() as cs2:
             return await cs2.get_live_match_snapshot(match_id)
 
+    snapshot = None
     try:
-        return _run_async(_fetch())
+        snapshot = _run_async(_fetch())
     except Exception:
-        return None
+        pass
+
+    path = record_jsonl_path
+    if path is None and os.environ.get("BO3_RECORD_JSONL"):
+        path = Path(os.environ["BO3_RECORD_JSONL"].strip())
+    if path:
+        try:
+            from fair_odds.record_jsonl import append_jsonl, utc_iso_z
+            rec = {
+                "ts_utc": utc_iso_z(),
+                "source": "BO3",
+                "label": "snapshot",
+                "match_id": match_id,
+                "ok": bool(snapshot),
+                "payload": snapshot if isinstance(snapshot, dict) else {},
+            }
+            append_jsonl(Path(path), rec)
+        except Exception:
+            pass
+
+    return snapshot
 
 
 # Map BO3 map_name (e.g. de_inferno) to app CS2_MAP_CT_RATE key (e.g. Inferno)
