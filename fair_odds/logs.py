@@ -2,7 +2,7 @@
 import csv
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import pandas as pd
 import streamlit as st
@@ -12,6 +12,10 @@ from .paths import (
     INPLAY_LOG_PATH, INPLAY_LOG_COLUMNS,
     INPLAY_RESULTS_PATH, INPLAY_RESULTS_COLUMNS,
     INPLAY_MAP_RESULTS_PATH, INPLAY_MAP_RESULTS_COLUMNS,
+    CS2_REPLAY_SNAPSHOT_PARQUET_PATH,
+    CS2_ML_FEATURE_PARQUET_PATH,
+    CS2_REPLAY_SNAPSHOT_COLUMNS,
+    CS2_ML_FEATURE_COLUMNS,
 )
 from .odds import implied_prob_from_american
 from .data import sniff_bad_csv, read_csv_tolerant
@@ -256,6 +260,174 @@ def persist_inplay_map_result(
     pd.DataFrame([row], columns=INPLAY_MAP_RESULTS_COLUMNS).to_csv(
         INPLAY_MAP_RESULTS_PATH, mode="a", header=False, index=False
     )
+
+
+# --- CS2 replay snapshot + ML feature parquet persistence ---
+CS2_FEATURE_SCHEMA_VERSION = 1
+
+
+def _parquet_append_row(path: Path, columns: list, entry: dict) -> None:
+    """Append one row to a parquet file. Read-concat-write for correctness. Preserves column order and nulls."""
+    row = {k: entry.get(k) for k in columns}
+    df_new = pd.DataFrame([row], columns=columns)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        try:
+            df_existing = pd.read_parquet(path)
+            existing_cols = [c for c in columns if c in df_existing.columns]
+            missing_in_file = [c for c in columns if c not in df_existing.columns]
+            if missing_in_file:
+                for c in missing_in_file:
+                    df_existing[c] = None
+            df_existing = df_existing[columns]
+            df_combined = pd.concat([df_existing, df_new], ignore_index=True)
+        except Exception:
+            df_combined = df_new
+    else:
+        df_combined = df_new
+    df_combined.to_parquet(path, index=False)
+
+
+def persist_cs2_replay_snapshot(entry: dict) -> None:
+    """Persist one CS2 replay snapshot row to parquet. Filters to allowed columns, preserves order and nulls."""
+    _parquet_append_row(CS2_REPLAY_SNAPSHOT_PARQUET_PATH, CS2_REPLAY_SNAPSHOT_COLUMNS, entry)
+
+
+def persist_cs2_ml_feature_snapshot(entry: dict) -> None:
+    """Persist one CS2 ML feature row to parquet. Filters to allowed columns, preserves order and nulls."""
+    _parquet_append_row(CS2_ML_FEATURE_PARQUET_PATH, CS2_ML_FEATURE_COLUMNS, entry)
+
+
+def _f(x: Any) -> Optional[float]:
+    """Coerce to float or None for derived ML features."""
+    if x is None:
+        return None
+    try:
+        v = float(x)
+        return v if (v == v) else None
+    except (TypeError, ValueError):
+        return None
+
+
+def derive_cs2_ml_feature_row(snapshot_row: dict) -> dict:
+    """Build a curated ML feature row from the full replay snapshot_row. Adds derived numeric features."""
+    mid = str(snapshot_row.get("match_id", "")).strip() if snapshot_row.get("match_id") else None
+    if not mid:
+        mid = None
+    p_hat = _f(snapshot_row.get("p_hat"))
+    p_hat_map = _f(snapshot_row.get("p_hat_map"))
+    market_mid = _f(snapshot_row.get("market_mid"))
+    band_lo = _f(snapshot_row.get("band_lo"))
+    band_hi = _f(snapshot_row.get("band_hi"))
+    band_state_lo = _f(snapshot_row.get("band_state_lo"))
+    band_state_hi = _f(snapshot_row.get("band_state_hi"))
+    state_lo = _f(snapshot_row.get("state_bound_lower"))
+    state_hi = _f(snapshot_row.get("state_bound_upper"))
+
+    round_band_width_pp = (band_state_hi - band_state_lo) * 100.0 if band_state_lo is not None and band_state_hi is not None else None
+    map_band_width_pp = (state_hi - state_lo) * 100.0 if state_lo is not None and state_hi is not None else None
+    kappa_band_width_pp = (band_hi - band_lo) * 100.0 if band_lo is not None and band_hi is not None else None
+
+    dist_mid_to_round_lo_pp = (market_mid - band_state_lo) * 100.0 if market_mid is not None and band_state_lo is not None else None
+    dist_mid_to_round_hi_pp = (band_state_hi - market_mid) * 100.0 if market_mid is not None and band_state_hi is not None else None
+    dist_mid_to_map_lo_pp = (market_mid - state_lo) * 100.0 if market_mid is not None and state_lo is not None else None
+    dist_mid_to_map_hi_pp = (state_hi - market_mid) * 100.0 if market_mid is not None and state_hi is not None else None
+    dist_mid_to_kappa_lo_pp = (market_mid - band_lo) * 100.0 if market_mid is not None and band_lo is not None else None
+    dist_mid_to_kappa_hi_pp = (band_hi - market_mid) * 100.0 if market_mid is not None and band_hi is not None else None
+
+    round_w = (band_state_hi - band_state_lo) if (band_state_lo is not None and band_state_hi is not None and band_state_hi > band_state_lo) else None
+    p_hat_pos_in_round_band = (p_hat - band_state_lo) / round_w if (round_w and round_w > 1e-9 and p_hat is not None and band_state_lo is not None) else None
+    map_w = (state_hi - state_lo) if (state_lo is not None and state_hi is not None and state_hi > state_lo) else None
+    p_hat_pos_in_map_band = (p_hat - state_lo) / map_w if (map_w and map_w > 1e-9 and p_hat is not None and state_lo is not None) else None
+
+    q = _f(snapshot_row.get("q_intra_round_win_a"))
+    q_minus_market_mid_pp = (q - market_mid) * 100.0 if q is not None and market_mid is not None else None
+    p_hat_minus_p_hat_map_pp = (p_hat - p_hat_map) * 100.0 if p_hat is not None and p_hat_map is not None else None
+
+    round_importance_proxy = None
+    if state_lo is not None and state_hi is not None and market_mid is not None:
+        try:
+            mid_to_lo = abs(market_mid - state_lo)
+            mid_to_hi = abs(market_mid - state_hi)
+            span = (state_hi - state_lo) or 1e-9
+            round_importance_proxy = min(mid_to_lo, mid_to_hi) / span
+        except Exception:
+            pass
+
+    return {
+        "snapshot_ts_iso": snapshot_row.get("snapshot_ts_iso"),
+        "snapshot_ts_epoch_ms": snapshot_row.get("snapshot_ts_epoch_ms"),
+        "feature_schema_version": CS2_FEATURE_SCHEMA_VERSION,
+        "match_id": mid,
+        "series_fmt": snapshot_row.get("series_fmt"),
+        "contract_scope": snapshot_row.get("contract_scope"),
+        "maps_a_won": snapshot_row.get("maps_a_won"),
+        "maps_b_won": snapshot_row.get("maps_b_won"),
+        "rounds_a": snapshot_row.get("rounds_a"),
+        "rounds_b": snapshot_row.get("rounds_b"),
+        "map_index": snapshot_row.get("map_index"),
+        "total_rounds": snapshot_row.get("total_rounds"),
+        "market_bid": snapshot_row.get("market_bid"),
+        "market_ask": snapshot_row.get("market_ask"),
+        "market_mid": market_mid,
+        "p_hat": p_hat,
+        "p_hat_map": p_hat_map,
+        "p0_map": snapshot_row.get("p0_map"),
+        "band_lo": band_lo,
+        "band_hi": band_hi,
+        "band_state_lo": band_state_lo,
+        "band_state_hi": band_state_hi,
+        "state_bound_lower": state_lo,
+        "state_bound_upper": state_hi,
+        "band_lo_map": snapshot_row.get("band_lo_map"),
+        "band_hi_map": snapshot_row.get("band_hi_map"),
+        "q_intra_round_win_a": q,
+        "q_intra_round_win_a_source": snapshot_row.get("q_intra_round_win_a_source"),
+        "q_intra_round_win_a_reason": snapshot_row.get("q_intra_round_win_a_reason"),
+        "branch_endpoint_source_mode": snapshot_row.get("branch_endpoint_source_mode"),
+        "branch_endpoint_source_used": snapshot_row.get("branch_endpoint_source_used"),
+        "branch_endpoint_source_reason": snapshot_row.get("branch_endpoint_source_reason"),
+        "drv_valid_microstate": snapshot_row.get("drv_valid_microstate"),
+        "drv_valid_roundstate": snapshot_row.get("drv_valid_roundstate"),
+        "drv_team_a_side": snapshot_row.get("drv_team_a_side"),
+        "drv_bomb_planted": snapshot_row.get("drv_bomb_planted"),
+        "drv_round_phase": snapshot_row.get("drv_round_phase"),
+        "drv_round_time_remaining_s": snapshot_row.get("drv_round_time_remaining_s"),
+        "drv_alive_count_a": snapshot_row.get("drv_alive_count_a"),
+        "drv_alive_count_b": snapshot_row.get("drv_alive_count_b"),
+        "drv_hp_alive_total_a": snapshot_row.get("drv_hp_alive_total_a"),
+        "drv_hp_alive_total_b": snapshot_row.get("drv_hp_alive_total_b"),
+        "drv_alive_loadout_est_total_a": snapshot_row.get("drv_alive_loadout_est_total_a"),
+        "drv_alive_loadout_est_total_b": snapshot_row.get("drv_alive_loadout_est_total_b"),
+        "drv_alive_cash_total_a": snapshot_row.get("drv_alive_cash_total_a"),
+        "drv_alive_cash_total_b": snapshot_row.get("drv_alive_cash_total_b"),
+        "team_a_money_total": snapshot_row.get("team_a_money_total"),
+        "team_b_money_total": snapshot_row.get("team_b_money_total"),
+        "team_a_loadout_est_total": snapshot_row.get("team_a_loadout_est_total"),
+        "team_b_loadout_est_total": snapshot_row.get("team_b_loadout_est_total"),
+        "econ_latched_a": snapshot_row.get("econ_latched_a"),
+        "econ_latched_b": snapshot_row.get("econ_latched_b"),
+        "round_transition_tick_detected": snapshot_row.get("round_transition_tick_detected"),
+        "round_transition_latched_new_round_context": snapshot_row.get("round_transition_latched_new_round_context"),
+        "round_snap_applied_this_tick": snapshot_row.get("round_snap_applied_this_tick"),
+        "live_source_selected": snapshot_row.get("live_source_selected"),
+        "grid_valid": snapshot_row.get("grid_valid"),
+        "grid_completeness_score": snapshot_row.get("grid_completeness_score"),
+        "round_band_width_pp": round_band_width_pp,
+        "map_band_width_pp": map_band_width_pp,
+        "kappa_band_width_pp": kappa_band_width_pp,
+        "dist_mid_to_round_lo_pp": dist_mid_to_round_lo_pp,
+        "dist_mid_to_round_hi_pp": dist_mid_to_round_hi_pp,
+        "dist_mid_to_map_lo_pp": dist_mid_to_map_lo_pp,
+        "dist_mid_to_map_hi_pp": dist_mid_to_map_hi_pp,
+        "dist_mid_to_kappa_lo_pp": dist_mid_to_kappa_lo_pp,
+        "dist_mid_to_kappa_hi_pp": dist_mid_to_kappa_hi_pp,
+        "p_hat_pos_in_round_band": p_hat_pos_in_round_band,
+        "p_hat_pos_in_map_band": p_hat_pos_in_map_band,
+        "q_minus_market_mid_pp": q_minus_market_mid_pp,
+        "p_hat_minus_p_hat_map_pp": p_hat_minus_p_hat_map_pp,
+        "round_importance_proxy": round_importance_proxy,
+    }
 
 
 def show_inplay_log_paths():
