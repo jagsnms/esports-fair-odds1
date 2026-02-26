@@ -1,4 +1,4 @@
-import { createChart, ColorType, type IChartApi, type ISeriesApi } from 'lightweight-charts'
+import { createChart, ColorType, LineStyle, type IChartApi, type ISeriesApi } from 'lightweight-charts'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 const WS_URL = 'ws://localhost:8000/api/v1/stream'
@@ -137,29 +137,32 @@ function App() {
         textColor: '#d1d5db',
       },
       width: chartRef.current.clientWidth,
-      height: 300,
+      height: chartRef.current.clientHeight || 300,
     })
     chartInstanceRef.current = chart
     pSeriesRef.current = chart.addLineSeries({ color: '#3b82f6', title: 'p_hat' })
     loSeriesRef.current = chart.addLineSeries({ color: '#22c55e', lineWidth: 1, title: 'series_low' })
     hiSeriesRef.current = chart.addLineSeries({ color: '#ef4444', lineWidth: 1, title: 'series_high' })
     railLoSeriesRef.current = chart.addLineSeries({
-      color: '#6b7280',
+      color: '#facc15',
       lineWidth: 1,
-      lineStyle: 2,
+      lineStyle: LineStyle.Dotted,
       title: 'map_low',
     })
     railHiSeriesRef.current = chart.addLineSeries({
-      color: '#6b7280',
+      color: '#facc15',
       lineWidth: 1,
-      lineStyle: 2,
+      lineStyle: LineStyle.Dotted,
       title: 'map_high',
     })
     setChartReady(true)
 
     const handleResize = () => {
       if (chartRef.current && chartInstanceRef.current)
-        chartInstanceRef.current.applyOptions({ width: chartRef.current!.clientWidth })
+        chartInstanceRef.current.applyOptions({
+          width: chartRef.current.clientWidth,
+          height: chartRef.current.clientHeight || 300,
+        })
     }
     window.addEventListener('resize', handleResize)
     return () => {
@@ -510,7 +513,14 @@ function App() {
         </p>
         {replayError && <p style={{ color: '#ef4444', fontSize: 14 }}>{replayError}</p>}
       </section>
-      <div ref={chartRef} style={{ marginTop: 16 }} />
+      <div
+        ref={chartRef}
+        style={{
+          marginTop: 16,
+          width: '100%',
+          height: '75vh',
+        }}
+      />
     </div>
   )
 }
