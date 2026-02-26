@@ -6,6 +6,7 @@ from __future__ import annotations
 import unittest
 
 from engine.compute.midround_v2_cs2 import (
+    HP_FRAC_WEIGHT,
     apply_cs2_midround_adjustment_v2_mixture,
     compute_cs2_midround_features,
 )
@@ -24,11 +25,21 @@ def _features(
     armor_delta: float | None = None,
 ) -> dict:
     """Minimal features dict for mixture tests."""
+    hp_sum = hp_a + hp_b
+    hp_frac_a = hp_a / max(hp_sum, 1.0)
+    hp_asym = (hp_a - hp_b) / max(max(hp_a, hp_b), 1.0)
+    hp_ratio = (min(hp_a, hp_b) / max(hp_a, hp_b)) if max(hp_a, hp_b) > 0 else None
     d = {
         "alive_diff": alive_diff,
         "hp_diff_alive": hp_a - hp_b,
+        "hp_a": hp_a,
+        "hp_b": hp_b,
         "hp_a_total": hp_a,
         "hp_b_total": hp_b,
+        "hp_sum": hp_sum,
+        "hp_frac_a": hp_frac_a,
+        "hp_asym": hp_asym,
+        "hp_ratio": hp_ratio,
         "loadout_diff_alive": load_a - load_b,
         "load_a_total": load_a,
         "load_b_total": load_b,
@@ -132,17 +143,82 @@ def test_compute_features_from_frame() -> None:
         loadout_totals=(12000.0, 6000.0),
         armor_totals=(100.0, 80.0),
         a_side="T",
-        bomb_phase_time_remaining={ "round_time_remaining": 45.0, "is_bomb_planted": True, "round_phase": "live" },
+        bomb_phase_time_remaining={"round_time_remaining": 45.0, "is_bomb_planted": True, "round_phase": "live"},
+        round_time_remaining_s=45.0,
     )
     features = compute_cs2_midround_features(frame)
     assert features["alive_diff"] == 2
     assert features["hp_diff_alive"] == 200.0
+    assert features["hp_a"] == 400.0
+    assert features["hp_b"] == 200.0
+    assert features["hp_sum"] == 600.0
+    assert features["hp_frac_a"] == 400.0 / 600.0
+    assert features["hp_ratio"] == 200.0 / 400.0
     assert features["loadout_diff_alive"] == 6000.0
     assert features["bomb_planted"] == 1
     assert features["a_side"] == "T"
     assert "inputs_present" in features
     assert "reliability" in features
     assert features["reliability"].get("has_clock") is True
+
+
+def test_hp_advantage_increases_q_and_p_mid_when_frozen_a_gt_frozen_b() -> None:
+    """With same alive counts and same loadout, increasing hp_a while decreasing hp_b
+    increases q_intra and p_mid_clamped when frozen_a > frozen_b."""
+    frozen_a, frozen_b = 0.7, 0.3
+    # Same alive (0) and same loadout (5000 each); only HP changes
+    f_low = _features(alive_diff=0, hp_a=200, hp_b=400, load_a=5000, load_b=5000)
+    f_mid = _features(alive_diff=0, hp_a=300, hp_b=300, load_a=5000, load_b=5000)
+    f_high = _features(alive_diff=0, hp_a=400, hp_b=200, load_a=5000, load_b=5000)
+
+    r_low = apply_cs2_midround_adjustment_v2_mixture(frozen_a=frozen_a, frozen_b=frozen_b, features=f_low)
+    r_mid = apply_cs2_midround_adjustment_v2_mixture(frozen_a=frozen_a, frozen_b=frozen_b, features=f_mid)
+    r_high = apply_cs2_midround_adjustment_v2_mixture(frozen_a=frozen_a, frozen_b=frozen_b, features=f_high)
+
+    assert r_low["q_intra"] < r_mid["q_intra"] < r_high["q_intra"]
+    assert r_low["p_mid_clamped"] < r_mid["p_mid_clamped"] < r_high["p_mid_clamped"]
+    assert r_high["term_hp"] > 0
+    assert r_low["term_hp"] < 0
+
+
+def test_hp_fraction_bounded() -> None:
+    """hp_frac_a: (500,0)->1.0, (0,500)->0.0; term_hp and q_intra reflect bounds."""
+    f_a_only = _features(alive_diff=0, hp_a=500, hp_b=0, load_a=5000, load_b=5000)
+    f_b_only = _features(alive_diff=0, hp_a=0, hp_b=500, load_a=5000, load_b=5000)
+    assert f_a_only["hp_frac_a"] == 1.0
+    assert f_b_only["hp_frac_a"] == 0.0
+    result_a = apply_cs2_midround_adjustment_v2_mixture(frozen_a=0.7, frozen_b=0.3, features=f_a_only)
+    result_b = apply_cs2_midround_adjustment_v2_mixture(frozen_a=0.7, frozen_b=0.3, features=f_b_only)
+    assert result_a["hp_frac_a"] == 1.0
+    assert result_b["hp_frac_a"] == 0.0
+    assert result_a["term_hp"] == 0.5 * HP_FRAC_WEIGHT  # HP_FRAC_WEIGHT * (1 - 0.5)
+    assert result_b["term_hp"] == -0.5 * HP_FRAC_WEIGHT  # HP_FRAC_WEIGHT * (0 - 0.5)
+    assert result_a["q_intra"] > 0.5
+    assert result_b["q_intra"] < 0.5
+    assert result_a["p_mid_clamped"] > result_b["p_mid_clamped"]
+
+
+def test_same_alive_loadout_higher_hp_frac_a_raises_q_and_p_mid() -> None:
+    """Same alive/loadout, higher hp_frac_a => higher q_intra and p_mid_clamped (frozen_a > frozen_b)."""
+    frozen_a, frozen_b = 0.7, 0.3
+    # Identical alive (2v2) and loadout (6k each); only HP fraction varies
+    f_low = _features(alive_diff=0, hp_a=200, hp_b=400, load_a=6000, load_b=6000)
+    f_high = _features(alive_diff=0, hp_a=400, hp_b=200, load_a=6000, load_b=6000)
+    r_low = apply_cs2_midround_adjustment_v2_mixture(frozen_a=frozen_a, frozen_b=frozen_b, features=f_low)
+    r_high = apply_cs2_midround_adjustment_v2_mixture(frozen_a=frozen_a, frozen_b=frozen_b, features=f_high)
+    assert r_high["hp_frac_a"] > r_low["hp_frac_a"]
+    assert r_high["q_intra"] > r_low["q_intra"]
+    assert r_high["p_mid_clamped"] > r_low["p_mid_clamped"]
+
+
+def test_symmetric_2v2_near_equal_hp_q_intra_near_half() -> None:
+    """Symmetric 2v2, near-equal HP => q_intra in [0.4, 0.6] when other terms neutral."""
+    frozen_a, frozen_b = 0.6, 0.4
+    f = _features(alive_diff=0, hp_a=250, hp_b=250, load_a=5000, load_b=5000, bomb_planted=0, a_side=None)
+    result = apply_cs2_midround_adjustment_v2_mixture(frozen_a=frozen_a, frozen_b=frozen_b, features=f)
+    assert 0.4 <= result["q_intra"] <= 0.6
+    assert result["hp_frac_a"] == 0.5
+    assert result["term_hp"] == 0.0
 
 
 class TestMidroundV2Cs2(unittest.TestCase):
@@ -162,6 +238,18 @@ class TestMidroundV2Cs2(unittest.TestCase):
 
     def test_compute_features_from_frame(self) -> None:
         test_compute_features_from_frame()
+
+    def test_hp_advantage_increases_q_and_p_mid_when_frozen_a_gt_frozen_b(self) -> None:
+        test_hp_advantage_increases_q_and_p_mid_when_frozen_a_gt_frozen_b()
+
+    def test_hp_fraction_bounded(self) -> None:
+        test_hp_fraction_bounded()
+
+    def test_same_alive_loadout_higher_hp_frac_a_raises_q_and_p_mid(self) -> None:
+        test_same_alive_loadout_higher_hp_frac_a_raises_q_and_p_mid()
+
+    def test_symmetric_2v2_near_equal_hp_q_intra_near_half(self) -> None:
+        test_symmetric_2v2_near_equal_hp_q_intra_near_half()
 
 
 if __name__ == "__main__":

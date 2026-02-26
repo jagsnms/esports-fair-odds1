@@ -13,7 +13,8 @@ from engine.models import Frame
 MAX_ROUND_TIME_S = 120.0
 MIXTURE_TEMP = 0.8
 ALIVE_WEIGHT = 0.035  # per-player alive diff
-HP_WEIGHT = 0.010     # per-100 HP
+# HP team-vs-team: term_hp = HP_FRAC_WEIGHT * (hp_frac_a - 0.5); first-class midround driver (bounded)
+HP_FRAC_WEIGHT = 0.04
 BOMB_WEIGHT = 0.060
 LOADOUT_WEIGHT = 0.012  # per-1000
 ARMOR_WEIGHT = 0.008    # per-100 (optional)
@@ -54,21 +55,13 @@ def compute_cs2_midround_features(frame: Frame, *, config: Any = None) -> dict[s
     bomb_phase = getattr(frame, "bomb_phase_time_remaining", None)
     a_side = _normalize_side(getattr(frame, "a_side", None))
 
-    # Parse bomb_phase (dict with round_time_remaining, round_phase, is_bomb_planted)
+    # Canonical round time: use Frame.round_time_remaining_s (normalized at ingest)
+    round_time_remaining_s = getattr(frame, "round_time_remaining_s", None)
     bomb_planted = None
-    round_time_remaining_s = None
     round_phase = None
     if isinstance(bomb_phase, dict):
         bp = bomb_phase.get("is_bomb_planted")
         bomb_planted = bool(bp) if bp is not None else None
-        t = bomb_phase.get("round_time_remaining")
-        if t is not None:
-            try:
-                round_time_remaining_s = float(t)
-                if round_time_remaining_s > 200:  # ms?
-                    round_time_remaining_s = round_time_remaining_s / 1000.0
-            except (TypeError, ValueError):
-                pass
         rp = bomb_phase.get("round_phase")
         round_phase = str(rp) if rp is not None else None
 
@@ -82,7 +75,7 @@ def compute_cs2_midround_features(frame: Frame, *, config: Any = None) -> dict[s
             pass
     alive_delta = (alive_a - alive_b) if (alive_a is not None and alive_b is not None) else 0
 
-    # HP
+    # HP (explicit team totals + derived)
     hp_a = hp_b = 0.0
     if isinstance(hp, (tuple, list)) and len(hp) >= 2:
         try:
@@ -91,6 +84,10 @@ def compute_cs2_midround_features(frame: Frame, *, config: Any = None) -> dict[s
         except (TypeError, ValueError):
             pass
     hp_delta = hp_a - hp_b
+    hp_sum = hp_a + hp_b
+    hp_frac_a = hp_a / max(hp_sum, 1.0)
+    hp_asym = (hp_a - hp_b) / max(max(hp_a, hp_b), 1.0) if (hp_a != 0 or hp_b != 0) else None
+    hp_ratio = (min(hp_a, hp_b) / max(hp_a, hp_b)) if max(hp_a, hp_b) > 0 else None
 
     # Loadout (alive-only equipment value)
     load_a = load_b = 0.0
@@ -145,8 +142,14 @@ def compute_cs2_midround_features(frame: Frame, *, config: Any = None) -> dict[s
         "alive_a": alive_a,
         "alive_b": alive_b,
         "hp_diff_alive": hp_delta,
+        "hp_a": hp_a,
+        "hp_b": hp_b,
         "hp_a_total": hp_a,
         "hp_b_total": hp_b,
+        "hp_sum": hp_sum,
+        "hp_frac_a": hp_frac_a,
+        "hp_asym": hp_asym,
+        "hp_ratio": hp_ratio,
         "loadout_diff_alive": loadout_delta,
         "load_a_total": load_a,
         "load_b_total": load_b,
@@ -177,8 +180,19 @@ def apply_cs2_midround_adjustment_v2_mixture(
     out: dict[str, Any] = {}
     alive_delta = float(features.get("alive_diff", 0))
     hp_delta = float(features.get("hp_diff_alive", 0))
-    hp_a = float(features.get("hp_a_total", 0))
-    hp_b = float(features.get("hp_b_total", 0))
+    hp_a = float(features.get("hp_a", features.get("hp_a_total", 0)))
+    hp_b = float(features.get("hp_b", features.get("hp_b_total", 0)))
+    hp_frac_a = features.get("hp_frac_a")
+    if hp_frac_a is None:
+        hp_sum_inner = hp_a + hp_b
+        hp_frac_a = hp_a / max(hp_sum_inner, 1.0)
+    else:
+        hp_frac_a = max(0.0, min(1.0, float(hp_frac_a)))
+    hp_asym = features.get("hp_asym")
+    if hp_asym is None:
+        hp_asym = (hp_a - hp_b) / max(max(hp_a, hp_b), 1.0) if (hp_a != 0 or hp_b != 0) else None
+    else:
+        hp_asym = float(hp_asym)
     load_delta = float(features.get("loadout_diff_alive", 0))
     load_a = float(features.get("load_a_total", 0))
     load_b = float(features.get("load_b_total", 0))
@@ -206,12 +220,23 @@ def apply_cs2_midround_adjustment_v2_mixture(
         return {
             "q_intra": 0.5,
             "raw_score": 0.0,
+            "raw_score_pre_urgency": 0.0,
+            "raw_score_post_urgency": 0.0,
             "urgency": 0.5,
             "time_progress": 0.5,
             "p_mid": mid,
             "p_mid_clamped": mid,
             "alive_delta": 0.0,
             "hp_delta": 0.0,
+            "hp_a": hp_a,
+            "hp_b": hp_b,
+            "hp_frac_a": hp_frac_a,
+            "hp_asym": None if (hp_a == 0 and hp_b == 0) else hp_asym,
+            "term_alive": 0.0,
+            "term_hp": 0.0,
+            "term_loadout": 0.0,
+            "term_bomb": 0.0,
+            "term_cash": 0.0,
             "loadout_delta": 0.0,
             "armor_delta": None,
             "score_alive": 0.0,
@@ -229,10 +254,8 @@ def apply_cs2_midround_adjustment_v2_mixture(
 
     # Score components (oracle formula)
     score_alive = (alive_delta / 5.0) * ALIVE_WEIGHT if has_alive else 0.0
-    if hp_sum > 0:
-        score_hp = (hp_delta / hp_sum) * 100.0 * HP_WEIGHT
-    else:
-        score_hp = (hp_delta / 100.0) * HP_WEIGHT
+    # HP team-vs-team: bounded fraction term (first-class midround driver)
+    term_hp = HP_FRAC_WEIGHT * (hp_frac_a - 0.5)
     load_sum = load_a + load_b
     if load_sum > 0:
         score_loadout = (load_delta / load_sum) * 1000.0 * LOADOUT_WEIGHT if has_loadout else 0.0
@@ -251,8 +274,15 @@ def apply_cs2_midround_adjustment_v2_mixture(
     else:
         score_bomb = 0.0
 
+    # Term breakdown (bounded HP fraction as first-class driver)
+    term_alive = score_alive
+    term_loadout = score_loadout
+    term_bomb = score_bomb
+    term_cash = 0.0  # no cash term in current formula
+    raw_score_pre_urgency = score_alive + term_hp + score_loadout + score_armor + score_bomb
     urgency = URGENCY_FLOOR + URGENCY_SCALE * time_progress
-    raw_score = (score_alive + score_hp + score_loadout + score_armor + score_bomb) * urgency
+    raw_score_post_urgency = raw_score_pre_urgency * urgency
+    raw_score = raw_score_post_urgency
     q_intra = _sigmoid(raw_score, MIXTURE_TEMP)
 
     fa = float(frozen_a)
@@ -269,16 +299,27 @@ def apply_cs2_midround_adjustment_v2_mixture(
 
     out["q_intra"] = q_intra
     out["raw_score"] = raw_score
+    out["raw_score_pre_urgency"] = raw_score_pre_urgency
+    out["raw_score_post_urgency"] = raw_score_post_urgency
     out["urgency"] = urgency
     out["time_progress"] = time_progress
     out["p_mid"] = p_mid
     out["p_mid_clamped"] = p_mid_clamped
     out["alive_delta"] = alive_delta
     out["hp_delta"] = hp_delta
+    out["hp_a"] = hp_a
+    out["hp_b"] = hp_b
+    out["hp_frac_a"] = hp_frac_a
+    out["hp_asym"] = None if (hp_a == 0 and hp_b == 0) else hp_asym
+    out["term_alive"] = term_alive
+    out["term_hp"] = term_hp
+    out["term_loadout"] = term_loadout
+    out["term_bomb"] = term_bomb
+    out["term_cash"] = term_cash
     out["loadout_delta"] = load_delta
     out["armor_delta"] = armor_delta
     out["score_alive"] = score_alive
-    out["score_hp"] = score_hp
+    out["score_hp"] = term_hp
     out["score_loadout"] = score_loadout
     out["score_armor"] = score_armor
     out["score_bomb"] = score_bomb
