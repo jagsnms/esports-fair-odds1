@@ -1,9 +1,12 @@
 """
-CS2 round-state rails/envelope: port of app35_ml round-state envelope logic.
-Uses Frame scores, series_score, map_index; optional alive/hp/cash/bomb for intraround nudge.
+CS2 round-state rails/envelope (map corridor): port of app35_ml round-state envelope logic.
+Uses Frame scores, series_score, map_index; optional alive/hp/loadout for intraround nudge.
+Contextual widening: context_risk (leverage/fragility/missingness) widens map corridor to avoid false certainty.
 No numpy; always clamps rails into bounds and [0,1].
 """
 from __future__ import annotations
+
+from typing import Any
 
 from engine.models import Config, Frame, State
 
@@ -20,6 +23,12 @@ ENV_K_SCALE = 0.14
 
 # Optional intraround: bomb planted / low alive -> slight extra narrowing (cap)
 INTRA_NARROW_CAP = 0.04
+
+# Contextual widening: beta in widened_halfwidth = current_halfwidth * (1 + beta * context_risk)
+CONTEXT_WIDEN_BETA = 1.0
+# uncertainty_multiplier = 1 + context_risk -> in [1.0, 2.0]
+UNCERTAINTY_MULT_MAX = 2.0
+UNCERTAINTY_MULT_MIN = 1.0
 
 
 def _clip(x: float, lo: float, hi: float) -> float:
@@ -98,18 +107,71 @@ def _intraround_narrowing(frame: Frame) -> float:
     return _clip(out, 0.0, INTRA_NARROW_CAP)
 
 
+def _compute_context_risk(frame: Frame) -> tuple[float, dict[str, Any]]:
+    """
+    Compute context_risk in [0, 1] from leverage, fragility, missingness.
+    Returns (context_risk, components_dict).
+    """
+    components: dict[str, Any] = {}
+    scores = getattr(frame, "scores", (0, 0))
+    ra = int(scores[0]) if len(scores) > 0 and scores[0] is not None else 0
+    rb = int(scores[1]) if len(scores) > 1 and scores[1] is not None else 0
+    score_diff = abs(ra - rb)
+    score_sum = ra + rb
+    # Leverage: closeness (tight score), lateness (rounds played), match-point-ish (leader near 12/13)
+    closeness = 1.0 - min(score_diff / 8.0, 1.0) if score_diff <= 8 else 0.0
+    lateness = min(score_sum / float(MAX_ROUNDS_MAP), 1.0) if MAX_ROUNDS_MAP else 0.0
+    leader = max(ra, rb)
+    match_point_ish = 1.0 if leader >= 11 else (0.5 if leader >= 9 else 0.0)
+    leverage_risk = _clip01(0.35 * closeness + 0.35 * lateness + 0.3 * match_point_ish)
+    components["leverage_risk"] = leverage_risk
+    components["leverage_closeness"] = closeness
+    components["leverage_lateness"] = lateness
+    components["leverage_match_point_ish"] = match_point_ish
+
+    # Fragility: loadout asymmetry or very low total loadout on one side
+    loadout = getattr(frame, "loadout_totals", None)
+    if isinstance(loadout, (tuple, list)) and len(loadout) >= 2:
+        load_a = float(loadout[0]) if loadout[0] is not None else 0.0
+        load_b = float(loadout[1]) if loadout[1] is not None else 0.0
+        load_sum = load_a + load_b
+        load_max = max(load_a, load_b)
+        load_min = min(load_a, load_b)
+        ratio = load_min / (load_max + 1e-6)
+        low_total = 0.5 if load_sum < 5000 else (0.2 if load_sum < 10000 else 0.0)
+        asymmetry = 0.5 if ratio < 0.3 else (0.2 if ratio < 0.5 else 0.0)
+        fragility_risk = _clip01(low_total + asymmetry)
+    else:
+        fragility_risk = 0.5  # treat missing loadout as fragile
+        components["fragility_note"] = "loadout_totals_missing"
+    components["fragility_risk"] = fragility_risk
+
+    # Missingness: key microstate missing -> increase risk
+    alive = getattr(frame, "alive_counts", None)
+    hp = getattr(frame, "hp_totals", (0.0, 0.0))
+    has_alive = isinstance(alive, (tuple, list)) and len(alive) >= 2 and alive[0] is not None and alive[1] is not None
+    has_hp = isinstance(hp, (tuple, list)) and len(hp) >= 2 and (hp[0] != 0 or hp[1] != 0 or True)
+    has_loadout = isinstance(loadout, (tuple, list)) and len(loadout) >= 2
+    key_microstate_ok = has_alive and (has_hp or has_loadout)
+    missingness_risk = 0.3 if not key_microstate_ok else 0.0
+    components["missingness_risk"] = missingness_risk
+    components["inputs_present"] = {"alive": has_alive, "hp": has_hp, "loadout": has_loadout}
+
+    context_risk = _clip01(0.4 * leverage_risk + 0.4 * fragility_risk + 0.2 * missingness_risk)
+    return context_risk, components
+
+
 def compute_rails_cs2(
     frame: Frame,
     config: Config,
     state: State,
     bounds: tuple[float, float],
-) -> tuple[float, float]:
+) -> tuple[float, float, dict[str, Any]]:
     """
-    Compute (rail_lo, rail_hi) from round-state envelope logic.
-    - Center from config.prematch_map or 0.5.
-    - Envelope fraction k from rounds/series (same math as app); higher k -> narrower rails.
-    - Rail width = bound width * (1 - k) with optional intraround narrowing.
-    - Always clamped into bounds and [0, 1]. Defensive if optional frame fields missing.
+    Compute (rail_lo, rail_hi, debug_dict) for map corridor.
+    - Base rails from round-state envelope (same as before).
+    - Contextual widening: context_risk widens halfwidth by (1 + beta*context_risk), clamped inside bounds.
+    - Debug: context_risk, components, uncertainty_multiplier, map_width_before, map_width_after.
     """
     bound_lo, bound_hi = bounds
     bound_lo = _clip(bound_lo, 0.0, 1.0)
@@ -145,7 +207,7 @@ def compute_rails_cs2(
     intra = _intraround_narrowing(frame)
     effective_k = _clip(k + intra, 0.0, ENV_K_HI + INTRA_NARROW_CAP)
 
-    # Rail width: shrink by envelope (late/decisive -> narrower)
+    # Base rail width (before contextual widening)
     rail_half_width = 0.5 * bound_width * (1.0 - effective_k)
     rail_half_width = max(0.005, min(0.5 * bound_width, rail_half_width))
 
@@ -157,4 +219,33 @@ def compute_rails_cs2(
     rail_hi = _clip01(rail_hi)
     if rail_hi < rail_lo:
         rail_hi = min(1.0, rail_lo + 0.01)
-    return (rail_lo, rail_hi)
+
+    map_width_before = rail_hi - rail_lo
+
+    # Contextual widening
+    context_risk, risk_components = _compute_context_risk(frame)
+    uncertainty_multiplier = UNCERTAINTY_MULT_MIN + context_risk * (UNCERTAINTY_MULT_MAX - UNCERTAINTY_MULT_MIN)
+    uncertainty_multiplier = max(UNCERTAINTY_MULT_MIN, min(UNCERTAINTY_MULT_MAX, uncertainty_multiplier))
+
+    current_halfwidth = (rail_hi - rail_lo) / 2.0
+    widened_halfwidth = current_halfwidth * (1.0 + CONTEXT_WIDEN_BETA * context_risk)
+    mid = (rail_lo + rail_hi) / 2.0
+    rail_lo = mid - widened_halfwidth
+    rail_hi = mid + widened_halfwidth
+    rail_lo = _clip(rail_lo, bound_lo, bound_hi)
+    rail_hi = _clip(rail_hi, bound_lo, bound_hi)
+    rail_lo = _clip01(rail_lo)
+    rail_hi = _clip01(rail_hi)
+    if rail_hi < rail_lo:
+        rail_hi = min(1.0, rail_lo + 0.01)
+
+    map_width_after = rail_hi - rail_lo
+
+    debug: dict[str, Any] = {
+        "context_risk": context_risk,
+        "context_risk_components": risk_components,
+        "uncertainty_multiplier": uncertainty_multiplier,
+        "map_width_before": map_width_before,
+        "map_width_after": map_width_after,
+    }
+    return (rail_lo, rail_hi, debug)

@@ -50,8 +50,8 @@ def test_rails_in_01_and_inside_bounds():
     config = _config()
     state = _state()
     bounds = compute_bounds(frame, config, state)
-    rails = compute_rails(frame, config, state, bounds)
-    rlo, rhi = rails
+    rail_lo, rail_hi, _ = compute_rails(frame, config, state, bounds)
+    rlo, rhi = rail_lo, rail_hi
     blo, bhi = bounds
     assert 0 <= rlo <= 1
     assert 0 <= rhi <= 1
@@ -65,9 +65,9 @@ def test_p_hat_in_rails():
     config = _config(prematch_map=0.6)
     state = _state()
     bounds = compute_bounds(frame, config, state)
-    rails = compute_rails(frame, config, state, bounds)
-    p, _ = resolve_p_hat(frame, config, state, rails)
-    rlo, rhi = rails
+    rail_lo, rail_hi, _ = compute_rails(frame, config, state, bounds)
+    p, _ = resolve_p_hat(frame, config, state, (rail_lo, rail_hi))
+    rlo, rhi = rail_lo, rail_hi
     assert rlo <= p <= rhi
 
 
@@ -99,9 +99,9 @@ def test_resolve_clamps_to_rails():
     config = _config(prematch_map=0.9)  # 0.9 likely outside tight band
     state = _state()
     bounds = compute_bounds(frame, config, state)
-    rails = compute_rails(frame, config, state, bounds)
-    p, _ = resolve_p_hat(frame, config, state, rails)
-    rlo, rhi = rails
+    rail_lo, rail_hi, _ = compute_rails(frame, config, state, bounds)
+    p, _ = resolve_p_hat(frame, config, state, (rail_lo, rail_hi))
+    rlo, rhi = rail_lo, rail_hi
     assert rlo <= p <= rhi
 
 

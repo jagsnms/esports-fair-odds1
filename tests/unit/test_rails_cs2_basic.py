@@ -52,7 +52,7 @@ def test_rails_in_01_and_within_bounds() -> None:
     config = _config()
     state = _state()
     bounds = compute_bounds(frame, config, state)
-    rail_lo, rail_hi = compute_rails_cs2(frame, config, state, bounds)
+    rail_lo, rail_hi, _ = compute_rails_cs2(frame, config, state, bounds)
     b_lo, b_hi = bounds
     assert 0 <= rail_lo <= 1
     assert 0 <= rail_hi <= 1
@@ -67,7 +67,7 @@ def test_early_score_wide_rails() -> None:
     config = _config()
     state = _state()
     bounds = compute_bounds(frame, config, state)
-    rail_lo, rail_hi = compute_rails_cs2(frame, config, state, bounds)
+    rail_lo, rail_hi, _ = compute_rails_cs2(frame, config, state, bounds)
     width_a = rail_hi - rail_lo
     assert width_a > 0.05
     assert 0 <= rail_lo <= rail_hi <= 1
@@ -79,7 +79,7 @@ def test_late_score_narrow_rails() -> None:
     config = _config()
     state = _state()
     bounds = compute_bounds(frame, config, state)
-    rail_lo, rail_hi = compute_rails_cs2(frame, config, state, bounds)
+    rail_lo, rail_hi, _ = compute_rails_cs2(frame, config, state, bounds)
     width_b = rail_hi - rail_lo
     assert 0 <= rail_lo <= rail_hi <= 1
     assert width_b >= 0.01
