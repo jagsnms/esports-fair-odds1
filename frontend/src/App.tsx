@@ -11,21 +11,29 @@ function App() {
   const [current, setCurrent] = useState<{ state?: unknown; derived?: { p_hat?: number } } | null>(null)
   const [snapshotHistory, setSnapshotHistory] = useState<Point[]>([])
   const [chartReady, setChartReady] = useState(false)
+  const [isPaused, setIsPaused] = useState(false)
+  const [wsReconnectTrigger, setWsReconnectTrigger] = useState(0)
+
   const chartRef = useRef<HTMLDivElement>(null)
   const chartInstanceRef = useRef<IChartApi | null>(null)
   const pSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
   const loSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
   const hiSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
-  const historyLoadedRef = useRef(false)
+  const pausedRef = useRef(false)
+  const pendingPointsRef = useRef<Point[]>([])
 
-  const appendPoint = useCallback((point: Point) => {
+  useEffect(() => {
+    pausedRef.current = isPaused
+  }, [isPaused])
+
+  const applyPointToChart = useCallback((point: Point) => {
     const time = point.t as import('lightweight-charts').UTCTimestamp
     pSeriesRef.current?.update({ time, value: point.p })
     loSeriesRef.current?.update({ time, value: point.lo })
     hiSeriesRef.current?.update({ time, value: point.hi })
   }, [])
 
-  const loadHistory = useCallback((history: Point[]) => {
+  const setDataFromHistory = useCallback((history: Point[]) => {
     if (!pSeriesRef.current || !loSeriesRef.current || !hiSeriesRef.current || history.length === 0) return
     const pData = history.map((pt) => ({ time: pt.t as import('lightweight-charts').UTCTimestamp, value: pt.p }))
     const loData = history.map((pt) => ({ time: pt.t as import('lightweight-charts').UTCTimestamp, value: pt.lo }))
@@ -34,15 +42,23 @@ function App() {
     loSeriesRef.current.setData(loData)
     hiSeriesRef.current.setData(hiData)
     chartInstanceRef.current?.timeScale().fitContent()
-    historyLoadedRef.current = true
   }, [])
 
-  // Apply snapshot history when chart is ready or when snapshot arrives later
+  // Flush pending points when chart becomes ready
   useEffect(() => {
-    if (snapshotHistory.length > 0 && chartReady && pSeriesRef.current) loadHistory(snapshotHistory)
-  }, [snapshotHistory, chartReady, loadHistory])
+    if (!chartReady || !pSeriesRef.current || pendingPointsRef.current.length === 0) return
+    const pending = pendingPointsRef.current
+    pending.forEach((pt) => applyPointToChart(pt))
+    pendingPointsRef.current = []
+  }, [chartReady, applyPointToChart])
 
-  // Chart init: one series for p_hat, two for bounds
+  // Apply snapshot history when chart is ready and we have history
+  useEffect(() => {
+    if (snapshotHistory.length === 0 || !chartReady || !pSeriesRef.current) return
+    setDataFromHistory(snapshotHistory)
+  }, [snapshotHistory, chartReady, setDataFromHistory])
+
+  // Chart + series created exactly once
   useEffect(() => {
     if (!chartRef.current) return
     const chart = createChart(chartRef.current, {
@@ -71,12 +87,11 @@ function App() {
       pSeriesRef.current = null
       loSeriesRef.current = null
       hiSeriesRef.current = null
-      historyLoadedRef.current = false
       setChartReady(false)
     }
   }, [])
 
-  // WebSocket: connect, handle snapshot and point
+  // WebSocket: only reconnect when wsReconnectTrigger changes
   useEffect(() => {
     const ws = new WebSocket(WS_URL)
     ws.onopen = () => setWsStatus('open')
@@ -89,17 +104,22 @@ function App() {
           setCurrent(msg.current ?? null)
           const hist = Array.isArray(msg.history) ? (msg.history as Point[]) : []
           setSnapshotHistory(hist)
+          if (pSeriesRef.current && hist.length > 0) setDataFromHistory(hist)
         } else if (msg.type === 'point' && msg.point) {
           const pt = msg.point as Point
-          if (historyLoadedRef.current) appendPoint(pt)
-          else setSnapshotHistory((prev) => (prev.length ? prev : [pt]))
+          setCurrent((prev) => ({ ...prev, state: prev?.state, derived: { ...prev?.derived, p_hat: pt.p } }))
+          if (!pSeriesRef.current) {
+            pendingPointsRef.current.push(pt)
+            return
+          }
+          if (!pausedRef.current) applyPointToChart(pt)
         }
       } catch {
         // ignore parse errors
       }
     }
     return () => ws.close()
-  }, [loadHistory, appendPoint])
+  }, [wsReconnectTrigger])
 
   return (
     <div style={{ padding: 16, maxWidth: 900, margin: '0 auto' }}>
@@ -116,6 +136,14 @@ function App() {
         </span>
         {' — '}
         <code>{WS_URL}</code>
+        {' · '}
+        <label>
+          <input type="checkbox" checked={isPaused} onChange={(e) => setIsPaused(e.target.checked)} /> Pause
+        </label>
+        {' '}
+        <button type="button" onClick={() => { setIsPaused(false); setWsReconnectTrigger((n) => n + 1) }}>
+          Resume (catch up)
+        </button>
       </p>
       {current?.derived?.p_hat != null && (
         <p style={{ fontSize: 14, color: '#9ca3af' }}>
