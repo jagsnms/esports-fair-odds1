@@ -47,8 +47,8 @@ def micro_adjustment_cs2(frame: Frame) -> float:
             raw = (ha - hb) / HP_SCALE * HP_CAP
             total += _clip(raw, -HP_CAP, HP_CAP)
 
-    # Econ (cash + loadout) diff: up to ~0.03
-    econ = getattr(frame, "cash_loadout_totals", None)
+    # Econ (alive loadout equipment value) diff: up to ~0.03
+    econ = getattr(frame, "loadout_totals", None)
     if isinstance(econ, (tuple, list)) and len(econ) >= 2:
         ea = float(econ[0]) if econ[0] is not None else 0.0
         eb = float(econ[1]) if econ[1] is not None else 0.0

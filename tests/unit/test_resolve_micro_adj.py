@@ -14,7 +14,8 @@ from engine.models import Config, Frame, State
 def _frame(
     alive_counts: tuple[int, int] = (0, 0),
     hp_totals: tuple[float, float] = (0.0, 0.0),
-    cash_loadout_totals: tuple[float, float] = (0.0, 0.0),
+    loadout_totals: tuple[float, float] | None = None,
+    cash_loadout_totals: tuple[float, float] = (0.0, 0.0),  # legacy; should not affect CS2 compute
     bomb_phase_time_remaining: Any = None,
 ) -> Frame:
     return Frame(
@@ -24,6 +25,7 @@ def _frame(
         alive_counts=alive_counts,
         hp_totals=hp_totals,
         cash_loadout_totals=cash_loadout_totals,
+        loadout_totals=loadout_totals,
         bomb_phase_time_remaining=bomb_phase_time_remaining,
     )
 
@@ -55,7 +57,7 @@ def test_strong_a_advantage_adj_positive() -> None:
     frame = _frame(
         alive_counts=(5, 2),
         hp_totals=(450.0, 150.0),
-        cash_loadout_totals=(12000.0, 6000.0),
+        loadout_totals=(12000.0, 6000.0),
     )
     adj = micro_adjustment_cs2(frame)
     assert adj > 0
@@ -67,7 +69,7 @@ def test_strong_a_disadvantage_adj_negative() -> None:
     frame = _frame(
         alive_counts=(2, 5),
         hp_totals=(150.0, 450.0),
-        cash_loadout_totals=(6000.0, 12000.0),
+        loadout_totals=(6000.0, 12000.0),
     )
     adj = micro_adjustment_cs2(frame)
     assert adj < 0
@@ -77,7 +79,7 @@ def test_strong_a_disadvantage_adj_negative() -> None:
 def test_resolve_clamps_into_rails() -> None:
     """resolve_p_hat clamps into rails even if base+adj is outside."""
     # Base 0.9 + adj 0.08 = 0.98; rails (0.3, 0.7) -> result should be 0.7
-    frame = _frame(alive_counts=(5, 0), hp_totals=(500.0, 0.0), cash_loadout_totals=(20000.0, 0.0))
+    frame = _frame(alive_counts=(5, 0), hp_totals=(500.0, 0.0), loadout_totals=(20000.0, 0.0))
     config = _config(prematch_map=0.9)
     state = _state()
     rails = (0.3, 0.7)
