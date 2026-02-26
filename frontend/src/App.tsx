@@ -66,6 +66,22 @@ function App() {
   const [marketOptions, setMarketOptions] = useState<Array<{ key: string; label: string; ticker_yes: string }>>([])
   const [selectedMarketKey, setSelectedMarketKey] = useState('')
   const [marketError, setMarketError] = useState<string | null>(null)
+  const [breaches, setBreaches] = useState<Array<{
+    ts_epoch: number
+    match_id: number | null
+    seg: number
+    scores: number[]
+    series_score: number[]
+    map_index: number
+    market_mid: number | null
+    p_hat: number
+    series_low: number
+    series_high: number
+    map_low: number
+    map_high: number
+    breach_type: string
+    breach_mag: number | null
+  }>>([])
 
   const chartRef = useRef<HTMLDivElement>(null)
   const chartInstanceRef = useRef<IChartApi | null>(null)
@@ -82,6 +98,22 @@ function App() {
   useEffect(() => {
     pausedRef.current = isPaused
   }, [isPaused])
+
+  useEffect(() => {
+    const poll = async () => {
+      try {
+        const r = await fetch(`${API_BASE}/api/v1/market/breaches?limit=100`)
+        if (!r.ok) return
+        const data = await r.json()
+        setBreaches(Array.isArray(data) ? data : [])
+      } catch {
+        // ignore
+      }
+    }
+    poll()
+    const id = setInterval(poll, 5000)
+    return () => clearInterval(id)
+  }, [])
 
   const applyPointToChart = useCallback((point: Point) => {
     const time = point.t as any
@@ -499,6 +531,35 @@ function App() {
             )}
           </p>
         )}
+        {(() => {
+          const debug = (current?.derived as {
+            debug?: {
+              bo3_health?: string
+              bo3_health_reason?: string | null
+              bo3_snapshot_status?: string
+              bo3_feed_error?: string | null
+            }
+          } | undefined)?.debug
+          const health = debug?.bo3_health
+          const healthReason = debug?.bo3_health_reason
+          const status = debug?.bo3_snapshot_status
+          const err = debug?.bo3_feed_error
+          if (health != null) {
+            const reason = healthReason != null && healthReason !== '' ? ` (${healthReason})` : ''
+            return (
+              <p style={{ fontSize: 13, color: '#9ca3af' }}>
+                BO3 health: <strong>{health}</strong>{reason}
+              </p>
+            )
+          }
+          if (status == null) return null
+          return (
+            <p style={{ fontSize: 13, color: '#9ca3af' }}>
+              BO3 status: <strong>{status}</strong>
+              {err != null && err !== '' && <> ({err})</>}
+            </p>
+          )
+        })()}
       </section>
       <section style={{ marginTop: 16, padding: 12, border: '1px solid #374151', borderRadius: 4 }}>
         <h3 style={{ marginTop: 0 }}>Market (Kalshi)</h3>
@@ -596,6 +657,42 @@ function App() {
           </p>
         )}
         {marketError && <p style={{ color: '#ef4444', fontSize: 14 }}>{marketError}</p>}
+      </section>
+      <section style={{ marginTop: 16, padding: 12, border: '1px solid #374151', borderRadius: 4 }}>
+        <h3 style={{ marginTop: 0 }}>Breaches</h3>
+        <p>
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                const r = await fetch(`${API_BASE}/api/v1/market/breaches?limit=100`)
+                if (!r.ok) return
+                const data = await r.json()
+                setBreaches(Array.isArray(data) ? data : [])
+              } catch {
+                setBreaches([])
+              }
+            }}
+          >
+            Refresh breaches
+          </button>
+          {' '}
+          <span style={{ fontSize: 12, color: '#9ca3af' }}>Last 20 shown</span>
+        </p>
+        {breaches.length === 0 && <p style={{ fontSize: 13, color: '#9ca3af' }}>No breach events. Click Refresh or wait for auto-poll.</p>}
+        {breaches.slice(-20).reverse().map((evt, i) => (
+          <div key={i} style={{ fontSize: 12, marginBottom: 6, padding: 6, background: '#1f2937', borderRadius: 4 }}>
+            <span style={{ color: '#9ca3af' }}>{new Date((evt.ts_epoch ?? 0) * 1000).toISOString().replace('T', ' ').slice(0, 19)}</span>
+            {' · '}
+            <strong>{evt.breach_type}</strong>
+            {evt.breach_mag != null && <> mag={evt.breach_mag.toFixed(4)}</>}
+            {' · '}
+            score {evt.scores?.[0] ?? 0}-{evt.scores?.[1] ?? 0}
+            {evt.market_mid != null && (
+              <> · market_mid={evt.market_mid.toFixed(4)} vs [{evt.map_low?.toFixed(4) ?? '?'}, {evt.map_high?.toFixed(4) ?? '?'}]</>
+            )}
+          </div>
+        ))}
       </section>
       <section style={{ marginTop: 16, padding: 12, border: '1px solid #374151', borderRadius: 4 }}>
         <h3 style={{ marginTop: 0 }}>Replay (JSONL)</h3>

@@ -1,5 +1,6 @@
 """
 Market API: Kalshi URL resolve (options), select side (set config), return current state.
+Breach events: GET /breaches returns recent market-vs-corridor breach log.
 """
 from __future__ import annotations
 
@@ -46,3 +47,10 @@ async def post_market_select(body: dict = Body(...)) -> dict:
         partial["kalshi_url"] = url
     await store.update_config(partial)
     return await store.get_current()
+
+
+@router.get("/breaches")
+async def get_market_breaches(limit: int = 200) -> list[dict]:
+    """Return recent breach events (market_mid outside corridors). Newest last."""
+    store = get_store()
+    return await store.get_breach_events(limit=min(500, max(1, limit)))

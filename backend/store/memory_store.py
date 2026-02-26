@@ -64,11 +64,12 @@ def _history_point_to_wire(p: HistoryPoint) -> dict[str, Any]:
 class MemoryStore:
     """Thread-safe in-memory store. Uses asyncio.Lock."""
 
-    def __init__(self, max_history: int = 2000) -> None:
+    def __init__(self, max_history: int = 2000, max_breach_events: int = 200) -> None:
         self._lock = asyncio.Lock()
         self._state = State(config=Config(poll_interval_s=5.0))
         self._derived = Derived()
         self._history: deque[HistoryPoint] = deque(maxlen=max_history)
+        self._breach_events: deque[dict[str, Any]] = deque(maxlen=max_breach_events)
 
     async def get_current(self) -> dict[str, Any]:
         """Serialize current State + Derived."""
@@ -142,3 +143,14 @@ class MemoryStore:
         """Return current state (read-only; do not mutate)."""
         async with self._lock:
             return self._state
+
+    async def append_breach_event(self, event: dict[str, Any]) -> None:
+        """Append one breach event to the ring-buffer. Caller holds event dict keys."""
+        async with self._lock:
+            self._breach_events.append(event)
+
+    async def get_breach_events(self, limit: int = 200) -> list[dict[str, Any]]:
+        """Return most recent breach events (newest last)."""
+        async with self._lock:
+            events = list(self._breach_events)[-limit:]
+            return events
