@@ -28,5 +28,7 @@ Thumbs.db
 # Optional: uncomment if you don't want to track large/generated data
 # *.csv
 # logs/
-# Large append-only log files (often >100MB, exceed GitHub limit)
+# Runtime log artifacts (config templates in logs/ kept if named accordingly)
+logs/*.json
 logs/*.jsonl
+logs/*.log
