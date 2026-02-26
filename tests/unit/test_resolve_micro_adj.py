@@ -128,20 +128,40 @@ def test_midround_enabled_stays_within_rails() -> None:
 
 
 def test_midround_monotonic_higher_q_intra_raises_p_hat() -> None:
-    """With midround_enabled=True, higher q_intra => higher p_hat_final when rails allow."""
+    """With midround_enabled=True (V2), more A advantage => higher p_hat_final when rails allow."""
     state = _state()
-    rails = (0.2, 0.8)  # wide enough that blend can move
+    rails = (0.2, 0.8)
     config_low = _config(prematch_map=0.5, midround_enabled=True)
-    # Frame with A slightly favored -> q_intra ~0.5–0.6
-    frame_low = _frame(alive_counts=(3, 3), hp_totals=(300.0, 300.0))
+    frame_low = _frame(alive_counts=(3, 3), hp_totals=(300.0, 300.0), loadout_totals=(5000.0, 5000.0))
     p_low, dbg_low = resolve_p_hat(frame_low, config_low, state, rails)
-    # Frame with A more favored -> higher q_intra
-    frame_high = _frame(alive_counts=(5, 2), hp_totals=(450.0, 150.0))
+    frame_high = _frame(alive_counts=(5, 2), hp_totals=(450.0, 150.0), loadout_totals=(12000.0, 6000.0))
     p_high, dbg_high = resolve_p_hat(frame_high, config_low, state, rails)
-    q_low = dbg_low["q_intra"]["q_intra_round_win_a"]
-    q_high = dbg_high["q_intra"]["q_intra_round_win_a"]
+    # When V2 is used, canonical q is in midround_v2
+    v2_low = dbg_low.get("midround_v2") or {}
+    v2_high = dbg_high.get("midround_v2") or {}
+    q_low = v2_low.get("q_intra", dbg_low["q_intra"].get("q_intra_round_win_a", 0.5))
+    q_high = v2_high.get("q_intra", dbg_high["q_intra"].get("q_intra_round_win_a", 0.5))
     assert q_high > q_low
     assert p_high >= p_low
+
+
+def test_midround_v2_p_hat_equals_p_mid_clamped_when_rails_wide() -> None:
+    """midround_enabled=True with wide rails => p_hat_final equals midround_v2 p_mid_clamped."""
+    state = _state()
+    rails = (0.01, 0.99)  # wide so clamp to rails does not change p_mid_clamped
+    config = _config(prematch_map=0.5, midround_enabled=True)
+    frame = _frame(
+        alive_counts=(4, 2),
+        hp_totals=(400.0, 200.0),
+        loadout_totals=(10000.0, 5000.0),
+        bomb_phase_time_remaining=None,  # phase_unknown -> V2 still runs
+    )
+    p, dbg = resolve_p_hat(frame, config, state, rails)
+    assert dbg["midround_enabled"] is True
+    assert dbg.get("midround_v2") is not None
+    assert "skipped" not in dbg["midround_v2"]  # V2 was applied
+    p_mid_clamped = dbg["midround_v2"]["p_mid_clamped"]
+    assert p == p_mid_clamped
 
 
 class TestResolveMicroAdj(unittest.TestCase):
@@ -170,6 +190,9 @@ class TestResolveMicroAdj(unittest.TestCase):
 
     def test_midround_monotonic_higher_q_intra_raises_p_hat(self) -> None:
         test_midround_monotonic_higher_q_intra_raises_p_hat()
+
+    def test_midround_v2_p_hat_equals_p_mid_clamped_when_rails_wide(self) -> None:
+        test_midround_v2_p_hat_equals_p_mid_clamped_when_rails_wide()
 
 
 if __name__ == "__main__":
