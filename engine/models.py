@@ -16,7 +16,7 @@ from typing import Any, Literal, Optional
 class Config:
     """Runtime configuration. Backend is source of truth."""
 
-    source: Literal["BO3", "GRID"] = "BO3"
+    source: Literal["BO3", "GRID", "REPLAY", "DUMMY"] = "BO3"
     match_id: Optional[int] = None
     poll_interval_s: float = 5.0
     contract_scope: str = ""
@@ -26,6 +26,12 @@ class Config:
     lock_team_mapping: bool = False  # identity lock: do not overwrite team mapping from feed
     market_delay_s: float = 0.0
     team_a_is_team_one: bool = True  # BO3: team A = team_one (True) or team_two (False)
+    # Replay (source=REPLAY)
+    replay_path: Optional[str] = "logs/bo3_pulls.jsonl"
+    replay_loop: bool = True
+    replay_speed: float = 1.0
+    replay_index: int = 0  # runner-owned cursor
+    midround_enabled: bool = False
 
 
 # --- Frame (normalized live snapshot from feed) ---
@@ -41,11 +47,17 @@ class Frame:
     alive_counts: tuple[int, int] = (0, 0)
     hp_totals: tuple[float, float] = (0.0, 0.0)
     cash_loadout_totals: tuple[float, float] = (0.0, 0.0)
+    # First-class microstate (alive-only sums); None when player_states missing
+    cash_totals: tuple[float, float] | None = None
+    loadout_totals: tuple[float, float] | None = None
+    armor_totals: tuple[float, float] | None = None
     bomb_phase_time_remaining: Any = None  # structured per map/game
     map_index: int = 0
     series_score: tuple[int, int] = (0, 0)
     map_name: str = ""
     series_fmt: str = ""
+    # Team A side this map (T/CT); None when unknown
+    a_side: Optional[str] = None
     # Stable identifiers from feed (team_one/team_two); use names as fallback if None
     team_one_id: Optional[int] = None
     team_two_id: Optional[int] = None
@@ -98,5 +110,7 @@ class HistoryPoint:
     p_hat: float = 0.5
     bound_low: float = 0.0
     bound_high: float = 1.0
+    rail_low: float = 0.0
+    rail_high: float = 1.0
     market_mid: float | None = None
     segment_id: int = 0

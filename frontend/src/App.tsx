@@ -4,8 +4,17 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 const WS_URL = 'ws://localhost:8000/api/v1/stream'
 const API_BASE = 'http://localhost:8000'
 
-/** Wire format: t (unix s), p (p_hat), lo, hi, m (market_mid or null), seg (segment_id) */
-type Point = { t: number; p: number; lo: number; hi: number; m: number | null; seg?: number }
+/** Wire format: t (unix s), p (p_hat), lo, hi, rail_low, rail_high, m (market_mid or null), seg (segment_id) */
+type Point = {
+  t: number
+  p: number
+  lo: number
+  hi: number
+  m: number | null
+  seg?: number
+  rail_low?: number
+  rail_high?: number
+}
 
 /** BO3 live match from /api/v1/bo3/live_matches */
 type Bo3Match = { id: number; team1_name: string; team2_name: string; bo_type: number }
@@ -21,12 +30,20 @@ function App() {
   const [selectedMatchId, setSelectedMatchId] = useState<string>('')
   const [teamAIsTeamOne, setTeamAIsTeamOne] = useState(true)
   const [configError, setConfigError] = useState<string | null>(null)
+  const [replayPath, setReplayPath] = useState('logs/bo3_pulls.jsonl')
+  const [replayMatchId, setReplayMatchId] = useState('')
+  const [replaySpeed, setReplaySpeed] = useState(1)
+  const [replayLoop, setReplayLoop] = useState(true)
+  const [replayError, setReplayError] = useState<string | null>(null)
+  const [replayMatches, setReplayMatches] = useState<Array<{ match_id: number; team1: string; team2: string; count: number }>>([])
 
   const chartRef = useRef<HTMLDivElement>(null)
   const chartInstanceRef = useRef<IChartApi | null>(null)
   const pSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
   const loSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
   const hiSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
+  const railLoSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
+  const railHiSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
   const pausedRef = useRef(false)
   const pendingPointsRef = useRef<Point[]>([])
   const currentSegRef = useRef<number>(0)
@@ -40,6 +57,10 @@ function App() {
     pSeriesRef.current?.update({ time, value: point.p })
     loSeriesRef.current?.update({ time, value: point.lo })
     hiSeriesRef.current?.update({ time, value: point.hi })
+    const rlo = point.rail_low ?? point.lo
+    const rhi = point.rail_high ?? point.hi
+    railLoSeriesRef.current?.update({ time, value: rlo })
+    railHiSeriesRef.current?.update({ time, value: rhi })
   }, [])
 
   const setDataFromHistory = useCallback((history: Point[]) => {
@@ -48,14 +69,21 @@ function App() {
       pSeriesRef.current.setData([])
       loSeriesRef.current.setData([])
       hiSeriesRef.current.setData([])
+      railLoSeriesRef.current?.setData([])
+      railHiSeriesRef.current?.setData([])
       return
     }
-    const pData = history.map((pt) => ({ time: pt.t as import('lightweight-charts').UTCTimestamp, value: pt.p }))
-    const loData = history.map((pt) => ({ time: pt.t as import('lightweight-charts').UTCTimestamp, value: pt.lo }))
-    const hiData = history.map((pt) => ({ time: pt.t as import('lightweight-charts').UTCTimestamp, value: pt.hi }))
+    const utc = (t: number) => t as import('lightweight-charts').UTCTimestamp
+    const pData = history.map((pt) => ({ time: utc(pt.t), value: pt.p }))
+    const loData = history.map((pt) => ({ time: utc(pt.t), value: pt.lo }))
+    const hiData = history.map((pt) => ({ time: utc(pt.t), value: pt.hi }))
+    const railLoData = history.map((pt) => ({ time: utc(pt.t), value: pt.rail_low ?? pt.lo }))
+    const railHiData = history.map((pt) => ({ time: utc(pt.t), value: pt.rail_high ?? pt.hi }))
     pSeriesRef.current.setData(pData)
     loSeriesRef.current.setData(loData)
     hiSeriesRef.current.setData(hiData)
+    railLoSeriesRef.current?.setData(railLoData)
+    railHiSeriesRef.current?.setData(railHiData)
     chartInstanceRef.current?.timeScale().fitContent()
   }, [])
 
@@ -88,6 +116,18 @@ function App() {
     pSeriesRef.current = chart.addLineSeries({ color: '#3b82f6', title: 'p_hat' })
     loSeriesRef.current = chart.addLineSeries({ color: '#22c55e', lineWidth: 1, title: 'bound_low' })
     hiSeriesRef.current = chart.addLineSeries({ color: '#ef4444', lineWidth: 1, title: 'bound_high' })
+    railLoSeriesRef.current = chart.addLineSeries({
+      color: '#6b7280',
+      lineWidth: 1,
+      lineStyle: 2,
+      title: 'rail_low',
+    })
+    railHiSeriesRef.current = chart.addLineSeries({
+      color: '#6b7280',
+      lineWidth: 1,
+      lineStyle: 2,
+      title: 'rail_high',
+    })
     setChartReady(true)
 
     const handleResize = () => {
@@ -102,6 +142,8 @@ function App() {
       pSeriesRef.current = null
       loSeriesRef.current = null
       hiSeriesRef.current = null
+      railLoSeriesRef.current = null
+      railHiSeriesRef.current = null
       setChartReady(false)
     }
   }, [])
@@ -169,6 +211,31 @@ function App() {
         <button type="button" onClick={() => { setIsPaused(false); setWsReconnectTrigger((n) => n + 1) }}>
           Resume (catch up)
         </button>
+        {' '}
+        <label>
+          <input
+            type="checkbox"
+            checked={(current?.state as { config?: { midround_enabled?: boolean } } | undefined)?.config?.midround_enabled ?? false}
+            onChange={async (e) => {
+              const midround_enabled = e.target.checked
+              try {
+                const r = await fetch(`${API_BASE}/api/v1/config`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ midround_enabled }),
+                })
+                if (r.ok) {
+                  const data = await r.json()
+                  setCurrent(data)
+                }
+              } catch {
+                // ignore
+              }
+            }}
+          />
+          {' '}
+          Midround enabled
+        </label>
       </p>
       {current?.derived?.p_hat != null && (
         <p style={{ fontSize: 14, color: '#9ca3af' }}>
@@ -284,6 +351,137 @@ function App() {
             )}
           </p>
         )}
+      </section>
+      <section style={{ marginTop: 16, padding: 12, border: '1px solid #374151', borderRadius: 4 }}>
+        <h3 style={{ marginTop: 0 }}>Replay (JSONL)</h3>
+        <p>
+          <label>
+            Path:{' '}
+            <input
+              type="text"
+              value={replayPath}
+              onChange={(e) => setReplayPath(e.target.value)}
+              style={{ width: 280 }}
+            />
+          </label>
+        </p>
+        <p>
+          <button
+            type="button"
+            onClick={async () => {
+              setReplayError(null)
+              try {
+                const r = await fetch(`${API_BASE}/api/v1/replay/matches?path=${encodeURIComponent(replayPath)}`)
+                if (!r.ok) {
+                  const body = await r.json().catch(() => ({}))
+                  setReplayError((body as { detail?: string })?.detail ?? r.statusText)
+                  setReplayMatches([])
+                  return
+                }
+                const data = await r.json()
+                setReplayMatches(Array.isArray(data) ? data : [])
+              } catch (e) {
+                setReplayError(e instanceof Error ? e.message : String(e))
+                setReplayMatches([])
+              }
+            }}
+          >
+            Load replay matches
+          </button>
+        </p>
+        <p>
+          <label>
+            Match:{' '}
+            <select
+              value={replayMatchId}
+              onChange={(e) => setReplayMatchId(e.target.value)}
+              style={{ minWidth: 280 }}
+            >
+              <option value="">— Select or type below —</option>
+              {replayMatches.map((m) => (
+                <option key={m.match_id} value={String(m.match_id)}>
+                  {m.match_id} — {m.team1} vs {m.team2} ({m.count})
+                </option>
+              ))}
+            </select>
+          </label>
+        </p>
+        <p>
+          <label>
+            Match ID (manual):{' '}
+            <input
+              type="number"
+              value={replayMatchId}
+              onChange={(e) => setReplayMatchId(e.target.value)}
+              placeholder="optional filter"
+              style={{ width: 100 }}
+            />
+          </label>
+        </p>
+        <p>
+          <label>
+            Speed:{' '}
+            <input
+              type="number"
+              min={0.1}
+              step={0.5}
+              value={replaySpeed}
+              onChange={(e) => setReplaySpeed(Number(e.target.value) || 1)}
+              style={{ width: 60 }}
+            />
+          </label>
+          {' '}
+          <label>
+            <input type="checkbox" checked={replayLoop} onChange={(e) => setReplayLoop(e.target.checked)} />
+            Loop
+          </label>
+        </p>
+        <p>
+          <button
+            type="button"
+            onClick={async () => {
+              setReplayError(null)
+              try {
+                const r = await fetch(`${API_BASE}/api/v1/replay/load`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    path: replayPath,
+                    match_id: replayMatchId ? Number(replayMatchId) : undefined,
+                    speed: replaySpeed,
+                    loop: replayLoop,
+                  }),
+                })
+                if (!r.ok) {
+                  const body = await r.json().catch(() => ({}))
+                  setReplayError((body as { detail?: string })?.detail ?? r.statusText)
+                  return
+                }
+                setWsReconnectTrigger((prev) => prev + 1)
+              } catch (e) {
+                setReplayError(e instanceof Error ? e.message : String(e))
+              }
+            }}
+          >
+            Load Replay
+          </button>
+          {' '}
+          <button
+            type="button"
+            onClick={async () => {
+              setReplayError(null)
+              try {
+                await fetch(`${API_BASE}/api/v1/replay/stop`, { method: 'POST' })
+                setWsReconnectTrigger((prev) => prev + 1)
+              } catch (e) {
+                setReplayError(e instanceof Error ? e.message : String(e))
+              }
+            }}
+          >
+            Stop Replay
+          </button>
+        </p>
+        {replayError && <p style={{ color: '#ef4444', fontSize: 14 }}>{replayError}</p>}
       </section>
       <div ref={chartRef} style={{ marginTop: 16 }} />
     </div>

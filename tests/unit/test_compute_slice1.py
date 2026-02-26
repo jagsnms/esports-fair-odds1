@@ -66,7 +66,7 @@ def test_p_hat_in_rails():
     state = _state()
     bounds = compute_bounds(frame, config, state)
     rails = compute_rails(frame, config, state, bounds)
-    p = resolve_p_hat(frame, config, state, rails)
+    p, _ = resolve_p_hat(frame, config, state, rails)
     rlo, rhi = rails
     assert rlo <= p <= rhi
 
@@ -100,7 +100,7 @@ def test_resolve_clamps_to_rails():
     state = _state()
     bounds = compute_bounds(frame, config, state)
     rails = compute_rails(frame, config, state, bounds)
-    p = resolve_p_hat(frame, config, state, rails)
+    p, _ = resolve_p_hat(frame, config, state, rails)
     rlo, rhi = rails
     assert rlo <= p <= rhi
 

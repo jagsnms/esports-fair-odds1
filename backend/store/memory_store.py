@@ -21,7 +21,7 @@ def _state_derived_to_dict(state: State, derived: Derived) -> dict[str, Any]:
 
 
 def _history_point_to_wire(p: HistoryPoint) -> dict[str, Any]:
-    """Wire format: t (unix s), p, lo, hi, m, seg (segment_id)."""
+    """Wire format: t (unix s), p, lo, hi, rail_low, rail_high, m, seg (segment_id)."""
     out = {
         "t": p.time,
         "p": p.p_hat,
@@ -29,6 +29,10 @@ def _history_point_to_wire(p: HistoryPoint) -> dict[str, Any]:
         "hi": p.bound_high,
         "m": p.market_mid,
     }
+    if hasattr(p, "rail_low"):
+        out["rail_low"] = p.rail_low
+    if hasattr(p, "rail_high"):
+        out["rail_high"] = p.rail_high
     if hasattr(p, "segment_id"):
         out["seg"] = p.segment_id
     return out
@@ -63,6 +67,12 @@ class MemoryStore:
         """Append one history point and update current state/derived."""
         async with self._lock:
             self._history.append(point)
+            self._state = state
+            self._derived = derived
+
+    async def set_current(self, state: State, derived: Derived) -> None:
+        """Set current state and derived without appending to history."""
+        async with self._lock:
             self._state = state
             self._derived = derived
 

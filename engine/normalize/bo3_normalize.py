@@ -55,6 +55,18 @@ def _team_name(team: Any) -> str:
     return "Team"
 
 
+def _normalize_side(side: Any) -> str | None:
+    """Return 'T' or 'CT' if side is present and recognized; otherwise None."""
+    if side is None:
+        return None
+    s = str(side).strip().upper()
+    if s == "T":
+        return "T"
+    if s == "CT":
+        return "CT"
+    return None
+
+
 def bo3_snapshot_to_frame(raw: dict[str, Any], team_a_is_team_one: bool = True) -> Frame:
     """
     Normalize BO3 snapshot to Frame.
@@ -88,10 +100,13 @@ def bo3_snapshot_to_frame(raw: dict[str, Any], team_a_is_team_one: bool = True) 
         team_a_name, team_b_name = name1, name2
         rounds_a, rounds_b = score1, score2
         maps_a, maps_b = match_score1, match_score2
+        team_a_side_raw = t1.get("side")
     else:
         team_a_name, team_b_name = name2, name1
         rounds_a, rounds_b = score2, score1
         maps_a, maps_b = match_score2, match_score1
+        team_a_side_raw = t2.get("side")
+    a_side = _normalize_side(team_a_side_raw)
 
     timestamp = time.time()
     map_name = raw.get("map_name", "") if isinstance(raw.get("map_name"), str) else ""
@@ -106,18 +121,38 @@ def bo3_snapshot_to_frame(raw: dict[str, Any], team_a_is_team_one: bool = True) 
     alive1 = alive2 = 0
     hp1 = hp2 = 0.0
     cash1 = cash2 = 0.0
-    for p in (t1.get("player_states") or []) if isinstance(t1, dict) else []:
+    # Alive-only sums for first-class microstate (cash_totals, loadout_totals, armor_totals)
+    cash_alive_1 = cash_alive_2 = 0.0
+    loadout_alive_1 = loadout_alive_2 = 0.0
+    armor_alive_1 = armor_alive_2 = 0.0
+    has_armor_1 = has_armor_2 = False
+    ps1 = (t1.get("player_states") or []) if isinstance(t1, dict) else []
+    ps2 = (t2.get("player_states") or []) if isinstance(t2, dict) else []
+    player_states_present = (
+        isinstance(t1, dict) and "player_states" in t1 and isinstance(t2, dict) and "player_states" in t2
+    )
+    for p in ps1:
         if isinstance(p, dict) and p.get("is_alive"):
             alive1 += 1
+            cash_alive_1 += float(p.get("balance", 0) or 0)
+            loadout_alive_1 += float(p.get("equipment_value", 0) or 0)
+            if p.get("armor") is not None:
+                armor_alive_1 += float(p.get("armor", 0) or 0)
+                has_armor_1 = True
         if isinstance(p, dict) and p.get("health") is not None:
             hp1 += float(p.get("health", 0))
         if isinstance(p, dict) and p.get("balance") is not None:
             cash1 += float(p.get("balance", 0))
         if isinstance(p, dict) and p.get("equipment_value") is not None:
             cash1 += float(p.get("equipment_value", 0))
-    for p in (t2.get("player_states") or []) if isinstance(t2, dict) else []:
+    for p in ps2:
         if isinstance(p, dict) and p.get("is_alive"):
             alive2 += 1
+            cash_alive_2 += float(p.get("balance", 0) or 0)
+            loadout_alive_2 += float(p.get("equipment_value", 0) or 0)
+            if p.get("armor") is not None:
+                armor_alive_2 += float(p.get("armor", 0) or 0)
+                has_armor_2 = True
         if isinstance(p, dict) and p.get("health") is not None:
             hp2 += float(p.get("health", 0))
         if isinstance(p, dict) and p.get("balance") is not None:
@@ -129,6 +164,15 @@ def bo3_snapshot_to_frame(raw: dict[str, Any], team_a_is_team_one: bool = True) 
         alive1, alive2 = alive2, alive1
         hp1, hp2 = hp2, hp1
         cash1, cash2 = cash2, cash1
+        cash_alive_1, cash_alive_2 = cash_alive_2, cash_alive_1
+        loadout_alive_1, loadout_alive_2 = loadout_alive_2, loadout_alive_1
+        armor_alive_1, armor_alive_2 = armor_alive_2, armor_alive_1
+        has_armor_1, has_armor_2 = has_armor_2, has_armor_1
+
+    # First-class microstate: set only when player_states were present in raw snapshot
+    cash_totals = (cash_alive_1, cash_alive_2) if player_states_present else None
+    loadout_totals = (loadout_alive_1, loadout_alive_2) if player_states_present else None
+    armor_totals = (armor_alive_1, armor_alive_2) if (player_states_present and (has_armor_1 or has_armor_2)) else None
 
     # Optional live fields in bomb_phase_time_remaining
     bomb_phase: dict[str, Any] = {}
@@ -146,11 +190,15 @@ def bo3_snapshot_to_frame(raw: dict[str, Any], team_a_is_team_one: bool = True) 
         alive_counts=(alive1, alive2),
         hp_totals=(hp1, hp2),
         cash_loadout_totals=(cash1, cash2),
+        cash_totals=cash_totals,
+        loadout_totals=loadout_totals,
+        armor_totals=armor_totals,
         bomb_phase_time_remaining=bomb_phase,
         map_index=map_index,
         series_score=(maps_a, maps_b),
         map_name=map_name,
         series_fmt=series_fmt,
+        a_side=a_side,
         team_one_id=team_one_id,
         team_two_id=team_two_id,
         team_one_provider_id=team_one_provider_id,

@@ -1,5 +1,6 @@
 """
 Unit tests for identity lock and transition segmentation (reducer).
+Also: BO3 normalize a_side (Team A side T/CT) from snapshot with mapping.
 """
 from __future__ import annotations
 
@@ -7,6 +8,7 @@ import unittest
 from typing import Optional
 
 from engine.models import Config, Frame, State
+from engine.normalize.bo3_normalize import bo3_snapshot_to_frame
 from engine.state.reducer import reduce_state
 
 
@@ -101,6 +103,47 @@ def test_unlocked_team_mapping_updates_with_config() -> None:
     assert state2.team_mapping.get("a_is_team_one") is False
 
 
+def test_bo3_a_side_from_snapshot_team_a_is_team_one() -> None:
+    """With team_a_is_team_one=True, frame.a_side is team_one.side normalized to T/CT."""
+    raw = {
+        "team_one": {"name": "Team1", "score": 5, "match_score": 1, "side": "T"},
+        "team_two": {"name": "Team2", "score": 4, "match_score": 0, "side": "CT"},
+    }
+    frame = bo3_snapshot_to_frame(raw, team_a_is_team_one=True)
+    assert frame.a_side == "T"
+    frame2 = bo3_snapshot_to_frame(
+        {"team_one": {"name": "T1", "score": 0, "match_score": 0, "side": "CT"}, "team_two": {"name": "T2", "score": 0, "match_score": 0, "side": "T"}},
+        team_a_is_team_one=True,
+    )
+    assert frame2.a_side == "CT"
+
+
+def test_bo3_a_side_from_snapshot_team_a_is_team_two() -> None:
+    """With team_a_is_team_one=False, frame.a_side is team_two.side (Team A = team_two)."""
+    raw = {
+        "team_one": {"name": "Team1", "score": 4, "match_score": 0, "side": "T"},
+        "team_two": {"name": "Team2", "score": 5, "match_score": 1, "side": "CT"},
+    }
+    frame = bo3_snapshot_to_frame(raw, team_a_is_team_one=False)
+    assert frame.a_side == "CT"
+    raw2 = {
+        "team_one": {"name": "T1", "score": 0, "match_score": 0, "side": "CT"},
+        "team_two": {"name": "T2", "score": 0, "match_score": 0, "side": "T"},
+    }
+    frame2 = bo3_snapshot_to_frame(raw2, team_a_is_team_one=False)
+    assert frame2.a_side == "T"
+
+
+def test_bo3_a_side_stable_and_normalized() -> None:
+    """a_side is stable for same mapping; lowercase/whitespace normalized to T/CT; unknown -> None."""
+    raw_t = {"team_one": {"name": "A", "score": 0, "match_score": 0, "side": " t "}, "team_two": {"name": "B", "score": 0, "match_score": 0, "side": "ct"}}
+    frame = bo3_snapshot_to_frame(raw_t, team_a_is_team_one=True)
+    assert frame.a_side == "T"
+    raw_no_side = {"team_one": {"name": "A", "score": 0, "match_score": 0}, "team_two": {"name": "B", "score": 0, "match_score": 0}}
+    frame_none = bo3_snapshot_to_frame(raw_no_side, team_a_is_team_one=True)
+    assert frame_none.a_side is None
+
+
 class TestIdentityLockAndSegmentation(unittest.TestCase):
     """Run the same tests via unittest."""
 
@@ -115,6 +158,15 @@ class TestIdentityLockAndSegmentation(unittest.TestCase):
 
     def test_unlocked_team_mapping_updates_with_config(self) -> None:
         test_unlocked_team_mapping_updates_with_config()
+
+    def test_bo3_a_side_from_snapshot_team_a_is_team_one(self) -> None:
+        test_bo3_a_side_from_snapshot_team_a_is_team_one()
+
+    def test_bo3_a_side_from_snapshot_team_a_is_team_two(self) -> None:
+        test_bo3_a_side_from_snapshot_team_a_is_team_two()
+
+    def test_bo3_a_side_stable_and_normalized(self) -> None:
+        test_bo3_a_side_stable_and_normalized()
 
 
 if __name__ == "__main__":

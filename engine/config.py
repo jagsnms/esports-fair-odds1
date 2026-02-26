@@ -22,6 +22,11 @@ DEFAULTS: dict[str, Any] = {
     "lock_team_mapping": False,
     "market_delay_s": 0.0,
     "team_a_is_team_one": True,
+    "replay_path": "logs/bo3_pulls.jsonl",
+    "replay_loop": True,
+    "replay_speed": 1.0,
+    "replay_index": 0,
+    "midround_enabled": False,
 }
 
 
@@ -48,7 +53,7 @@ def merge_config(current: Config, partial: dict[str, Any]) -> Config:
         return current
     if "source" in updates and isinstance(updates["source"], str):
         updates["source"] = (updates["source"] or "BO3").strip().upper()
-        if updates["source"] not in ("BO3", "GRID"):
+        if updates["source"] not in ("BO3", "GRID", "REPLAY", "DUMMY"):
             updates["source"] = "BO3"
     if "match_id" in updates:
         updates["match_id"] = _coerce_match_id(updates["match_id"])
@@ -63,6 +68,11 @@ def merge_config(current: Config, partial: dict[str, Any]) -> Config:
         "lock_team_mapping": getattr(current, "lock_team_mapping"),
         "market_delay_s": getattr(current, "market_delay_s"),
         "team_a_is_team_one": getattr(current, "team_a_is_team_one", True),
+        "replay_path": getattr(current, "replay_path", None),
+        "replay_loop": getattr(current, "replay_loop", True),
+        "replay_speed": getattr(current, "replay_speed", 1.0),
+        "replay_index": getattr(current, "replay_index", 0),
+        "midround_enabled": getattr(current, "midround_enabled", False),
     }
     d.update(updates)
     return Config(**d)
