@@ -30,6 +30,13 @@ type Point = {
 /** BO3 live match from /api/v1/bo3/live_matches */
 type Bo3Match = { id: number; team1_name: string; team2_name: string; bo_type: number }
 
+const filterHistoryToSeg = (history: Point[] | undefined, seg: number): Point[] => {
+  if (!history || history.length === 0) return []
+  const hasSeg = history.some((p) => p.seg !== undefined)
+  if (!hasSeg) return history
+  return history.filter((p) => p.seg === seg)
+}
+
 function App() {
   const [wsStatus, setWsStatus] = useState<'connecting' | 'open' | 'closed' | 'error'>('connecting')
   const [current, setCurrent] = useState<{ state?: unknown; derived?: { p_hat?: number } } | null>(null)
@@ -178,6 +185,42 @@ function App() {
     }
   }, [])
 
+  const refreshSegmentFromBackend = useCallback(
+    async (newSeg: number) => {
+      try {
+        const oldSeg = currentSegRef.current
+        // Temporary debug for seg transitions
+        // eslint-disable-next-line no-console
+        console.debug('seg-change: refreshing from backend', { oldSeg, newSeg })
+        const r = await fetch(`${API_BASE}/api/v1/state/current`)
+        if (!r.ok) {
+          // eslint-disable-next-line no-console
+          console.debug('seg-change: refresh failed', { status: r.status })
+          return
+        }
+        const cur = await r.json()
+        const history = (cur.history ?? []) as Point[]
+        const filtered = filterHistoryToSeg(history, newSeg)
+        setCurrent(cur)
+        setSnapshotHistory(filtered)
+        if (pSeriesRef.current && filtered.length > 0) {
+          setDataFromHistory(filtered)
+        }
+        // eslint-disable-next-line no-console
+        console.debug('seg-change: refresh ok', {
+          oldSeg,
+          newSeg,
+          historyLength: history.length,
+          filteredLength: filtered.length,
+        })
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.debug('seg-change: refresh error', e)
+      }
+    },
+    [setDataFromHistory],
+  )
+
   // WebSocket: only reconnect when wsReconnectTrigger changes
   useEffect(() => {
     const ws = new WebSocket(WS_URL)
@@ -192,7 +235,7 @@ function App() {
           const seg = (msg.current as { state?: { segment_id?: number } })?.state?.segment_id ?? 0
           currentSegRef.current = seg
           const hist = Array.isArray(msg.history) ? (msg.history as Point[]) : []
-          const lastSegmentOnly = hist.filter((p) => p.seg === undefined || p.seg === seg)
+          const lastSegmentOnly = filterHistoryToSeg(hist, seg)
           setSnapshotHistory(lastSegmentOnly)
           if (pSeriesRef.current && lastSegmentOnly.length > 0) setDataFromHistory(lastSegmentOnly)
         } else if (msg.type === 'point' && msg.point) {
@@ -204,9 +247,12 @@ function App() {
           }
           if (!pausedRef.current) {
             if (pt.seg !== undefined && pt.seg !== currentSegRef.current) {
-              currentSegRef.current = pt.seg
-              setDataFromHistory([])
-              setSnapshotHistory([])
+              const newSeg = pt.seg
+              const oldSeg = currentSegRef.current
+              currentSegRef.current = newSeg
+              // eslint-disable-next-line no-console
+              console.debug('seg-change: detected', { oldSeg, newSeg })
+              void refreshSegmentFromBackend(newSeg)
             }
             applyPointToChart(pt)
           }
