@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from datetime import datetime
 from pathlib import Path
 
 # Project root: script lives in scripts/
@@ -36,8 +37,25 @@ def _coerce_match_id(obj: dict) -> int | None:
         return None
 
 
-def _collect_payloads_and_team_a(entries: list[dict], match_id: int) -> list[tuple[dict, bool]]:
-    out: list[tuple[dict, bool]] = []
+def _entry_t_unix(entry: dict) -> int | None:
+    """Parse ts_utc from JSONL entry to integer unix seconds. Handles ISO string or numeric."""
+    ts = entry.get("ts_utc")
+    if ts is None:
+        return None
+    if isinstance(ts, (int, float)) and ts >= 0:
+        return int(ts)
+    if isinstance(ts, str):
+        try:
+            s = ts.replace("Z", "+00:00")
+            return int(datetime.fromisoformat(s).timestamp())
+        except (ValueError, TypeError):
+            return None
+    return None
+
+
+def _collect_payloads_and_team_a(entries: list[dict], match_id: int) -> list[tuple[dict, bool, int | None]]:
+    """Return list of (payload, team_a_is_team_one, t_unix). t_unix is None if ts_utc missing or unparseable."""
+    out: list[tuple[dict, bool, int | None]] = []
     for e in entries:
         if _coerce_match_id(e) != match_id:
             continue
@@ -49,7 +67,8 @@ def _collect_payloads_and_team_a(entries: list[dict], match_id: int) -> list[tup
             pass
         else:
             team_a = bool(team_a) if team_a is not None else True
-        out.append((payload, team_a))
+        t_unix = _entry_t_unix(e)
+        out.append((payload, team_a, t_unix))
     return out
 
 
@@ -58,6 +77,8 @@ def run(
     match_id: int,
     max_ticks: int = 200,
     anchors: list[int] | None = None,
+    anchor_times: list[int] | None = None,
+    time_tolerance: int = 5,
     *,
     find_close_late: bool = False,
     min_score_sum: int = 18,
@@ -70,6 +91,27 @@ def run(
         print(f"no payloads for match_id={match_id} in {path}", file=sys.stderr)
         return
     team_a_is_team_one = payloads_with_team_a[0][1]
+
+    # Build index: (tick_idx, t) for ticks that have a timestamp (for anchor_times resolution).
+    tick_index_list: list[tuple[int, int]] = [
+        (tick_idx, t)
+        for tick_idx, (_, _, t) in enumerate(payloads_with_team_a)
+        if t is not None
+    ]
+    # Resolve anchor_times to tick indices; track (requested_t, matched_tick_idx, matched_t, delta_seconds).
+    time_anchor_info: dict[int, tuple[int, int, int | float]] = {}  # tick_idx -> (requested_t, matched_t, delta_seconds)
+    anchor_set = set(anchors or [])
+    if anchor_times and not tick_index_list:
+        print("WARNING: --anchor_times given but no ts_utc in JSONL entries; skipping time-based anchors", file=sys.stderr)
+    if anchor_times and tick_index_list:
+        for requested_t in anchor_times:
+            best_tick_idx, best_t = min(
+                tick_index_list,
+                key=lambda item: abs(item[1] - requested_t),
+            )
+            delta = abs(best_t - requested_t)
+            anchor_set.add(best_tick_idx)
+            time_anchor_info[best_tick_idx] = (requested_t, best_t, delta)
     config = Config(
         midround_enabled=True,
         team_a_is_team_one=team_a_is_team_one,
@@ -84,11 +126,10 @@ def run(
         last_series_score=None,
         last_map_index=None,
     )
-    anchor_set = set(anchors or [])
     auto_candidates: list[int] = []
 
     for tick_idx in range(min(max_ticks, len(payloads_with_team_a))):
-        payload, _ = payloads_with_team_a[tick_idx]
+        payload, _, _ = payloads_with_team_a[tick_idx]
         frame = bo3_snapshot_to_frame(payload, team_a_is_team_one=team_a_is_team_one)
         state = reduce_state(state, frame, config)
         bounds_result = compute_bounds(frame, config, state)
@@ -118,6 +159,16 @@ def run(
         if find_close_late and score_sum >= min_score_sum and abs(score_diff) <= max_abs_diff:
             auto_candidates.append(tick_idx)
         if tick_idx in anchor_set:
+            if tick_idx in time_anchor_info:
+                req_t, matched_t, delta_sec = time_anchor_info[tick_idx]
+                print(
+                    f"  requested_time={req_t} matched_tick_idx={tick_idx} matched_t={matched_t} delta_seconds={delta_sec}"
+                )
+                if delta_sec > time_tolerance:
+                    print(
+                        f"  WARNING: delta_seconds ({delta_sec}) > time_tolerance ({time_tolerance})",
+                        file=sys.stderr,
+                    )
             features = compute_cs2_midround_features(frame, config=config)
             round_phase = features.get("round_phase")
             t_remaining = features.get("time_remaining_s")
@@ -191,7 +242,7 @@ def run(
         for tick_idx in chosen:
             if tick_idx >= len(payloads_with_team_a):
                 continue
-            payload, _ = payloads_with_team_a[tick_idx]
+            payload, _, _ = payloads_with_team_a[tick_idx]
             frame = bo3_snapshot_to_frame(payload, team_a_is_team_one=team_a_is_team_one)
             # We need a consistent state trail up to this tick; reuse the same forward pass
             # by re-running reduce_state/compute up to tick_idx.
@@ -211,7 +262,7 @@ def run(
                 last_map_index=None,
             )
             for i in range(tick_idx + 1):
-                p_i, _ = payloads_with_team_a[i]
+                p_i, _, _ = payloads_with_team_a[i]
                 f_i = bo3_snapshot_to_frame(p_i, team_a_is_team_one=team_a_is_team_one)
                 st = reduce_state(st, f_i, cfg)
             # Now compute bounds/rails/resolve for this tick using st and frame
@@ -288,6 +339,18 @@ def main() -> None:
     ap.add_argument("--match_id", type=int, required=True, help="Match ID to filter")
     ap.add_argument("--max_ticks", type=int, default=200, help="Max ticks to run")
     ap.add_argument("--anchors", type=str, default="", help="Comma-separated tick indices for detailed blocks (e.g. 0,5,10)")
+    ap.add_argument(
+        "--anchor_times",
+        type=str,
+        default="",
+        help="Comma-separated integer unix seconds to anchor by timestamp (e.g. 1772106330,1772106340)",
+    )
+    ap.add_argument(
+        "--time_tolerance",
+        type=int,
+        default=5,
+        help="Max seconds delta when matching --anchor_times to tick (default 5); warn if exceeded",
+    )
     ap.add_argument("--find_close_late", action="store_true", help="Auto-pick anchors from close, late-round states")
     ap.add_argument("--min_score_sum", type=int, default=18, help="Minimum score_sum (ra+rb) for auto anchors")
     ap.add_argument("--max_abs_diff", type=int, default=2, help="Maximum |ra-rb| for auto anchors")
@@ -302,11 +365,22 @@ def main() -> None:
                     anchors_list.append(int(s))
                 except ValueError:
                     pass
+    anchor_times_list: list[int] = []
+    if args.anchor_times.strip():
+        for s in args.anchor_times.split(","):
+            s = s.strip()
+            if s:
+                try:
+                    anchor_times_list.append(int(s))
+                except ValueError:
+                    pass
     run(
         path=args.path,
         match_id=args.match_id,
         max_ticks=args.max_ticks,
         anchors=anchors_list or None,
+        anchor_times=anchor_times_list or None,
+        time_tolerance=args.time_tolerance,
         find_close_late=args.find_close_late,
         min_score_sum=args.min_score_sum,
         max_abs_diff=args.max_abs_diff,
