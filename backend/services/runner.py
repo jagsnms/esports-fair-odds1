@@ -92,13 +92,15 @@ class Runner:
 
         old_state = await self._store.get_state()
         new_state = reduce_state(old_state, frame, config)
-        bounds = compute_bounds(frame, config, new_state)
+        bounds_result = compute_bounds(frame, config, new_state)
+        bound_low, bound_high = bounds_result[0], bounds_result[1]
+        bounds_debug = bounds_result[2] if len(bounds_result) > 2 else {}
+        bounds = (bound_low, bound_high)
         rails_result = compute_rails(frame, config, new_state, bounds)
         rail_low, rail_high = rails_result[0], rails_result[1]
         rails_debug = rails_result[2] if len(rails_result) > 2 else {}
         p_hat, dbg = resolve_p_hat(frame, config, new_state, (rail_low, rail_high))
-        bound_low, bound_high = bounds
-        dbg = {**dbg, **rails_debug}
+        dbg = {**dbg, **bounds_debug, **rails_debug}
         point = HistoryPoint(
             time=t,
             p_hat=p_hat,
@@ -211,13 +213,15 @@ class Runner:
 
         old_state = await self._store.get_state()
         new_state = reduce_state(old_state, frame, config)
-        bounds = compute_bounds(frame, config, new_state)
+        bounds_result = compute_bounds(frame, config, new_state)
+        bound_low, bound_high = bounds_result[0], bounds_result[1]
+        bounds_debug = bounds_result[2] if len(bounds_result) > 2 else {}
+        bounds = (bound_low, bound_high)
         rails_result = compute_rails(frame, config, new_state, bounds)
         rail_low, rail_high = rails_result[0], rails_result[1]
         rails_debug = rails_result[2] if len(rails_result) > 2 else {}
         p_hat, dbg = resolve_p_hat(frame, config, new_state, (rail_low, rail_high))
-        bound_low, bound_high = bounds
-        dbg = {**dbg, **rails_debug}
+        dbg = {**dbg, **bounds_debug, **rails_debug}
         point = HistoryPoint(
             time=t,
             p_hat=p_hat,

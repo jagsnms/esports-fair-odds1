@@ -32,6 +32,7 @@ class Config:
     replay_speed: float = 1.0
     replay_index: int = 0  # runner-owned cursor
     midround_enabled: bool = False
+    context_widening_enabled: bool = False  # gate context_risk widening + width cap (default OFF)
 
 
 # --- Frame (normalized live snapshot from feed) ---

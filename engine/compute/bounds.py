@@ -1,10 +1,12 @@
 """
 Compute certainty bounds [bound_low, bound_high] from frame/state/config.
-Map scope: CS2 map-state corridor (bounds_cs2); fallback simple method on exception.
+Series/map scope: CS2 series corridor (bounds_cs2, i.i.d macro-only); fallback simple on exception.
+Returns (bound_low, bound_high, debug_dict); debug_dict may be empty.
 """
 from __future__ import annotations
 
 import math
+from typing import Any
 
 from engine.models import Config, Frame, State
 
@@ -13,7 +15,7 @@ WIN_TARGET = 13
 MAX_ROUNDS_MAP = 24
 
 
-def _compute_bounds_simple(frame: Frame, config: Config, state: State) -> tuple[float, float]:
+def _compute_bounds_simple(frame: Frame, config: Config, state: State) -> tuple[float, float, dict[str, Any]]:
     """Fallback: center 0.5, half-width shrinks with rounds (wide early, narrow late)."""
     ra = max(0, getattr(frame, "scores", (0, 0))[0])
     rb = max(0, getattr(frame, "scores", (0, 0))[1])
@@ -27,23 +29,24 @@ def _compute_bounds_simple(frame: Frame, config: Config, state: State) -> tuple[
     bound_high = min(0.99, center + half_width)
     if bound_high <= bound_low:
         bound_high = min(0.99, bound_low + 0.02)
-    return (bound_low, bound_high)
+    return (bound_low, bound_high, {})
 
 
-def compute_bounds(frame: Frame, config: Config, state: State) -> tuple[float, float]:
+def compute_bounds(frame: Frame, config: Config, state: State) -> tuple[float, float, dict[str, Any]]:
     """
-    Return (bound_low, bound_high) in [0, 1].
-    Map scope: compute_bounds_cs2 (score + series corridor); fallback to simple on exception.
-    Non-map scope: (0.01, 0.99).
+    Return (bound_low, bound_high, bounds_debug) in [0, 1].
+    Series/map scope: compute_bounds_cs2 (i.i.d series corridor); fallback to simple on exception.
+    Non-series/map scope: (0.01, 0.99), {}.
     """
     scope = getattr(config, "contract_scope", None) or ""
-    is_map = scope == "" or (
-        isinstance(scope, str) and "map" in scope.lower() and "series" not in scope.lower()
-    )
-    if not is_map:
-        return (0.01, 0.99)
+    scope_lower = scope.lower() if isinstance(scope, str) else ""
+    use_series_corridor = scope == "" or "map" in scope_lower or "series" in scope_lower
+    if not use_series_corridor:
+        return (0.01, 0.99, {})
     try:
         from engine.compute.bounds_cs2 import compute_bounds_cs2
-        return compute_bounds_cs2(frame, config, state)
+        lo, hi, debug = compute_bounds_cs2(frame, config, state)
+        return (lo, hi, debug)
     except Exception:
-        return _compute_bounds_simple(frame, config, state)
+        lo, hi, _ = _compute_bounds_simple(frame, config, state)
+        return (lo, hi, {})

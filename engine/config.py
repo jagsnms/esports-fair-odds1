@@ -27,6 +27,7 @@ DEFAULTS: dict[str, Any] = {
     "replay_speed": 1.0,
     "replay_index": 0,
     "midround_enabled": False,
+    "context_widening_enabled": False,
 }
 
 
@@ -73,6 +74,7 @@ def merge_config(current: Config, partial: dict[str, Any]) -> Config:
         "replay_speed": getattr(current, "replay_speed", 1.0),
         "replay_index": getattr(current, "replay_index", 0),
         "midround_enabled": getattr(current, "midround_enabled", False),
+        "context_widening_enabled": getattr(current, "context_widening_enabled", False),
     }
     d.update(updates)
     return Config(**d)
