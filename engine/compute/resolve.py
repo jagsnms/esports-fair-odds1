@@ -1,6 +1,6 @@
 """
 Resolve p_hat from frame/config/state and rails. Base + microstate adjustment, clamped into rails.
-When config.midround_enabled is True, uses midround V2 oracle (frozen rails, p_mid_clamped).
+Midround V2 is always computed; applied only when round_phase is IN_PROGRESS (phase-gated).
 Returns (p_hat, debug_dict).
 """
 from __future__ import annotations
@@ -16,6 +16,9 @@ from engine.compute.midround_v2_cs2 import (
 )
 from engine.compute.q_intra_cs2 import compute_q_intra_cs2
 
+# Only apply V2 mixture when round is in progress (phase-gated)
+IN_PROGRESS_PHASES = frozenset({"IN_PROGRESS"})
+
 
 def resolve_p_hat(
     frame: Frame,
@@ -24,8 +27,8 @@ def resolve_p_hat(
     rails: tuple[float, float],
 ) -> tuple[float, dict[str, Any]]:
     """Base = prematch_map if set else 0.5; add micro_adjustment_cs2(frame); clamp into rails and [0,1].
-    If config.midround_enabled: use midround V2 oracle (frozen_a=rail_high, frozen_b=rail_low) during
-    IN_PROGRESS rounds (or when round_phase unknown); p_hat_final = clamp_to_rails(p_mid_clamped).
+    Midround V2: always compute features; apply mixture only when round_phase in IN_PROGRESS.
+    Else p_hat_final = p_hat_old and debug midround_v2 has skipped=True, reason=phase_not_in_progress.
     Returns (p_hat, debug_dict).
     """
     rail_low, rail_high = rails
@@ -40,36 +43,31 @@ def resolve_p_hat(
     p_hat_old = max(rail_low, min(rail_high, p_post_clamp01))
 
     q_intra, q_intra_debug = compute_q_intra_cs2(frame, config=config)
-    midround_enabled = getattr(config, "midround_enabled", False)
+    features = compute_cs2_midround_features(frame, config=config)
+    round_phase = features.get("round_phase")
+    phase_unknown = round_phase is None
+    phase_upper = str(round_phase).strip().upper() if round_phase is not None else None
+    apply_v2 = phase_upper in IN_PROGRESS_PHASES
 
-    midround_v2_result: dict[str, Any] | None = None
-    phase_unknown = True
-
-    if not midround_enabled:
+    midround_v2_result: dict[str, Any]
+    if not apply_v2:
         p_hat_final = p_hat_old
         midround_weight = 0.0
+        midround_v2_result = {
+            "skipped": True,
+            "reason": "phase_not_in_progress",
+            "round_phase": round_phase,
+        }
     else:
         midround_weight = 0.25
-        features = compute_cs2_midround_features(frame, config=config)
-        round_phase = features.get("round_phase")
-        phase_unknown = round_phase is None
-        is_live_round_phase = phase_unknown or (
-            str(round_phase).lower() not in ("ended", "freezetime", "warmup")
-            if round_phase is not None
-            else True
+        result = apply_cs2_midround_adjustment_v2_mixture(
+            frozen_a=rail_high,
+            frozen_b=rail_low,
+            features=features,
         )
-        if not is_live_round_phase:
-            p_hat_final = p_hat_old
-            midround_v2_result = {"skipped": True, "reason": "round_not_in_progress", "round_phase": round_phase}
-        else:
-            result = apply_cs2_midround_adjustment_v2_mixture(
-                frozen_a=rail_high,
-                frozen_b=rail_low,
-                features=features,
-            )
-            midround_v2_result = result
-            p_mid_clamped = result["p_mid_clamped"]
-            p_hat_final = max(rail_low, min(rail_high, p_mid_clamped))
+        midround_v2_result = result
+        p_mid_clamped = result["p_mid_clamped"]
+        p_hat_final = max(rail_low, min(rail_high, p_mid_clamped))
 
     debug_dict: dict[str, Any] = {
         "p_hat_base": base,
@@ -79,7 +77,6 @@ def resolve_p_hat(
         "rail_low": rail_low,
         "rail_high": rail_high,
         "q_intra": q_intra_debug,
-        "midround_enabled": midround_enabled,
         "midround_weight": midround_weight,
         "p_hat_old": p_hat_old,
         "p_hat_final": p_hat_final,

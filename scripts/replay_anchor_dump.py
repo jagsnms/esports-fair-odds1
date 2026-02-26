@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Replay anchor harness: run normalize -> reduce -> bounds -> rails -> resolve_p_hat (midround_enabled=True)
+Replay anchor harness: run normalize -> reduce -> bounds -> rails -> resolve_p_hat (midround phase-gated)
 over logs/bo3_pulls.jsonl for a given match_id. Print a compact line per tick and optional detailed
 blocks for anchor tick indices. No external deps; does not modify engine behavior.
 """
@@ -113,7 +113,6 @@ def run(
             anchor_set.add(best_tick_idx)
             time_anchor_info[best_tick_idx] = (requested_t, best_t, delta)
     config = Config(
-        midround_enabled=True,
         team_a_is_team_one=team_a_is_team_one,
         contract_scope="map",
     )
@@ -248,7 +247,6 @@ def run(
             # by re-running reduce_state/compute up to tick_idx.
             # Simple approach: recompute from scratch up to each chosen tick.
             cfg = Config(
-                midround_enabled=True,
                 team_a_is_team_one=team_a_is_team_one,
                 contract_scope="map",
             )

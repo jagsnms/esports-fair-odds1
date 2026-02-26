@@ -32,7 +32,6 @@ class Config:
     replay_loop: bool = True
     replay_speed: float = 1.0
     replay_index: int = 0  # runner-owned cursor
-    midround_enabled: bool = False
     context_widening_enabled: bool = False  # gate context_risk widening + width cap (default OFF)
     # Kalshi market
     market_enabled: bool = True
@@ -59,8 +58,20 @@ class Frame:
     # First-class microstate (alive-only sums); None when player_states missing
     cash_totals: tuple[float, float] | None = None
     loadout_totals: tuple[float, float] | None = None
+    wealth_totals: tuple[float, float] | None = None  # cash_totals + loadout_totals
     armor_totals: tuple[float, float] | None = None
+    # Reliability debug: how loadout was sourced per team
+    loadout_source: Optional[str] = None  # "ev" | "weapon_est" | "mixed"
+    loadout_ev_count_a: Optional[int] = None
+    loadout_ev_count_b: Optional[int] = None
+    loadout_est_count_a: Optional[int] = None
+    loadout_est_count_b: Optional[int] = None
     bomb_phase_time_remaining: Any = None  # structured per map/game
+    # Canonical round time (normalized at ingest: ms -> seconds; use only *_s downstream)
+    round_time_remaining_s: float | None = None
+    round_time_s: float | None = None
+    round_time_remaining_raw: float | int | None = None
+    round_time_raw: float | int | None = None
     map_index: int = 0
     series_score: tuple[int, int] = (0, 0)
     map_name: str = ""

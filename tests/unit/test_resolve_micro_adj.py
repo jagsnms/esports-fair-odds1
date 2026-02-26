@@ -30,14 +30,10 @@ def _frame(
     )
 
 
-def _config(
-    prematch_map: Optional[float] = None,
-    midround_enabled: bool = False,
-) -> Config:
+def _config(prematch_map: Optional[float] = None) -> Config:
     c = Config()
     if prematch_map is not None:
         c.prematch_map = prematch_map
-    c.midround_enabled = midround_enabled
     return c
 
 
@@ -78,7 +74,7 @@ def test_strong_a_disadvantage_adj_negative() -> None:
 
 def test_resolve_clamps_into_rails() -> None:
     """resolve_p_hat clamps into rails even if base+adj is outside."""
-    # Base 0.9 + adj 0.08 = 0.98; rails (0.3, 0.7) -> result should be 0.7
+    # Base 0.9 + adj 0.08 = 0.98; rails (0.3, 0.7) -> result should be 0.7 (V2 skipped for non-IN_PROGRESS)
     frame = _frame(alive_counts=(5, 0), hp_totals=(500.0, 0.0), loadout_totals=(20000.0, 0.0))
     config = _config(prematch_map=0.9)
     state = _state()
@@ -99,44 +95,82 @@ def test_resolve_clamps_to_01() -> None:
     assert 0 <= p <= 1
 
 
-def test_midround_disabled_unchanged_behavior() -> None:
-    """midround_enabled=False => p_hat equals p_hat_old and p_hat_final (no blend)."""
-    frame = _frame(alive_counts=(4, 2), hp_totals=(350.0, 250.0))
-    config = _config(prematch_map=0.5, midround_enabled=False)
+def test_midround_phase_not_in_progress_skipped() -> None:
+    """When round_phase is not IN_PROGRESS (e.g. BUY_TIME/FREEZETIME), V2 is skipped; p_hat_final = p_hat_old."""
+    frame = _frame(
+        alive_counts=(4, 2),
+        hp_totals=(350.0, 250.0),
+        bomb_phase_time_remaining={"round_phase": "BUY_TIME"},
+    )
+    config = _config(prematch_map=0.5)
     state = _state()
     rails = (0.2, 0.8)
     p, dbg = resolve_p_hat(frame, config, state, rails)
-    assert dbg["midround_enabled"] is False
     assert dbg["midround_weight"] == 0.0
     assert dbg["p_hat_old"] == dbg["p_hat_final"]
     assert p == dbg["p_hat_old"]
-    assert p == dbg["p_hat_final"]
+    mv2 = dbg.get("midround_v2") or {}
+    assert mv2.get("skipped") is True
+    assert mv2.get("reason") == "phase_not_in_progress"
+    assert mv2.get("round_phase") == "BUY_TIME"
 
 
-def test_midround_enabled_stays_within_rails() -> None:
-    """midround_enabled=True => p_hat_final within rails."""
-    frame = _frame(alive_counts=(5, 1), hp_totals=(400.0, 100.0))
-    config = _config(prematch_map=0.5, midround_enabled=True)
+def test_midround_freezetime_skipped() -> None:
+    """FREEZETIME does not apply V2; sets skipped reason."""
+    frame = _frame(
+        alive_counts=(5, 5),
+        hp_totals=(400.0, 400.0),
+        bomb_phase_time_remaining={"round_phase": "FREEZETIME"},
+    )
+    config = _config(prematch_map=0.5)
+    state = _state()
+    rails = (0.2, 0.8)
+    _, dbg = resolve_p_hat(frame, config, state, rails)
+    mv2 = dbg.get("midround_v2") or {}
+    assert mv2.get("skipped") is True
+    assert mv2.get("reason") == "phase_not_in_progress"
+    assert mv2.get("round_phase") == "FREEZETIME"
+
+
+def test_midround_in_progress_stays_within_rails() -> None:
+    """When round_phase is IN_PROGRESS, V2 is applied and p_hat_final within rails."""
+    frame = _frame(
+        alive_counts=(5, 1),
+        hp_totals=(400.0, 100.0),
+        bomb_phase_time_remaining={"round_phase": "IN_PROGRESS"},
+    )
+    config = _config(prematch_map=0.5)
     state = _state()
     rails = (0.25, 0.75)
     p, dbg = resolve_p_hat(frame, config, state, rails)
-    assert dbg["midround_enabled"] is True
     assert dbg["midround_weight"] == 0.25
+    mv2 = dbg.get("midround_v2") or {}
+    assert mv2.get("skipped") is not True
     rlo, rhi = rails
     assert rlo <= p <= rhi
     assert p == dbg["p_hat_final"]
 
 
 def test_midround_monotonic_higher_q_intra_raises_p_hat() -> None:
-    """With midround_enabled=True (V2), more A advantage => higher p_hat_final when rails allow."""
+    """With IN_PROGRESS (V2 applied), more A advantage => higher p_hat_final when rails allow."""
     state = _state()
     rails = (0.2, 0.8)
-    config_low = _config(prematch_map=0.5, midround_enabled=True)
-    frame_low = _frame(alive_counts=(3, 3), hp_totals=(300.0, 300.0), loadout_totals=(5000.0, 5000.0))
-    p_low, dbg_low = resolve_p_hat(frame_low, config_low, state, rails)
-    frame_high = _frame(alive_counts=(5, 2), hp_totals=(450.0, 150.0), loadout_totals=(12000.0, 6000.0))
-    p_high, dbg_high = resolve_p_hat(frame_high, config_low, state, rails)
-    # When V2 is used, canonical q is in midround_v2
+    config = _config(prematch_map=0.5)
+    bomb = {"round_phase": "IN_PROGRESS"}
+    frame_low = _frame(
+        alive_counts=(3, 3),
+        hp_totals=(300.0, 300.0),
+        loadout_totals=(5000.0, 5000.0),
+        bomb_phase_time_remaining=bomb,
+    )
+    p_low, dbg_low = resolve_p_hat(frame_low, config, state, rails)
+    frame_high = _frame(
+        alive_counts=(5, 2),
+        hp_totals=(450.0, 150.0),
+        loadout_totals=(12000.0, 6000.0),
+        bomb_phase_time_remaining=bomb,
+    )
+    p_high, dbg_high = resolve_p_hat(frame_high, config, state, rails)
     v2_low = dbg_low.get("midround_v2") or {}
     v2_high = dbg_high.get("midround_v2") or {}
     q_low = v2_low.get("q_intra", dbg_low["q_intra"].get("q_intra_round_win_a", 0.5))
@@ -146,20 +180,19 @@ def test_midround_monotonic_higher_q_intra_raises_p_hat() -> None:
 
 
 def test_midround_v2_p_hat_equals_p_mid_clamped_when_rails_wide() -> None:
-    """midround_enabled=True with wide rails => p_hat_final equals midround_v2 p_mid_clamped."""
+    """IN_PROGRESS with wide rails => p_hat_final equals midround_v2 p_mid_clamped."""
     state = _state()
     rails = (0.01, 0.99)  # wide so clamp to rails does not change p_mid_clamped
-    config = _config(prematch_map=0.5, midround_enabled=True)
+    config = _config(prematch_map=0.5)
     frame = _frame(
         alive_counts=(4, 2),
         hp_totals=(400.0, 200.0),
         loadout_totals=(10000.0, 5000.0),
-        bomb_phase_time_remaining=None,  # phase_unknown -> V2 still runs
+        bomb_phase_time_remaining={"round_phase": "IN_PROGRESS"},
     )
     p, dbg = resolve_p_hat(frame, config, state, rails)
-    assert dbg["midround_enabled"] is True
     assert dbg.get("midround_v2") is not None
-    assert "skipped" not in dbg["midround_v2"]  # V2 was applied
+    assert dbg["midround_v2"].get("skipped") is not True  # V2 was applied
     p_mid_clamped = dbg["midround_v2"]["p_mid_clamped"]
     assert p == p_mid_clamped
 
@@ -182,11 +215,14 @@ class TestResolveMicroAdj(unittest.TestCase):
     def test_resolve_clamps_to_01(self) -> None:
         test_resolve_clamps_to_01()
 
-    def test_midround_disabled_unchanged_behavior(self) -> None:
-        test_midround_disabled_unchanged_behavior()
+    def test_midround_phase_not_in_progress_skipped(self) -> None:
+        test_midround_phase_not_in_progress_skipped()
 
-    def test_midround_enabled_stays_within_rails(self) -> None:
-        test_midround_enabled_stays_within_rails()
+    def test_midround_freezetime_skipped(self) -> None:
+        test_midround_freezetime_skipped()
+
+    def test_midround_in_progress_stays_within_rails(self) -> None:
+        test_midround_in_progress_stays_within_rails()
 
     def test_midround_monotonic_higher_q_intra_raises_p_hat(self) -> None:
         test_midround_monotonic_higher_q_intra_raises_p_hat()

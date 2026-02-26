@@ -395,31 +395,6 @@ function App() {
         <button type="button" onClick={() => { setIsPaused(false); setWsReconnectTrigger((n) => n + 1) }}>
           Resume (catch up)
         </button>
-        {' '}
-        <label>
-          <input
-            type="checkbox"
-            checked={(current?.state as { config?: { midround_enabled?: boolean } } | undefined)?.config?.midround_enabled ?? false}
-            onChange={async (e) => {
-              const midround_enabled = e.target.checked
-              try {
-                const r = await fetch(`${API_BASE}/api/v1/config`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ midround_enabled }),
-                })
-                if (r.ok) {
-                  const data = await r.json()
-                  setCurrent(data)
-                }
-              } catch {
-                // ignore
-              }
-            }}
-          />
-          {' '}
-          Midround enabled
-        </label>
       </p>
       {current?.derived?.p_hat != null && (
         <p style={{ fontSize: 14, color: '#9ca3af' }}>
@@ -877,7 +852,7 @@ function App() {
             'Corridors:',
             `  series_low=${scalarStr(seriesLow)}  series_high=${scalarStr(seriesHigh)}  map_low=${scalarStr(mapLow)}  map_high=${scalarStr(mapHigh)}`,
             'Resolver:',
-            `  p_hat_old=${v('p_hat_old')}  p_hat_final=${v('p_hat_final')}  midround_enabled=${v('midround_enabled')}  bo3_health=${v('bo3_health')}`,
+            `  p_hat_old=${v('p_hat_old')}  p_hat_final=${v('p_hat_final')}  bo3_health=${v('bo3_health')}`,
             'Midround V2:',
             `  q_intra=${mv('q_intra')}  raw_score=${mv('raw_score')}  urgency=${mv('urgency')}  time_progress=${mv('time_progress')}`,
             `  used_time=${mv('used_time')}  used_loadout=${mv('used_loadout')}  used_bomb_direction=${mv('used_bomb_direction')}  used_armor=${mv('used_armor')}  used_econ=${mv('used_econ')}`,
