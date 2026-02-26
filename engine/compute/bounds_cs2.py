@@ -39,6 +39,9 @@ def compute_bounds_cs2(frame: Frame, config: Config, state: State) -> tuple[floa
         p0_map = max(1e-6, min(1.0 - 1e-6, float(p0_map)))
     else:
         p0_map = 0.5
+    prematch_series_used = getattr(config, "prematch_series", None)
+    prematch_map_used = getattr(config, "prematch_map", None)
+    prematch_locked = getattr(config, "prematch_locked", False)
 
     series_low = series_win_prob_live(n_maps, maps_a_won, maps_b_won, 0.0, p0_map)
     series_high = series_win_prob_live(n_maps, maps_a_won, maps_b_won, 1.0, p0_map)
@@ -55,5 +58,8 @@ def compute_bounds_cs2(frame: Frame, config: Config, state: State) -> tuple[floa
         "series_corridor_p0_map": p0_map,
         "series_low": series_low,
         "series_high": series_high,
+        "prematch_series_used": prematch_series_used,
+        "prematch_map_used": prematch_map_used,
+        "prematch_locked": prematch_locked,
     }
     return (series_low, series_high, debug)
