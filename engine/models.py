@@ -33,6 +33,13 @@ class Config:
     replay_index: int = 0  # runner-owned cursor
     midround_enabled: bool = False
     context_widening_enabled: bool = False  # gate context_risk widening + width cap (default OFF)
+    # Kalshi market
+    market_enabled: bool = True
+    kalshi_url: Optional[str] = None
+    kalshi_ticker: Optional[str] = None  # resolved YES ticker for selected side
+    market_delay_sec: int = 120
+    market_poll_sec: int = 5
+    market_side: Optional[str] = None  # e.g. "A" or "B" or team key
 
 
 # --- Frame (normalized live snapshot from feed) ---

@@ -28,6 +28,12 @@ DEFAULTS: dict[str, Any] = {
     "replay_index": 0,
     "midround_enabled": False,
     "context_widening_enabled": False,
+    "market_enabled": True,
+    "kalshi_url": None,
+    "kalshi_ticker": None,
+    "market_delay_sec": 120,
+    "market_poll_sec": 5,
+    "market_side": None,
 }
 
 
@@ -75,6 +81,12 @@ def merge_config(current: Config, partial: dict[str, Any]) -> Config:
         "replay_index": getattr(current, "replay_index", 0),
         "midround_enabled": getattr(current, "midround_enabled", False),
         "context_widening_enabled": getattr(current, "context_widening_enabled", False),
+        "market_enabled": getattr(current, "market_enabled", True),
+        "kalshi_url": getattr(current, "kalshi_url", None),
+        "kalshi_ticker": getattr(current, "kalshi_ticker", None),
+        "market_delay_sec": getattr(current, "market_delay_sec", 120),
+        "market_poll_sec": getattr(current, "market_poll_sec", 5),
+        "market_side": getattr(current, "market_side", None),
     }
     d.update(updates)
     return Config(**d)

@@ -61,6 +61,11 @@ function App() {
   const [replayLoop, setReplayLoop] = useState(true)
   const [replayError, setReplayError] = useState<string | null>(null)
   const [replayMatches, setReplayMatches] = useState<Array<{ match_id: number; team1: string; team2: string; count: number }>>([])
+  const [crosshairT, setCrosshairT] = useState<string | number | null>(null)
+  const [kalshiUrl, setKalshiUrl] = useState('')
+  const [marketOptions, setMarketOptions] = useState<Array<{ key: string; label: string; ticker_yes: string }>>([])
+  const [selectedMarketKey, setSelectedMarketKey] = useState('')
+  const [marketError, setMarketError] = useState<string | null>(null)
 
   const chartRef = useRef<HTMLDivElement>(null)
   const chartInstanceRef = useRef<IChartApi | null>(null)
@@ -69,6 +74,7 @@ function App() {
   const hiSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
   const railLoSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
   const railHiSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
+  const marketSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
   const pausedRef = useRef(false)
   const pendingPointsRef = useRef<Point[]>([])
   const currentSegRef = useRef<number>(0)
@@ -78,7 +84,7 @@ function App() {
   }, [isPaused])
 
   const applyPointToChart = useCallback((point: Point) => {
-    const time = point.t as import('lightweight-charts').UTCTimestamp
+    const time = point.t as any
     const seriesLo = point.series_low ?? point.lo
     const seriesHi = point.series_high ?? point.hi
     const mapLo = point.map_low ?? point.rail_low ?? seriesLo
@@ -88,6 +94,9 @@ function App() {
     hiSeriesRef.current?.update({ time, value: seriesHi })
     railLoSeriesRef.current?.update({ time, value: mapLo })
     railHiSeriesRef.current?.update({ time, value: mapHi })
+    if (point.m != null && marketSeriesRef.current) {
+      marketSeriesRef.current.update({ time, value: point.m })
+    }
   }, [])
 
   const setDataFromHistory = useCallback((history: Point[]) => {
@@ -98,6 +107,7 @@ function App() {
       hiSeriesRef.current.setData([])
       railLoSeriesRef.current?.setData([])
       railHiSeriesRef.current?.setData([])
+      marketSeriesRef.current?.setData([])
       return
     }
     const utc = (t: number) => t as import('lightweight-charts').UTCTimestamp
@@ -120,11 +130,13 @@ function App() {
       const mapHi = pt.map_high ?? pt.rail_high ?? seriesHi
       return { time: utc(pt.t), value: mapHi }
     })
+    const marketData = history.filter((pt) => pt.m != null).map((pt) => ({ time: utc(pt.t), value: pt.m as number }))
     pSeriesRef.current.setData(pData)
     loSeriesRef.current.setData(loData)
     hiSeriesRef.current.setData(hiData)
     railLoSeriesRef.current?.setData(railLoData)
     railHiSeriesRef.current?.setData(railHiData)
+    marketSeriesRef.current?.setData(marketData)
     chartInstanceRef.current?.timeScale().fitContent()
   }, [])
 
@@ -194,7 +206,30 @@ function App() {
       priceLineVisible: false,
       lastValueVisible: false,
     })
+    marketSeriesRef.current = chart.addLineSeries({
+      color: '#a78bfa',
+      lineWidth: 1,
+      title: 'market_mid',
+      priceLineVisible: false,
+      lastValueVisible: false,
+    })
     setChartReady(true)
+
+    const unsubCrosshair = chart.subscribeCrosshairMove((param) => {
+      if (param.time === undefined) {
+        setCrosshairT(null)
+        return
+      }
+      if (typeof param.time === 'number') {
+        setCrosshairT(param.time)
+        return
+      }
+      if (typeof param.time === 'object' && param.time !== null) {
+        setCrosshairT(JSON.stringify(param.time))
+        return
+      }
+      setCrosshairT(String(param.time))
+    })
 
     const handleResize = () => {
       if (chartRef.current && chartInstanceRef.current)
@@ -466,6 +501,103 @@ function App() {
         )}
       </section>
       <section style={{ marginTop: 16, padding: 12, border: '1px solid #374151', borderRadius: 4 }}>
+        <h3 style={{ marginTop: 0 }}>Market (Kalshi)</h3>
+        <p>
+          <label>
+            Kalshi URL:{' '}
+            <input
+              type="text"
+              value={kalshiUrl}
+              onChange={(e) => setKalshiUrl(e.target.value)}
+              placeholder="https://kalshi.com/..."
+              style={{ width: 320 }}
+            />
+          </label>
+          {' '}
+          <button
+            type="button"
+            onClick={async () => {
+              setMarketError(null)
+              if (!kalshiUrl.trim()) {
+                setMarketError('Enter a Kalshi URL')
+                return
+              }
+              try {
+                const r = await fetch(`${API_BASE}/api/v1/market/resolve`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ kalshi_url: kalshiUrl.trim() }),
+                })
+                if (!r.ok) {
+                  const body = await r.json().catch(() => ({}))
+                  setMarketError((body as { detail?: string })?.detail ?? r.statusText)
+                  setMarketOptions([])
+                  return
+                }
+                const data = await r.json()
+                const opts = Array.isArray(data.options) ? data.options : []
+                setMarketOptions(opts)
+                if (opts.length > 0 && data.suggested) setSelectedMarketKey(data.suggested)
+                else if (opts.length > 0) setSelectedMarketKey(opts[0].key)
+              } catch (e) {
+                setMarketError(e instanceof Error ? e.message : String(e))
+                setMarketOptions([])
+              }
+            }}
+          >
+            Load markets
+          </button>
+        </p>
+        {marketOptions.length > 0 && (
+          <p>
+            <label>
+              Team / side:{' '}
+              <select
+                value={selectedMarketKey}
+                onChange={(e) => setSelectedMarketKey(e.target.value)}
+                style={{ minWidth: 280 }}
+              >
+                {marketOptions.map((opt) => (
+                  <option key={opt.key} value={opt.key}>
+                    {opt.label || opt.key}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {' '}
+            <button
+              type="button"
+              onClick={async () => {
+                setMarketError(null)
+                try {
+                  const r = await fetch(`${API_BASE}/api/v1/market/select`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      kalshi_url: kalshiUrl.trim() || undefined,
+                      market_side_key: selectedMarketKey,
+                    }),
+                  })
+                  if (!r.ok) {
+                    const body = await r.json().catch(() => ({}))
+                    setMarketError((body as { detail?: string })?.detail ?? r.statusText)
+                    return
+                  }
+                  const data = await r.json()
+                  setCurrent(data)
+                  setWsReconnectTrigger((prev) => prev + 1)
+                } catch (e) {
+                  setMarketError(e instanceof Error ? e.message : String(e))
+                }
+              }}
+            >
+              Track selected
+            </button>
+          </p>
+        )}
+        {marketError && <p style={{ color: '#ef4444', fontSize: 14 }}>{marketError}</p>}
+      </section>
+      <section style={{ marginTop: 16, padding: 12, border: '1px solid #374151', borderRadius: 4 }}>
         <h3 style={{ marginTop: 0 }}>Replay (JSONL)</h3>
         <p>
           <label>
@@ -596,14 +728,31 @@ function App() {
         </p>
         {replayError && <p style={{ color: '#ef4444', fontSize: 14 }}>{replayError}</p>}
       </section>
-      <div
-        ref={chartRef}
-        style={{
-          marginTop: 16,
-          width: '100%',
-          height: '75vh',
-        }}
-      />
+      <div style={{ position: 'relative', marginTop: 16 }}>
+        <div
+          style={{
+            position: 'absolute',
+            left: 8,
+            top: 8,
+            zIndex: 10,
+            fontSize: 12,
+            fontFamily: 'monospace',
+            color: '#9ca3af',
+            background: 'rgba(26, 26, 26, 0.9)',
+            padding: '4px 8px',
+            borderRadius: 4,
+          }}
+        >
+          Crosshair t: {crosshairT !== null ? String(crosshairT) : '—'}
+        </div>
+        <div
+          ref={chartRef}
+          style={{
+            width: '100%',
+            height: '75vh',
+          }}
+        />
+      </div>
     </div>
   )
 }

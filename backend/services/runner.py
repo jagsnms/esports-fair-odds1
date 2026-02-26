@@ -1,11 +1,13 @@
 """
 Async Runner: loop at poll_interval_s; BO3 live, REPLAY from JSONL, or dummy.
+Market: poll Kalshi when enabled, push to delay buffer, attach market_mid to points.
 """
 from __future__ import annotations
 
 import asyncio
 import math
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any
 
 from engine.models import Config, Derived, Frame, HistoryPoint, State
@@ -40,12 +42,67 @@ class Runner:
         self._replay_path: str | None = None
         self._replay_match_id: int | None = None
         self._dummy_snapshot_sent = False
+        # Market delay buffer + poll throttle
+        from backend.services.market_buffer import MarketDelayBuffer
+        self._market_buffer = MarketDelayBuffer(maxlen=5000)
+        self._last_market_poll_ts: float = 0.0
+        self._last_market_error: str | None = None
+        self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="runner_market")
 
     def get_replay_progress(self) -> dict[str, int] | None:
         """Return {index, total} when replay is active and list is loaded."""
         if not self._replay_payloads:
             return None
         return {"index": self._replay_index, "total": len(self._replay_payloads)}
+
+    async def _maybe_poll_market(self, config: Config) -> None:
+        """If market_enabled and kalshi_ticker and poll interval elapsed, fetch and push to buffer."""
+        if not getattr(config, "market_enabled", True):
+            return
+        ticker = getattr(config, "kalshi_ticker", None) or ""
+        if not ticker or not ticker.strip():
+            return
+        poll_sec = max(1, int(getattr(config, "market_poll_sec", 5)))
+        now = time.time()
+        if now - self._last_market_poll_ts < poll_sec:
+            return
+        self._last_market_poll_ts = now
+        ticker = ticker.strip()
+
+        def _fetch() -> None:
+            from engine.market.kalshi_client import fetch_kalshi_bid_ask
+            bid, ask, mid, ts_epoch = fetch_kalshi_bid_ask(ticker)
+            self._market_buffer.push({
+                "ts_epoch": ts_epoch,
+                "bid": bid,
+                "ask": ask,
+                "mid": mid,
+                "ticker": ticker,
+            })
+            self._last_market_error = None
+
+        try:
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(self._executor, _fetch)
+        except Exception as e:
+            self._last_market_error = str(e)
+
+    def _get_market_for_point(self, config: Config) -> tuple[float | None, dict[str, Any]]:
+        """Return (market_mid, extra_debug). market_mid from delayed buffer; extra_debug has market_error if set."""
+        out_debug: dict[str, Any] = {}
+        if self._last_market_error:
+            out_debug["market_error"] = self._last_market_error
+        if not getattr(config, "market_enabled", True) or not getattr(config, "kalshi_ticker", None):
+            return (None, out_debug)
+        delay_sec = max(0, int(getattr(config, "market_delay_sec", 120)))
+        snap = self._market_buffer.get_delayed(delay_sec)
+        if snap is None:
+            return (None, out_debug)
+        mid = snap.get("mid")
+        if mid is not None:
+            out_debug["market_bid"] = snap.get("bid")
+            out_debug["market_ask"] = snap.get("ask")
+        return (float(mid) if mid is not None else None, out_debug)
 
     @property
     def is_running(self) -> bool:
@@ -135,6 +192,8 @@ class Runner:
             p_hat, dbg = resolve_p_hat(frame, config, new_state, (rail_low, rail_high))
             dbg = {**dbg, **bounds_debug, **rails_debug}
 
+        market_mid, market_dbg = self._get_market_for_point(config)
+        dbg.update(market_dbg)
         point = HistoryPoint(
             time=t,
             p_hat=p_hat,
@@ -142,7 +201,7 @@ class Runner:
             bound_high=bound_high,
             rail_low=rail_low,
             rail_high=rail_high,
-            market_mid=None,
+            market_mid=market_mid,
             segment_id=new_state.segment_id,
         )
         derived = Derived(
@@ -287,6 +346,8 @@ class Runner:
             p_hat, dbg = resolve_p_hat(frame, config, new_state, (rail_low, rail_high))
             dbg = {**dbg, **bounds_debug, **rails_debug}
 
+        market_mid, market_dbg = self._get_market_for_point(config)
+        dbg.update(market_dbg)
         point = HistoryPoint(
             time=t,
             p_hat=p_hat,
@@ -294,7 +355,7 @@ class Runner:
             bound_high=bound_high,
             rail_low=rail_low,
             rail_high=rail_high,
-            market_mid=None,
+            market_mid=market_mid,
             segment_id=new_state.segment_id,
         )
         derived = Derived(
@@ -319,6 +380,7 @@ class Runner:
                 interval = max(0.1, getattr(config, "poll_interval_s", 1.0))
                 if getattr(config, "source", None) != "DUMMY":
                     self._dummy_snapshot_sent = False
+                await self._maybe_poll_market(config)
             except Exception:
                 interval = 1.0
             did_replay = await self._tick_replay(config)
