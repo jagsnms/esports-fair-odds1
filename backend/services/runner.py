@@ -71,6 +71,78 @@ def _bo3_snapshot_status(
     return ("live", None, snapshot_ts, False)
 
 
+# BO3 health: label-only observability (no gating).
+BO3_STALE_THRESHOLD_SEC = 30
+BO3_PAUSED_PHASES = frozenset({
+    "TIMEOUT", "TECH_TIMEOUT", "PAUSED", "HALFTIME", "INTERMISSION",
+    "POSTGAME", "MAP_END", "WARMUP", "FREEZETIME",
+})
+
+
+def _bo3_health(
+    snap: dict[str, Any] | None,
+    frame: Frame | None,
+    last_change_epoch: float | None,
+    now: float,
+) -> tuple[str, str | None, float | None]:
+    """
+    Compute BO3 health label: GOOD | PAUSED | STALE | ERROR (caller sets ERROR on exception).
+    Returns (bo3_health, bo3_health_reason, bo3_health_age_s).
+    """
+    round_phase = None
+    if isinstance(frame, Frame) and isinstance(getattr(frame, "bomb_phase_time_remaining", None), dict):
+        round_phase = frame.bomb_phase_time_remaining.get("round_phase")
+    if round_phase is None and isinstance(snap, dict):
+        round_phase = snap.get("round_phase") or snap.get("phase")
+    phase_str = str(round_phase).strip().upper() if round_phase is not None else ""
+    if phase_str and phase_str in BO3_PAUSED_PHASES:
+        return ("PAUSED", phase_str, None)
+    if last_change_epoch is None:
+        return ("GOOD", None, None)
+    age = now - last_change_epoch
+    if age > BO3_STALE_THRESHOLD_SEC:
+        return ("STALE", f"no change {int(age)}s", age)
+    return ("GOOD", None, None)
+
+
+def compute_breach_flags(
+    market_mid: float | None,
+    series_low: float,
+    series_high: float,
+    map_low: float,
+    map_high: float,
+) -> tuple[bool, bool, bool, bool, float | None, str | None]:
+    """
+    Compute breach flags: market above/below map and series corridors.
+    Returns (breach_map_hi, breach_map_lo, breach_series_hi, breach_series_lo, breach_mag, breach_type).
+    breach_type and breach_mag are the single primary breach (max magnitude); None when no breach.
+    """
+    breach_map_hi = breach_map_lo = breach_series_hi = breach_series_lo = False
+    mag_map_hi = mag_map_lo = mag_series_hi = mag_series_lo = -1.0
+    if market_mid is None:
+        return (False, False, False, False, None, None)
+    if market_mid > map_high:
+        breach_map_hi = True
+        mag_map_hi = market_mid - map_high
+    if market_mid < map_low:
+        breach_map_lo = True
+        mag_map_lo = map_low - market_mid
+    if market_mid > series_high:
+        breach_series_hi = True
+        mag_series_hi = market_mid - series_high
+    if market_mid < series_low:
+        breach_series_lo = True
+        mag_series_lo = series_low - market_mid
+    best_mag = -1.0
+    best_type: str | None = None
+    for name, mag in [("map_hi", mag_map_hi), ("map_lo", mag_map_lo), ("series_hi", mag_series_hi), ("series_lo", mag_series_lo)]:
+        if mag >= 0 and mag > best_mag:
+            best_mag = mag
+            best_type = name
+    breach_mag = best_mag if best_mag >= 0 else None
+    return (breach_map_hi, breach_map_lo, breach_series_hi, breach_series_lo, breach_mag, best_type)
+
+
 class Runner:
     """Runs tick loop: BO3 snapshot, REPLAY from JSONL, or dummy; append_point, broadcast."""
 
@@ -97,6 +169,8 @@ class Runner:
         self._bo3_last_snapshot_ts: Any = None
         self._bo3_last_scores: tuple[int, int] | None = None
         self._bo3_same_snapshot_polls: int = 0
+        self._bo3_last_change_epoch: float | None = None  # updated when snapshot_ts or scores change
+        self._last_breach_type: str | None = None
 
     def get_replay_progress(self) -> dict[str, int] | None:
         """Return {index, total} when replay is active and list is loaded."""
@@ -204,6 +278,9 @@ class Runner:
             new_debug["bo3_age_s"] = (
                 (time.time() - self._bo3_last_success_epoch) if self._bo3_last_success_epoch is not None else None
             )
+            new_debug["bo3_health"] = "ERROR"
+            new_debug["bo3_health_reason"] = str(e)
+            new_debug["bo3_health_age_s"] = None
             fail_derived = Derived(
                 p_hat=cur_derived.get("p_hat", 0.5),
                 bound_low=cur_derived.get("bound_low", 0),
@@ -223,6 +300,10 @@ class Runner:
             self._bo3_same_snapshot_polls,
         )
         if status != "live":
+            now = time.time()
+            health, health_reason, health_age_s = _bo3_health(
+                snap, frame, self._bo3_last_change_epoch, now
+            )
             cur = await self._store.get_current()
             state = await self._store.get_state()
             cur_derived = (cur.get("derived") or {}) if isinstance(cur, dict) else {}
@@ -234,8 +315,11 @@ class Runner:
             new_debug["bo3_last_success_epoch"] = self._bo3_last_success_epoch
             new_debug["bo3_success_counter"] = self._bo3_success_counter
             new_debug["bo3_age_s"] = (
-                (time.time() - self._bo3_last_success_epoch) if self._bo3_last_success_epoch is not None else None
+                (now - self._bo3_last_success_epoch) if self._bo3_last_success_epoch is not None else None
             )
+            new_debug["bo3_health"] = health
+            new_debug["bo3_health_reason"] = health_reason
+            new_debug["bo3_health_age_s"] = health_age_s
             fail_derived = Derived(
                 p_hat=cur_derived.get("p_hat", 0.5),
                 bound_low=cur_derived.get("bound_low", 0),
@@ -245,7 +329,19 @@ class Runner:
                 kappa=cur_derived.get("kappa", 0),
                 debug=new_debug,
             )
-            await self._store.set_current(state, fail_derived)
+            market_mid, _ = self._get_market_for_point(config)
+            hold_point = HistoryPoint(
+                time=now,
+                p_hat=fail_derived.p_hat,
+                bound_low=fail_derived.bound_low,
+                bound_high=fail_derived.bound_high,
+                rail_low=fail_derived.rail_low,
+                rail_high=fail_derived.rail_high,
+                market_mid=market_mid,
+                segment_id=getattr(state, "segment_id", 0),
+            )
+            await self._store.append_point(hold_point, state, fail_derived)
+            await self._broadcaster.broadcast({"type": "point", "point": _history_point_to_wire(hold_point)})
             if status == "stale":
                 self._bo3_same_snapshot_polls += 1
             return True
@@ -254,10 +350,14 @@ class Runner:
             self._bo3_same_snapshot_polls = 0
             self._bo3_last_snapshot_ts = snapshot_ts
             self._bo3_last_scores = getattr(frame, "scores", (0, 0))
+            self._bo3_last_change_epoch = time.time()
         else:
             self._bo3_same_snapshot_polls += 1
 
         t = time.time()
+        health, health_reason, health_age_s = _bo3_health(
+            snap, frame, self._bo3_last_change_epoch, t
+        )
         from engine.compute.bounds import compute_bounds
         from engine.compute.rails import compute_rails
         from engine.compute.resolve import resolve_p_hat
@@ -310,6 +410,40 @@ class Runner:
 
         market_mid, market_dbg = self._get_market_for_point(config)
         dbg.update(market_dbg)
+        # Breach detection: market vs corridors
+        breach_map_hi, breach_map_lo, breach_series_hi, breach_series_lo, breach_mag, breach_type = compute_breach_flags(
+            market_mid, bound_low, bound_high, rail_low, rail_high
+        )
+        dbg["breach_map_hi"] = breach_map_hi
+        dbg["breach_map_lo"] = breach_map_lo
+        dbg["breach_series_hi"] = breach_series_hi
+        dbg["breach_series_lo"] = breach_series_lo
+        dbg["breach_mag"] = breach_mag
+        if breach_type is not None and (self._last_breach_type is None or self._last_breach_type != breach_type):
+            scores = (0, 0)
+            if new_state.last_frame is not None:
+                scores = getattr(new_state.last_frame, "scores", (0, 0))
+            series_score = getattr(new_state, "last_series_score", None) or (0, 0)
+            breach_evt = {
+                "ts_epoch": t,
+                "match_id": mid,
+                "seg": getattr(new_state, "segment_id", 0),
+                "scores": list(scores),
+                "series_score": list(series_score),
+                "map_index": getattr(new_state, "map_index", 0),
+                "market_mid": market_mid,
+                "p_hat": p_hat,
+                "series_low": bound_low,
+                "series_high": bound_high,
+                "map_low": rail_low,
+                "map_high": rail_high,
+                "breach_type": breach_type,
+                "breach_mag": breach_mag,
+            }
+            await self._store.append_breach_event(breach_evt)
+            self._last_breach_type = breach_type
+        if breach_type is None:
+            self._last_breach_type = None
         # BO3 liveness diagnostics (success path)
         self._bo3_success_counter += 1
         self._bo3_last_success_epoch = time.time()
@@ -327,6 +461,9 @@ class Runner:
         dbg["bo3_age_s"] = (
             (time.time() - self._bo3_last_success_epoch) if self._bo3_last_success_epoch is not None else None
         )
+        dbg["bo3_health"] = health
+        dbg["bo3_health_reason"] = health_reason
+        dbg["bo3_health_age_s"] = health_age_s
         point = HistoryPoint(
             time=t,
             p_hat=p_hat,
@@ -481,6 +618,39 @@ class Runner:
 
         market_mid, market_dbg = self._get_market_for_point(config)
         dbg.update(market_dbg)
+        breach_map_hi, breach_map_lo, breach_series_hi, breach_series_lo, breach_mag, breach_type = compute_breach_flags(
+            market_mid, bound_low, bound_high, rail_low, rail_high
+        )
+        dbg["breach_map_hi"] = breach_map_hi
+        dbg["breach_map_lo"] = breach_map_lo
+        dbg["breach_series_hi"] = breach_series_hi
+        dbg["breach_series_lo"] = breach_series_lo
+        dbg["breach_mag"] = breach_mag
+        if breach_type is not None and (self._last_breach_type is None or self._last_breach_type != breach_type):
+            scores = (0, 0)
+            if new_state.last_frame is not None:
+                scores = getattr(new_state.last_frame, "scores", (0, 0))
+            series_score = getattr(new_state, "last_series_score", None) or (0, 0)
+            breach_evt = {
+                "ts_epoch": t,
+                "match_id": match_id,
+                "seg": getattr(new_state, "segment_id", 0),
+                "scores": list(scores),
+                "series_score": list(series_score),
+                "map_index": getattr(new_state, "map_index", 0),
+                "market_mid": market_mid,
+                "p_hat": p_hat,
+                "series_low": bound_low,
+                "series_high": bound_high,
+                "map_low": rail_low,
+                "map_high": rail_high,
+                "breach_type": breach_type,
+                "breach_mag": breach_mag,
+            }
+            await self._store.append_breach_event(breach_evt)
+            self._last_breach_type = breach_type
+        if breach_type is None:
+            self._last_breach_type = None
         point = HistoryPoint(
             time=t,
             p_hat=p_hat,
