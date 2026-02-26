@@ -32,9 +32,16 @@ type Bo3Match = { id: number; team1_name: string; team2_name: string; bo_type: n
 
 const filterHistoryToSeg = (history: Point[] | undefined, seg: number): Point[] => {
   if (!history || history.length === 0) return []
-  const hasSeg = history.some((p) => p.seg !== undefined)
-  if (!hasSeg) return history
-  return history.filter((p) => p.seg === seg)
+  const segValues = history
+    .map((p) => p.seg)
+    .filter((v): v is number => v !== undefined && v !== null)
+  if (segValues.length === 0) return history
+  const direct = history.filter((p) => p.seg === seg)
+  if (direct.length > 0) return direct
+  const latestSeg = Math.max(...segValues)
+  const latest = history.filter((p) => p.seg === latestSeg)
+  if (latest.length > 0) return latest
+  return history
 }
 
 function App() {
@@ -143,24 +150,49 @@ function App() {
         background: { type: ColorType.Solid, color: '#1a1a1a' },
         textColor: '#d1d5db',
       },
+      grid: {
+        vertLines: { visible: false },
+        horzLines: { visible: false },
+      },
       width: chartRef.current.clientWidth,
       height: chartRef.current.clientHeight || 300,
     })
     chartInstanceRef.current = chart
-    pSeriesRef.current = chart.addLineSeries({ color: '#3b82f6', title: 'p_hat' })
-    loSeriesRef.current = chart.addLineSeries({ color: '#22c55e', lineWidth: 1, title: 'series_low' })
-    hiSeriesRef.current = chart.addLineSeries({ color: '#ef4444', lineWidth: 1, title: 'series_high' })
+    pSeriesRef.current = chart.addLineSeries({
+      color: '#3b82f6',
+      title: 'p_hat',
+      priceLineVisible: false,
+      lastValueVisible: true,
+    })
+    loSeriesRef.current = chart.addLineSeries({
+      color: '#22c55e',
+      lineWidth: 1,
+      title: 'series_low',
+      priceLineVisible: false,
+      lastValueVisible: false,
+    })
+    hiSeriesRef.current = chart.addLineSeries({
+      color: '#ef4444',
+      lineWidth: 1,
+      title: 'series_high',
+      priceLineVisible: false,
+      lastValueVisible: false,
+    })
     railLoSeriesRef.current = chart.addLineSeries({
       color: '#facc15',
       lineWidth: 1,
       lineStyle: LineStyle.Dotted,
       title: 'map_low',
+      priceLineVisible: false,
+      lastValueVisible: false,
     })
     railHiSeriesRef.current = chart.addLineSeries({
       color: '#facc15',
       lineWidth: 1,
       lineStyle: LineStyle.Dotted,
       title: 'map_high',
+      priceLineVisible: false,
+      lastValueVisible: false,
     })
     setChartReady(true)
 
@@ -201,6 +233,10 @@ function App() {
         const cur = await r.json()
         const history = (cur.history ?? []) as Point[]
         const filtered = filterHistoryToSeg(history, newSeg)
+         const segValues = history
+          .map((p) => p.seg)
+          .filter((v): v is number => v !== undefined && v !== null)
+        const latestSeg = segValues.length > 0 ? Math.max(...segValues) : null
         setCurrent(cur)
         setSnapshotHistory(filtered)
         if (pSeriesRef.current && filtered.length > 0) {
@@ -212,6 +248,7 @@ function App() {
           newSeg,
           historyLength: history.length,
           filteredLength: filtered.length,
+            latestSeg,
         })
       } catch (e) {
         // eslint-disable-next-line no-console
