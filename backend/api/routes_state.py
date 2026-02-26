@@ -1,7 +1,7 @@
 """
 State API: current State/Derived, history, config update.
 """
-from fastapi import APIRouter, Body
+from fastapi import APIRouter, Body, HTTPException
 
 from backend.deps import get_store
 
@@ -28,7 +28,10 @@ config_router = APIRouter(tags=["config"])
 
 @config_router.post("/config")
 async def post_config(partial: dict = Body(...)) -> dict:
-    """Merge partial config update; return current state."""
+    """Merge partial config update; return current state. Returns 400 if match_id invalid."""
     store = get_store()
-    await store.update_config(partial)
+    try:
+        await store.update_config(partial)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return await store.get_current()

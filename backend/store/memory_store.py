@@ -21,14 +21,17 @@ def _state_derived_to_dict(state: State, derived: Derived) -> dict[str, Any]:
 
 
 def _history_point_to_wire(p: HistoryPoint) -> dict[str, Any]:
-    """Wire format: t (unix s), p, lo, hi, m."""
-    return {
+    """Wire format: t (unix s), p, lo, hi, m, seg (segment_id)."""
+    out = {
         "t": p.time,
         "p": p.p_hat,
         "lo": p.bound_low,
         "hi": p.bound_high,
         "m": p.market_mid,
     }
+    if hasattr(p, "segment_id"):
+        out["seg"] = p.segment_id
+    return out
 
 
 class MemoryStore:
@@ -64,17 +67,45 @@ class MemoryStore:
             self._derived = derived
 
     async def update_config(self, partial: dict[str, Any]) -> None:
-        """Merge partial config update; does not touch state/derived/history."""
+        """Merge partial config update. If source or match_id changed (old != new), clear history
+        and reset state.last_total_rounds to avoid mixing points between dummy/BO3 or between matches."""
         async with self._lock:
+            current = self._state.config
+            new_config = merge_config(current, partial)
+            source_changed = getattr(current, "source", None) != getattr(new_config, "source", None)
+            match_id_changed = getattr(current, "match_id", None) != getattr(new_config, "match_id", None)
+            if source_changed or match_id_changed:
+                self._history.clear()
+                last_frame = None
+                last_total_rounds = 0
+                segment_id = 0
+                last_series_score = None
+                last_map_index = None
+                map_index = 0
+            else:
+                last_frame = self._state.last_frame
+                last_total_rounds = self._state.last_total_rounds
+                segment_id = getattr(self._state, "segment_id", 0)
+                last_series_score = getattr(self._state, "last_series_score", None)
+                last_map_index = getattr(self._state, "last_map_index", None)
+                map_index = self._state.map_index
             self._state = State(
-                config=merge_config(self._state.config, partial),
-                last_frame=self._state.last_frame,
+                config=new_config,
+                last_frame=last_frame,
                 team_mapping=self._state.team_mapping,
-                map_index=self._state.map_index,
-                last_total_rounds=self._state.last_total_rounds,
+                map_index=map_index,
+                last_total_rounds=last_total_rounds,
+                segment_id=segment_id,
+                last_series_score=last_series_score,
+                last_map_index=last_map_index,
             )
 
     async def get_config(self) -> Config:
         """Return current config."""
         async with self._lock:
             return self._state.config
+
+    async def get_state(self) -> State:
+        """Return current state (read-only; do not mutate)."""
+        async with self._lock:
+            return self._state

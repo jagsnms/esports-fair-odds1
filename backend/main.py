@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from backend.api.routes_bo3 import router as bo3_router
 from backend.api.routes_state import config_router, router as state_router
 from backend.api.ws import router as ws_router
 from backend.deps import set_broadcaster, set_runner, set_store
@@ -47,6 +48,7 @@ app.add_middleware(
 
 app.include_router(state_router, prefix="/api/v1")
 app.include_router(config_router, prefix="/api/v1")
+app.include_router(bo3_router, prefix="/api/v1")
 app.include_router(ws_router, prefix="/api/v1")
 
 

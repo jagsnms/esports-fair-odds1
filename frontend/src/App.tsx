@@ -2,9 +2,13 @@ import { createChart, ColorType, type IChartApi, type ISeriesApi } from 'lightwe
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 const WS_URL = 'ws://localhost:8000/api/v1/stream'
+const API_BASE = 'http://localhost:8000'
 
-/** Wire format: t (unix s), p (p_hat), lo, hi, m (market_mid or null) */
-type Point = { t: number; p: number; lo: number; hi: number; m: number | null }
+/** Wire format: t (unix s), p (p_hat), lo, hi, m (market_mid or null), seg (segment_id) */
+type Point = { t: number; p: number; lo: number; hi: number; m: number | null; seg?: number }
+
+/** BO3 live match from /api/v1/bo3/live_matches */
+type Bo3Match = { id: number; team1_name: string; team2_name: string; bo_type: number }
 
 function App() {
   const [wsStatus, setWsStatus] = useState<'connecting' | 'open' | 'closed' | 'error'>('connecting')
@@ -13,6 +17,10 @@ function App() {
   const [chartReady, setChartReady] = useState(false)
   const [isPaused, setIsPaused] = useState(false)
   const [wsReconnectTrigger, setWsReconnectTrigger] = useState(0)
+  const [liveMatches, setLiveMatches] = useState<Bo3Match[]>([])
+  const [selectedMatchId, setSelectedMatchId] = useState<string>('')
+  const [teamAIsTeamOne, setTeamAIsTeamOne] = useState(true)
+  const [configError, setConfigError] = useState<string | null>(null)
 
   const chartRef = useRef<HTMLDivElement>(null)
   const chartInstanceRef = useRef<IChartApi | null>(null)
@@ -21,6 +29,7 @@ function App() {
   const hiSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
   const pausedRef = useRef(false)
   const pendingPointsRef = useRef<Point[]>([])
+  const currentSegRef = useRef<number>(0)
 
   useEffect(() => {
     pausedRef.current = isPaused
@@ -34,7 +43,13 @@ function App() {
   }, [])
 
   const setDataFromHistory = useCallback((history: Point[]) => {
-    if (!pSeriesRef.current || !loSeriesRef.current || !hiSeriesRef.current || history.length === 0) return
+    if (!pSeriesRef.current || !loSeriesRef.current || !hiSeriesRef.current) return
+    if (history.length === 0) {
+      pSeriesRef.current.setData([])
+      loSeriesRef.current.setData([])
+      hiSeriesRef.current.setData([])
+      return
+    }
     const pData = history.map((pt) => ({ time: pt.t as import('lightweight-charts').UTCTimestamp, value: pt.p }))
     const loData = history.map((pt) => ({ time: pt.t as import('lightweight-charts').UTCTimestamp, value: pt.lo }))
     const hiData = history.map((pt) => ({ time: pt.t as import('lightweight-charts').UTCTimestamp, value: pt.hi }))
@@ -102,9 +117,12 @@ function App() {
         const msg = JSON.parse(event.data as string)
         if (msg.type === 'snapshot') {
           setCurrent(msg.current ?? null)
+          const seg = (msg.current as { state?: { segment_id?: number } })?.state?.segment_id ?? 0
+          currentSegRef.current = seg
           const hist = Array.isArray(msg.history) ? (msg.history as Point[]) : []
-          setSnapshotHistory(hist)
-          if (pSeriesRef.current && hist.length > 0) setDataFromHistory(hist)
+          const lastSegmentOnly = hist.filter((p) => p.seg === undefined || p.seg === seg)
+          setSnapshotHistory(lastSegmentOnly)
+          if (pSeriesRef.current && lastSegmentOnly.length > 0) setDataFromHistory(lastSegmentOnly)
         } else if (msg.type === 'point' && msg.point) {
           const pt = msg.point as Point
           setCurrent((prev) => ({ ...prev, state: prev?.state, derived: { ...prev?.derived, p_hat: pt.p } }))
@@ -112,7 +130,14 @@ function App() {
             pendingPointsRef.current.push(pt)
             return
           }
-          if (!pausedRef.current) applyPointToChart(pt)
+          if (!pausedRef.current) {
+            if (pt.seg !== undefined && pt.seg !== currentSegRef.current) {
+              currentSegRef.current = pt.seg
+              setDataFromHistory([])
+              setSnapshotHistory([])
+            }
+            applyPointToChart(pt)
+          }
         }
       } catch {
         // ignore parse errors
@@ -150,6 +175,116 @@ function App() {
           Current p_hat: <strong>{current.derived.p_hat.toFixed(4)}</strong>
         </p>
       )}
+      <section style={{ marginTop: 16, padding: 12, border: '1px solid #374151', borderRadius: 4 }}>
+        <h3 style={{ marginTop: 0 }}>BO3</h3>
+        <p>
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                const r = await fetch(`${API_BASE}/api/v1/bo3/live_matches`)
+                const data = await r.json()
+                setLiveMatches(Array.isArray(data) ? data : [])
+              } catch {
+                setLiveMatches([])
+              }
+            }}
+          >
+            Load BO3 live matches
+          </button>
+        </p>
+        <p>
+          <label>
+            Match:{' '}
+            <select
+              value={selectedMatchId}
+              onChange={(e) => setSelectedMatchId(e.target.value)}
+              style={{ minWidth: 200 }}
+            >
+              <option value="">—</option>
+              {liveMatches.map((m) => (
+                <option key={m.id} value={String(m.id)}>
+                  {m.team1_name} vs {m.team2_name} (bo{m.bo_type})
+                </option>
+              ))}
+            </select>
+          </label>
+        </p>
+        <p>
+          <label>
+            Team A is:{' '}
+            <select
+              value={teamAIsTeamOne ? 'team1' : 'team2'}
+              onChange={(e) => setTeamAIsTeamOne(e.target.value === 'team1')}
+            >
+              <option value="team1">Team 1</option>
+              <option value="team2">Team 2</option>
+            </select>
+          </label>
+        </p>
+        <p>
+          <button
+            type="button"
+            disabled={
+              !selectedMatchId ||
+              !Number.isFinite(Number(selectedMatchId)) ||
+              !Number.isInteger(Number(selectedMatchId))
+            }
+            onClick={async () => {
+              if (!selectedMatchId) return
+              const n = Number(selectedMatchId)
+              if (!Number.isFinite(n) || !Number.isInteger(n)) return
+              setConfigError(null)
+              try {
+                const r = await fetch(`${API_BASE}/api/v1/config`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    source: 'BO3',
+                    match_id: n,
+                    team_a_is_team_one: teamAIsTeamOne,
+                  }),
+                })
+                if (!r.ok) {
+                  const body = await r.json().catch(() => ({}))
+                  const msg =
+                    (body as { detail?: string })?.detail ??
+                    (body as { message?: string })?.message ??
+                    r.statusText
+                  setConfigError(String(msg))
+                  return
+                }
+                setConfigError(null)
+                setWsReconnectTrigger((prev) => prev + 1)
+              } catch (e) {
+                setConfigError(e instanceof Error ? e.message : String(e))
+              }
+            }}
+          >
+            Activate BO3
+          </button>
+        </p>
+        {configError && (
+          <p style={{ color: '#ef4444', fontSize: 14 }}>{configError}</p>
+        )}
+        {current?.state && (
+          <p style={{ fontSize: 14, color: '#9ca3af' }}>
+            Source: <strong>{(current.state as { config?: { source?: string } })?.config?.source ?? '—'}</strong>
+            {' · '}
+            Match: <strong>{(current.state as { config?: { match_id?: number | null } })?.config?.match_id ?? '—'}</strong>
+            {(current.state as { last_frame?: { teams?: string[]; scores?: number[] } })?.last_frame?.teams && (
+              <>
+                {' · '}
+                {(current.state as { last_frame?: { teams?: string[] } }).last_frame?.teams?.join(' vs ')}
+                {' '}
+                ({(current.state as { last_frame?: { scores?: number[] } }).last_frame?.scores?.[0] ?? 0}
+                –
+                {(current.state as { last_frame?: { scores?: number[] } }).last_frame?.scores?.[1] ?? 0})
+              </>
+            )}
+          </p>
+        )}
+      </section>
       <div ref={chartRef} style={{ marginTop: 16 }} />
     </div>
   )
