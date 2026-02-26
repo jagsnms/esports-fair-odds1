@@ -88,7 +88,12 @@ class State:
 
 @dataclass
 class Derived:
-    """Computed outputs: p_hat, rails, bounds, kappa, debug bundle."""
+    """Computed outputs: p_hat, corridors (series/map), kappa, debug bundle.
+
+    Semantic layers (for series-winner contract):
+    - Series corridor: bound_low/bound_high (aliases: series_low/series_high)
+    - Map corridor: rail_low/rail_high (aliases: map_low/map_high)
+    """
 
     p_hat: float = 0.5
     rail_low: float = 0.0
@@ -97,6 +102,23 @@ class Derived:
     bound_high: float = 1.0
     kappa: float = 0.0
     debug: dict[str, Any] = field(default_factory=dict)
+
+    # Alias properties for semantic clarity (used by callers/serialization helpers).
+    @property
+    def series_low(self) -> float:
+        return self.bound_low
+
+    @property
+    def series_high(self) -> float:
+        return self.bound_high
+
+    @property
+    def map_low(self) -> float:
+        return self.rail_low
+
+    @property
+    def map_high(self) -> float:
+        return self.rail_high
 
 
 # --- HistoryPoint (append-only chart point) ---

@@ -16,12 +16,30 @@ def _state_derived_to_dict(state: State, derived: Derived) -> dict[str, Any]:
     """Serialize State + Derived to JSON-serializable dict."""
     state_d = asdict(state)
     derived_d = asdict(derived)
+    # Corridor naming aliases for series-winner contract:
+    # - series_low/high: series corridor (formerly bound_low/high)
+    # - map_low/high: map corridor (formerly rail_low/high)
+    if "bound_low" in derived_d and "bound_high" in derived_d:
+        derived_d.setdefault("series_low", derived_d["bound_low"])
+        derived_d.setdefault("series_high", derived_d["bound_high"])
+    if "rail_low" in derived_d and "rail_high" in derived_d:
+        derived_d.setdefault("map_low", derived_d["rail_low"])
+        derived_d.setdefault("map_high", derived_d["rail_high"])
     # Config/Frame are nested dataclasses; asdict recurses. Tuples become lists.
     return {"state": state_d, "derived": derived_d}
 
 
 def _history_point_to_wire(p: HistoryPoint) -> dict[str, Any]:
-    """Wire format: t (unix s), p, lo, hi, rail_low, rail_high, m, seg (segment_id)."""
+    """Wire format (backward compatible):
+    - t: unix seconds
+    - p: p_hat
+    - lo/hi: legacy series corridor (bound_low/high)
+    - rail_low/rail_high: legacy map corridor
+    - series_low/series_high: series corridor aliases (== lo/hi)
+    - map_low/map_high: map corridor aliases (== rail_low/rail_high)
+    - m: market_mid
+    - seg: segment_id
+    """
     out = {
         "t": p.time,
         "p": p.p_hat,
@@ -29,10 +47,15 @@ def _history_point_to_wire(p: HistoryPoint) -> dict[str, Any]:
         "hi": p.bound_high,
         "m": p.market_mid,
     }
+    # New semantic aliases for corridors
+    out["series_low"] = p.bound_low
+    out["series_high"] = p.bound_high
     if hasattr(p, "rail_low"):
         out["rail_low"] = p.rail_low
+        out.setdefault("map_low", p.rail_low)
     if hasattr(p, "rail_high"):
         out["rail_high"] = p.rail_high
+        out.setdefault("map_high", p.rail_high)
     if hasattr(p, "segment_id"):
         out["seg"] = p.segment_id
     return out

@@ -4,7 +4,14 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 const WS_URL = 'ws://localhost:8000/api/v1/stream'
 const API_BASE = 'http://localhost:8000'
 
-/** Wire format: t (unix s), p (p_hat), lo, hi, rail_low, rail_high, m (market_mid or null), seg (segment_id) */
+/** Wire format:
+ * - t (unix s), p (p_hat)
+ * - series_low/series_high: SERIES corridor (preferred)
+ * - map_low/map_high: MAP corridor (preferred)
+ * - lo/hi: legacy series corridor
+ * - rail_low/rail_high: legacy map corridor
+ * - m (market_mid or null), seg (segment_id)
+ */
 type Point = {
   t: number
   p: number
@@ -14,6 +21,10 @@ type Point = {
   seg?: number
   rail_low?: number
   rail_high?: number
+  series_low?: number
+  series_high?: number
+  map_low?: number
+  map_high?: number
 }
 
 /** BO3 live match from /api/v1/bo3/live_matches */
@@ -54,13 +65,15 @@ function App() {
 
   const applyPointToChart = useCallback((point: Point) => {
     const time = point.t as import('lightweight-charts').UTCTimestamp
+    const seriesLo = point.series_low ?? point.lo
+    const seriesHi = point.series_high ?? point.hi
+    const mapLo = point.map_low ?? point.rail_low ?? seriesLo
+    const mapHi = point.map_high ?? point.rail_high ?? seriesHi
     pSeriesRef.current?.update({ time, value: point.p })
-    loSeriesRef.current?.update({ time, value: point.lo })
-    hiSeriesRef.current?.update({ time, value: point.hi })
-    const rlo = point.rail_low ?? point.lo
-    const rhi = point.rail_high ?? point.hi
-    railLoSeriesRef.current?.update({ time, value: rlo })
-    railHiSeriesRef.current?.update({ time, value: rhi })
+    loSeriesRef.current?.update({ time, value: seriesLo })
+    hiSeriesRef.current?.update({ time, value: seriesHi })
+    railLoSeriesRef.current?.update({ time, value: mapLo })
+    railHiSeriesRef.current?.update({ time, value: mapHi })
   }, [])
 
   const setDataFromHistory = useCallback((history: Point[]) => {
@@ -75,10 +88,24 @@ function App() {
     }
     const utc = (t: number) => t as import('lightweight-charts').UTCTimestamp
     const pData = history.map((pt) => ({ time: utc(pt.t), value: pt.p }))
-    const loData = history.map((pt) => ({ time: utc(pt.t), value: pt.lo }))
-    const hiData = history.map((pt) => ({ time: utc(pt.t), value: pt.hi }))
-    const railLoData = history.map((pt) => ({ time: utc(pt.t), value: pt.rail_low ?? pt.lo }))
-    const railHiData = history.map((pt) => ({ time: utc(pt.t), value: pt.rail_high ?? pt.hi }))
+    const loData = history.map((pt) => ({
+      time: utc(pt.t),
+      value: pt.series_low ?? pt.lo,
+    }))
+    const hiData = history.map((pt) => ({
+      time: utc(pt.t),
+      value: pt.series_high ?? pt.hi,
+    }))
+    const railLoData = history.map((pt) => {
+      const seriesLo = pt.series_low ?? pt.lo
+      const mapLo = pt.map_low ?? pt.rail_low ?? seriesLo
+      return { time: utc(pt.t), value: mapLo }
+    })
+    const railHiData = history.map((pt) => {
+      const seriesHi = pt.series_high ?? pt.hi
+      const mapHi = pt.map_high ?? pt.rail_high ?? seriesHi
+      return { time: utc(pt.t), value: mapHi }
+    })
     pSeriesRef.current.setData(pData)
     loSeriesRef.current.setData(loData)
     hiSeriesRef.current.setData(hiData)
@@ -114,19 +141,19 @@ function App() {
     })
     chartInstanceRef.current = chart
     pSeriesRef.current = chart.addLineSeries({ color: '#3b82f6', title: 'p_hat' })
-    loSeriesRef.current = chart.addLineSeries({ color: '#22c55e', lineWidth: 1, title: 'bound_low' })
-    hiSeriesRef.current = chart.addLineSeries({ color: '#ef4444', lineWidth: 1, title: 'bound_high' })
+    loSeriesRef.current = chart.addLineSeries({ color: '#22c55e', lineWidth: 1, title: 'series_low' })
+    hiSeriesRef.current = chart.addLineSeries({ color: '#ef4444', lineWidth: 1, title: 'series_high' })
     railLoSeriesRef.current = chart.addLineSeries({
       color: '#6b7280',
       lineWidth: 1,
       lineStyle: 2,
-      title: 'rail_low',
+      title: 'map_low',
     })
     railHiSeriesRef.current = chart.addLineSeries({
       color: '#6b7280',
       lineWidth: 1,
       lineStyle: 2,
-      title: 'rail_high',
+      title: 'map_high',
     })
     setChartReady(true)
 
