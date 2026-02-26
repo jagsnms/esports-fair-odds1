@@ -89,4 +89,10 @@ def merge_config(current: Config, partial: dict[str, Any]) -> Config:
         "market_side": getattr(current, "market_side", None),
     }
     d.update(updates)
+    # Enforce minimum 5s BO3 poll interval
+    pi = d.get("poll_interval_s", 5.0)
+    try:
+        d["poll_interval_s"] = max(5.0, float(pi))
+    except (TypeError, ValueError):
+        d["poll_interval_s"] = 5.0
     return Config(**d)

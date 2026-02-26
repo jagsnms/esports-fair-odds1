@@ -28,6 +28,49 @@ def _history_point_to_wire(p: HistoryPoint) -> dict:
     return out
 
 
+def _bo3_snapshot_status(
+    snap: dict[str, Any] | None,
+    frame: Frame,
+    last_snapshot_ts: Any,
+    last_scores: tuple[int, int] | None,
+    same_snapshot_polls: int,
+) -> tuple[str, str | None, Any, bool]:
+    """
+    Compute app35-style bo3_snapshot_status and bo3_feed_error.
+    Returns (status, feed_error, snapshot_ts, is_fresh).
+    status: "live" | "stale" | "invalid_clock" | "empty"
+    is_fresh: True if snapshot_ts advanced or scores changed (caller resets same_snapshot_polls).
+    """
+    snapshot_ts = None
+    if isinstance(snap, dict):
+        snapshot_ts = snap.get("created_at") or snap.get("updated_at") or snap.get("sent_time") or snap.get("ts")
+
+    if not snap or (isinstance(snap, dict) and not snap.get("team_one") and not snap.get("team_two")):
+        return ("empty", "missing snapshot or essential keys (team_one/team_two)", snapshot_ts, False)
+
+    round_time_remaining_raw = snap.get("round_time_remaining") if isinstance(snap, dict) else None
+    if round_time_remaining_raw is not None:
+        try:
+            rtr = float(round_time_remaining_raw)
+            if abs(rtr) > 300:
+                rtr = rtr / 1000.0
+            if rtr < -5 or rtr > 200:
+                return ("invalid_clock", f"round_time_remaining {rtr:.1f}s out of range [-5, 200]", snapshot_ts, False)
+        except (TypeError, ValueError):
+            pass
+
+    scores = getattr(frame, "scores", (0, 0))
+    ts_advanced = snapshot_ts is not None and snapshot_ts != last_snapshot_ts
+    scores_changed = last_scores is not None and scores != last_scores
+    is_fresh = ts_advanced or scores_changed
+    if is_fresh:
+        return ("live", None, snapshot_ts, True)
+    new_count = same_snapshot_polls + 1
+    if new_count > 3:
+        return ("stale", f"snapshot unchanged for {new_count} polls", snapshot_ts, False)
+    return ("live", None, snapshot_ts, False)
+
+
 class Runner:
     """Runs tick loop: BO3 snapshot, REPLAY from JSONL, or dummy; append_point, broadcast."""
 
@@ -48,6 +91,12 @@ class Runner:
         self._last_market_poll_ts: float = 0.0
         self._last_market_error: str | None = None
         self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="runner_market")
+        # BO3 liveness diagnostics
+        self._bo3_success_counter: int = 0
+        self._bo3_last_success_epoch: float | None = None
+        self._bo3_last_snapshot_ts: Any = None
+        self._bo3_last_scores: tuple[int, int] | None = None
+        self._bo3_same_snapshot_polls: int = 0
 
     def get_replay_progress(self) -> dict[str, int] | None:
         """Return {index, total} when replay is active and list is loaded."""
@@ -132,15 +181,82 @@ class Runner:
             from engine.normalize.bo3_normalize import bo3_snapshot_to_frame
         except ImportError:
             return False
+
         try:
             snap = await get_snapshot(mid)
+            if not snap:
+                raise RuntimeError("BO3 snapshot returned None")
+            frame = bo3_snapshot_to_frame(snap, team_a_is_team_one=team_a_is_team_one)
         except Exception as e:
             print(f"BO3 snapshot fetch failed for match_id={mid}: {e}")
+            cur = await self._store.get_current()
+            state = await self._store.get_state()
+            cur_derived = (cur.get("derived") or {}) if isinstance(cur, dict) else {}
+            new_debug = dict(cur_derived.get("debug") or {})
+            new_debug["bo3_fetch_ok"] = False
+            new_debug["bo3_error"] = str(e)
+            new_debug["bo3_snapshot_status"] = "empty"
+            new_debug["bo3_feed_error"] = str(e)
+            new_debug["bo3_snapshot_ts"] = None
+            new_debug["bo3_match_id_used"] = mid
+            new_debug["bo3_last_success_epoch"] = self._bo3_last_success_epoch
+            new_debug["bo3_success_counter"] = self._bo3_success_counter
+            new_debug["bo3_age_s"] = (
+                (time.time() - self._bo3_last_success_epoch) if self._bo3_last_success_epoch is not None else None
+            )
+            fail_derived = Derived(
+                p_hat=cur_derived.get("p_hat", 0.5),
+                bound_low=cur_derived.get("bound_low", 0),
+                bound_high=cur_derived.get("bound_high", 1),
+                rail_low=cur_derived.get("rail_low", 0),
+                rail_high=cur_derived.get("rail_high", 1),
+                kappa=cur_derived.get("kappa", 0),
+                debug=new_debug,
+            )
+            await self._store.set_current(state, fail_derived)
             return True
-        if not snap:
-            print(f"BO3 snapshot fetch failed for match_id={mid}: returned None")
+
+        status, feed_error, snapshot_ts, is_fresh = _bo3_snapshot_status(
+            snap, frame,
+            self._bo3_last_snapshot_ts,
+            self._bo3_last_scores,
+            self._bo3_same_snapshot_polls,
+        )
+        if status != "live":
+            cur = await self._store.get_current()
+            state = await self._store.get_state()
+            cur_derived = (cur.get("derived") or {}) if isinstance(cur, dict) else {}
+            new_debug = dict(cur_derived.get("debug") or {})
+            new_debug["bo3_snapshot_status"] = status
+            new_debug["bo3_feed_error"] = feed_error
+            new_debug["bo3_snapshot_ts"] = snapshot_ts
+            new_debug["bo3_match_id_used"] = mid
+            new_debug["bo3_last_success_epoch"] = self._bo3_last_success_epoch
+            new_debug["bo3_success_counter"] = self._bo3_success_counter
+            new_debug["bo3_age_s"] = (
+                (time.time() - self._bo3_last_success_epoch) if self._bo3_last_success_epoch is not None else None
+            )
+            fail_derived = Derived(
+                p_hat=cur_derived.get("p_hat", 0.5),
+                bound_low=cur_derived.get("bound_low", 0),
+                bound_high=cur_derived.get("bound_high", 1),
+                rail_low=cur_derived.get("rail_low", 0),
+                rail_high=cur_derived.get("rail_high", 1),
+                kappa=cur_derived.get("kappa", 0),
+                debug=new_debug,
+            )
+            await self._store.set_current(state, fail_derived)
+            if status == "stale":
+                self._bo3_same_snapshot_polls += 1
             return True
-        frame = bo3_snapshot_to_frame(snap, team_a_is_team_one=team_a_is_team_one)
+
+        if is_fresh:
+            self._bo3_same_snapshot_polls = 0
+            self._bo3_last_snapshot_ts = snapshot_ts
+            self._bo3_last_scores = getattr(frame, "scores", (0, 0))
+        else:
+            self._bo3_same_snapshot_polls += 1
+
         t = time.time()
         from engine.compute.bounds import compute_bounds
         from engine.compute.rails import compute_rails
@@ -194,6 +310,23 @@ class Runner:
 
         market_mid, market_dbg = self._get_market_for_point(config)
         dbg.update(market_dbg)
+        # BO3 liveness diagnostics (success path)
+        self._bo3_success_counter += 1
+        self._bo3_last_success_epoch = time.time()
+        snap_ts = None
+        if isinstance(snap, dict):
+            snap_ts = snap.get("created_at") or snap.get("updated_at") or snap.get("sent_time") or snap.get("ts")
+        dbg["bo3_fetch_ok"] = True
+        dbg["bo3_error"] = None
+        dbg["bo3_snapshot_status"] = "live"
+        dbg["bo3_feed_error"] = None
+        dbg["bo3_match_id_used"] = mid
+        dbg["bo3_success_counter"] = self._bo3_success_counter
+        dbg["bo3_last_success_epoch"] = self._bo3_last_success_epoch
+        dbg["bo3_snapshot_ts"] = snap_ts
+        dbg["bo3_age_s"] = (
+            (time.time() - self._bo3_last_success_epoch) if self._bo3_last_success_epoch is not None else None
+        )
         point = HistoryPoint(
             time=t,
             p_hat=p_hat,
@@ -377,12 +510,12 @@ class Runner:
         while not self._stop.is_set():
             try:
                 config = await self._store.get_config()
-                interval = max(0.1, getattr(config, "poll_interval_s", 1.0))
+                interval = max(5.0, float(getattr(config, "poll_interval_s", 5.0)))
                 if getattr(config, "source", None) != "DUMMY":
                     self._dummy_snapshot_sent = False
                 await self._maybe_poll_market(config)
             except Exception:
-                interval = 1.0
+                interval = 5.0
             did_replay = await self._tick_replay(config)
             if did_replay:
                 speed = max(0.1, float(getattr(config, "replay_speed", 1.0)))

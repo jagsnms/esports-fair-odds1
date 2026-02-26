@@ -66,7 +66,7 @@ class MemoryStore:
 
     def __init__(self, max_history: int = 2000) -> None:
         self._lock = asyncio.Lock()
-        self._state = State(config=Config(poll_interval_s=1.0))
+        self._state = State(config=Config(poll_interval_s=5.0))
         self._derived = Derived()
         self._history: deque[HistoryPoint] = deque(maxlen=max_history)
 
