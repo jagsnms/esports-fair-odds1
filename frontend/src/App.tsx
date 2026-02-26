@@ -67,6 +67,9 @@ function App() {
   const [selectedMarketKey, setSelectedMarketKey] = useState('')
   const [marketError, setMarketError] = useState<string | null>(null)
   const [prematchSeriesInput, setPrematchSeriesInput] = useState('')
+  const [rawSnapshotJson, setRawSnapshotJson] = useState<string | null>(null)
+  const [rawSnapshotError, setRawSnapshotError] = useState<string | null>(null)
+  const [rawSnapshotOpen, setRawSnapshotOpen] = useState(false)
   const [breaches, setBreaches] = useState<Array<{
     ts_epoch: number
     match_id: number | null
@@ -539,17 +542,24 @@ function App() {
               bo3_health_reason?: string | null
               bo3_snapshot_status?: string
               bo3_feed_error?: string | null
+              bo3_buffer_age_s?: number | null
+              bo3_buffer_consecutive_failures?: number
             }
           } | undefined)?.debug
           const health = debug?.bo3_health
           const healthReason = debug?.bo3_health_reason
           const status = debug?.bo3_snapshot_status
           const err = debug?.bo3_feed_error
+          const bufferAgeS = debug?.bo3_buffer_age_s
+          const consecutiveFailures = debug?.bo3_buffer_consecutive_failures
           if (health != null) {
             const reason = healthReason != null && healthReason !== '' ? ` (${healthReason})` : ''
+            const agePart = bufferAgeS != null ? `age ${Math.round(bufferAgeS)}s` : ''
+            const failsPart = consecutiveFailures != null && consecutiveFailures > 0 ? `fails ${consecutiveFailures}` : ''
+            const extra = [agePart, failsPart].filter(Boolean).length > 0 ? ` (${[agePart, failsPart].filter(Boolean).join(', ')})` : ''
             return (
               <p style={{ fontSize: 13, color: '#9ca3af' }}>
-                BO3 health: <strong>{health}</strong>{reason}
+                BO3 health: <strong>{health}</strong>{reason}{extra}
               </p>
             )
           }
@@ -886,6 +896,49 @@ function App() {
             </pre>
           )
         })()}
+      </section>
+      <section style={{ marginTop: 16, padding: 12, border: '1px solid #374151', borderRadius: 4 }}>
+        <h3 style={{ marginTop: 0 }}>Debug: Raw BO3 Snapshot</h3>
+        <p>
+          <button
+            type="button"
+            onClick={async () => {
+              setRawSnapshotError(null)
+              try {
+                const r = await fetch(`${API_BASE}/api/v1/debug/bo3/last_snapshot`)
+                if (!r.ok) {
+                  const body = await r.json().catch(() => ({}))
+                  setRawSnapshotJson(null)
+                  setRawSnapshotError((body as { detail?: string })?.detail ?? r.statusText)
+                  return
+                }
+                const data = await r.json()
+                const str = JSON.stringify(data, null, 2)
+                const maxLen = 120000
+                setRawSnapshotJson(str.length > maxLen ? str.slice(0, maxLen) + '…' : str)
+                setRawSnapshotOpen(true)
+              } catch (e) {
+                setRawSnapshotJson(null)
+                setRawSnapshotError(e instanceof Error ? e.message : String(e))
+              }
+            }}
+          >
+            Fetch raw snapshot
+          </button>
+          {rawSnapshotError && <span style={{ marginLeft: 8, color: '#ef4444', fontSize: 12 }}>{rawSnapshotError}</span>}
+        </p>
+        {rawSnapshotJson != null && (
+          <div>
+            <button type="button" onClick={() => setRawSnapshotOpen((o) => !o)} style={{ fontSize: 12, marginBottom: 4 }}>
+              {rawSnapshotOpen ? 'Collapse' : 'Expand'}
+            </button>
+            {rawSnapshotOpen && (
+              <pre style={{ fontSize: 10, fontFamily: 'ui-monospace, monospace', margin: 0, color: '#9ca3af', whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: 400, overflow: 'auto', border: '1px solid #374151', padding: 8, borderRadius: 4 }}>
+                {rawSnapshotJson}
+              </pre>
+            )}
+          </div>
+        )}
       </section>
       <section style={{ marginTop: 16, padding: 12, border: '1px solid #374151', borderRadius: 4 }}>
         <h3 style={{ marginTop: 0 }}>Replay (JSONL)</h3>

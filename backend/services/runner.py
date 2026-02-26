@@ -17,6 +17,33 @@ if TYPE_CHECKING:
     from backend.store.memory_store import MemoryStore
 
 
+def _last_derived_values(cur: dict[str, Any]) -> tuple[float, float, float, float, float, float]:
+    """
+    Extract p_hat, bound_low, bound_high, rail_low, rail_high, kappa from cur["derived"].
+    Used on failure/non-live paths so we never overwrite with zeros.
+    Fallbacks when missing: (0.5, 0.01, 0.99, 0.01, 0.99, 0) to avoid zero corridors.
+    """
+    d = cur.get("derived") or {}
+    if not isinstance(d, dict):
+        d = {}
+    def _f(key: str, default: float) -> float:
+        v = d.get(key)
+        if v is None:
+            return default
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return default
+    return (
+        _f("p_hat", 0.5),
+        _f("bound_low", 0.01),
+        _f("bound_high", 0.99),
+        _f("rail_low", 0.01),
+        _f("rail_high", 0.99),
+        _f("kappa", 0.0),
+    )
+
+
 def _history_point_to_wire(p: HistoryPoint) -> dict:
     out = {"t": p.time, "p": p.p_hat, "lo": p.bound_low, "hi": p.bound_high, "m": p.market_mid}
     if hasattr(p, "rail_low"):
@@ -26,6 +53,13 @@ def _history_point_to_wire(p: HistoryPoint) -> dict:
     if hasattr(p, "segment_id"):
         out["seg"] = p.segment_id
     return out
+
+
+def _bo3_extract_snapshot_ts(snap: dict[str, Any] | None) -> Any:
+    """Extract best ts field for change detection (updated_at/created_at/sent_time/ts)."""
+    if not isinstance(snap, dict):
+        return None
+    return snap.get("updated_at") or snap.get("created_at") or snap.get("sent_time") or snap.get("ts")
 
 
 def _bo3_snapshot_status(
@@ -48,16 +82,17 @@ def _bo3_snapshot_status(
     if not snap or (isinstance(snap, dict) and not snap.get("team_one") and not snap.get("team_two")):
         return ("empty", "missing snapshot or essential keys (team_one/team_two)", snapshot_ts, False)
 
-    round_time_remaining_raw = snap.get("round_time_remaining") if isinstance(snap, dict) else None
-    if round_time_remaining_raw is not None:
-        try:
-            rtr = float(round_time_remaining_raw)
-            if abs(rtr) > 300:
-                rtr = rtr / 1000.0
-            if rtr < -5 or rtr > 200:
-                return ("invalid_clock", f"round_time_remaining {rtr:.1f}s out of range [-5, 200]", snapshot_ts, False)
-        except (TypeError, ValueError):
-            pass
+    from engine.normalize.time_norm import normalize_round_time
+    rtr_raw = snap.get("round_time_remaining") if isinstance(snap, dict) else None
+    if rtr_raw is not None:
+        rtr_norm = normalize_round_time(rtr_raw)
+        if rtr_norm.get("invalid_reason") or rtr_norm.get("seconds") is None:
+            return (
+                "invalid_clock",
+                rtr_norm.get("invalid_reason") or "round_time_remaining out of range",
+                snapshot_ts,
+                False,
+            )
 
     scores = getattr(frame, "scores", (0, 0))
     ts_advanced = snapshot_ts is not None and snapshot_ts != last_snapshot_ts
@@ -73,6 +108,8 @@ def _bo3_snapshot_status(
 
 # BO3 health: label-only observability (no gating).
 BO3_STALE_THRESHOLD_SEC = 30
+BO3_BUFFER_GOOD_AGE_SEC = 20  # GOOD if buffer_age_s <= this
+BO3_FETCH_RETRY_DELAYS = (0.5, 1.0)  # seconds between retries (2 retries after first attempt = 3 total)
 BO3_PAUSED_PHASES = frozenset({
     "TIMEOUT", "TECH_TIMEOUT", "PAUSED", "HALFTIME", "INTERMISSION",
     "POSTGAME", "MAP_END", "WARMUP", "FREEZETIME",
@@ -170,7 +207,16 @@ class Runner:
         self._bo3_last_scores: tuple[int, int] | None = None
         self._bo3_same_snapshot_polls: int = 0
         self._bo3_last_change_epoch: float | None = None  # updated when snapshot_ts or scores change
+        self._bo3_last_raw_snapshot: dict | None = None  # last raw BO3 snapshot dict (for debug dump)
         self._last_breach_type: str | None = None
+        # BO3 in-memory snapshot buffer (writer updates, consumer reads)
+        self._bo3_buf_raw: dict | None = None
+        self._bo3_buf_snapshot_ts: str | None = None
+        self._bo3_buf_last_success_epoch: float | None = None
+        self._bo3_buf_last_attempt_epoch: float | None = None
+        self._bo3_buf_last_error: str | None = None
+        self._bo3_buf_consecutive_failures: int = 0
+        self._bo3_buf_match_id: int | None = None  # clear buffer when match_id changes
 
     def get_replay_progress(self) -> dict[str, int] | None:
         """Return {index, total} when replay is active and list is loaded."""
@@ -242,6 +288,84 @@ class Runner:
         if self._task is not None:
             self._task.cancel()
 
+    async def _bo3_fetch_into_buffer(self, match_id: int) -> None:
+        """
+        Writer: attempt fetch up to 3 times with short delays; update buffer only.
+        On success: set _bo3_buf_raw, _bo3_buf_snapshot_ts, _bo3_buf_last_success_epoch, clear error/failures.
+        On failure: keep _bo3_buf_raw, set _bo3_buf_last_error, increment _bo3_buf_consecutive_failures.
+        Clear buffer when match_id changes.
+        """
+        mid = int(match_id)
+        now = time.time()
+        self._bo3_buf_last_attempt_epoch = now
+        if mid != self._bo3_buf_match_id:
+            self._bo3_buf_raw = None
+            self._bo3_buf_snapshot_ts = None
+            self._bo3_buf_last_success_epoch = None
+            self._bo3_buf_last_error = None
+            self._bo3_buf_consecutive_failures = 0
+            self._bo3_buf_match_id = mid
+        try:
+            from engine.ingest.bo3_client import get_snapshot
+        except ImportError:
+            self._bo3_buf_last_error = "bo3_client not available"
+            self._bo3_buf_consecutive_failures += 1
+            return
+        last_err: str | None = None
+        for attempt in range(3):
+            try:
+                snap = await get_snapshot(mid)
+                if snap and isinstance(snap, dict) and (snap.get("team_one") or snap.get("team_two")):
+                    self._bo3_buf_raw = snap
+                    self._bo3_buf_snapshot_ts = _bo3_extract_snapshot_ts(snap)
+                    self._bo3_buf_last_success_epoch = time.time()
+                    self._bo3_buf_last_error = None
+                    self._bo3_buf_consecutive_failures = 0
+                    return
+                last_err = "snapshot empty or missing team keys"
+            except Exception as e:
+                last_err = str(e)
+            if attempt < 2:
+                delay = BO3_FETCH_RETRY_DELAYS[attempt]
+                await asyncio.sleep(delay)
+        self._bo3_buf_last_error = last_err
+        self._bo3_buf_consecutive_failures += 1
+
+    def _bo3_buffer_debug(self, now: float) -> dict[str, Any]:
+        """Build buffer observability dict for derived.debug."""
+        age = None
+        if self._bo3_buf_last_success_epoch is not None:
+            age = now - self._bo3_buf_last_success_epoch
+        return {
+            "bo3_buffer_has_snapshot": self._bo3_buf_raw is not None,
+            "bo3_buffer_age_s": age,
+            "bo3_buffer_last_error": self._bo3_buf_last_error,
+            "bo3_buffer_consecutive_failures": self._bo3_buf_consecutive_failures,
+            "bo3_buffer_snapshot_ts": self._bo3_buf_snapshot_ts,
+            "bo3_buffer_last_success_epoch": self._bo3_buf_last_success_epoch,
+        }
+
+    def _bo3_health_from_buffer(self, frame: Frame | None, now: float) -> tuple[str, str | None, float | None]:
+        """
+        Health from buffer age + phase: GOOD if age <= 20s, STALE if > 20, PAUSED from phase, ERROR only if no snapshot and last_error set.
+        """
+        if frame is not None:
+            round_phase = None
+            if isinstance(getattr(frame, "bomb_phase_time_remaining", None), dict):
+                round_phase = frame.bomb_phase_time_remaining.get("round_phase")
+            if round_phase is not None:
+                phase_str = str(round_phase).strip().upper()
+                if phase_str in BO3_PAUSED_PHASES:
+                    return ("PAUSED", phase_str, None)
+        if self._bo3_buf_raw is None and self._bo3_buf_last_error is not None:
+            return ("ERROR", self._bo3_buf_last_error, None)
+        if self._bo3_buf_last_success_epoch is None:
+            return ("GOOD", None, None)
+        age = now - self._bo3_buf_last_success_epoch
+        if age <= BO3_BUFFER_GOOD_AGE_SEC:
+            return ("GOOD", None, None)
+        return ("STALE", f"buffer age {int(age)}s", age)
+
     async def _tick_bo3(self, config: Config) -> bool:
         """If source=BO3 and match_id set: fetch snapshot, normalize, append_point, broadcast. Return True if did BO3."""
         src = getattr(config, "source", None)
@@ -256,43 +380,41 @@ class Runner:
         except ImportError:
             return False
 
-        try:
-            snap = await get_snapshot(mid)
-            if not snap:
-                raise RuntimeError("BO3 snapshot returned None")
-            frame = bo3_snapshot_to_frame(snap, team_a_is_team_one=team_a_is_team_one)
-        except Exception as e:
-            print(f"BO3 snapshot fetch failed for match_id={mid}: {e}")
+        await self._bo3_fetch_into_buffer(mid)
+        snap = self._bo3_buf_raw
+        now = time.time()
+        if snap is None:
             cur = await self._store.get_current()
             state = await self._store.get_state()
-            cur_derived = (cur.get("derived") or {}) if isinstance(cur, dict) else {}
-            new_debug = dict(cur_derived.get("debug") or {})
+            if not isinstance(cur, dict):
+                cur = {}
+            p_hat, bound_low, bound_high, rail_low, rail_high, kappa = _last_derived_values(cur)
+            cur_derived = cur.get("derived") or {}
+            new_debug = dict(cur_derived.get("debug") or {}) if isinstance(cur_derived, dict) else {}
             new_debug["bo3_fetch_ok"] = False
-            new_debug["bo3_error"] = str(e)
             new_debug["bo3_snapshot_status"] = "empty"
-            new_debug["bo3_feed_error"] = str(e)
+            new_debug["bo3_feed_error"] = self._bo3_buf_last_error
             new_debug["bo3_snapshot_ts"] = None
             new_debug["bo3_match_id_used"] = mid
-            new_debug["bo3_last_success_epoch"] = self._bo3_last_success_epoch
-            new_debug["bo3_success_counter"] = self._bo3_success_counter
-            new_debug["bo3_age_s"] = (
-                (time.time() - self._bo3_last_success_epoch) if self._bo3_last_success_epoch is not None else None
-            )
-            new_debug["bo3_health"] = "ERROR"
-            new_debug["bo3_health_reason"] = str(e)
-            new_debug["bo3_health_age_s"] = None
+            new_debug.update(self._bo3_buffer_debug(now))
+            health, health_reason, health_age_s = self._bo3_health_from_buffer(None, now)
+            new_debug["bo3_health"] = health
+            new_debug["bo3_health_reason"] = health_reason
+            new_debug["bo3_health_age_s"] = health_age_s
             fail_derived = Derived(
-                p_hat=cur_derived.get("p_hat", 0.5),
-                bound_low=cur_derived.get("bound_low", 0),
-                bound_high=cur_derived.get("bound_high", 1),
-                rail_low=cur_derived.get("rail_low", 0),
-                rail_high=cur_derived.get("rail_high", 1),
-                kappa=cur_derived.get("kappa", 0),
+                p_hat=p_hat,
+                bound_low=bound_low,
+                bound_high=bound_high,
+                rail_low=rail_low,
+                rail_high=rail_high,
+                kappa=kappa,
                 debug=new_debug,
             )
             await self._store.set_current(state, fail_derived)
             return True
-
+        if isinstance(snap, dict):
+            self._bo3_last_raw_snapshot = snap
+        frame = bo3_snapshot_to_frame(snap, team_a_is_team_one=team_a_is_team_one)
         status, feed_error, snapshot_ts, is_fresh = _bo3_snapshot_status(
             snap, frame,
             self._bo3_last_snapshot_ts,
@@ -301,32 +423,37 @@ class Runner:
         )
         if status != "live":
             now = time.time()
-            health, health_reason, health_age_s = _bo3_health(
-                snap, frame, self._bo3_last_change_epoch, now
-            )
+            health, health_reason, health_age_s = self._bo3_health_from_buffer(frame, now)
+            if status == "invalid_clock":
+                health = "PAUSED" if health == "PAUSED" else "GOOD"
+                health_reason = "invalid_clock"
             cur = await self._store.get_current()
             state = await self._store.get_state()
-            cur_derived = (cur.get("derived") or {}) if isinstance(cur, dict) else {}
-            new_debug = dict(cur_derived.get("debug") or {})
+            if not isinstance(cur, dict):
+                cur = {}
+            p_hat, bound_low, bound_high, rail_low, rail_high, kappa = _last_derived_values(cur)
+            cur_derived = cur.get("derived") or {}
+            new_debug = dict(cur_derived.get("debug") or {}) if isinstance(cur_derived, dict) else {}
             new_debug["bo3_snapshot_status"] = status
             new_debug["bo3_feed_error"] = feed_error
             new_debug["bo3_snapshot_ts"] = snapshot_ts
             new_debug["bo3_match_id_used"] = mid
-            new_debug["bo3_last_success_epoch"] = self._bo3_last_success_epoch
-            new_debug["bo3_success_counter"] = self._bo3_success_counter
-            new_debug["bo3_age_s"] = (
-                (now - self._bo3_last_success_epoch) if self._bo3_last_success_epoch is not None else None
-            )
+            new_debug.update(self._bo3_buffer_debug(now))
             new_debug["bo3_health"] = health
             new_debug["bo3_health_reason"] = health_reason
             new_debug["bo3_health_age_s"] = health_age_s
+            if status == "invalid_clock":
+                new_debug["time_term_used"] = False
+            from engine.diagnostics.fragility_cs2 import build_raw_debug, compute_fragility_debug
+            new_debug["raw"] = build_raw_debug(frame)
+            new_debug["fragility"] = compute_fragility_debug(frame)
             fail_derived = Derived(
-                p_hat=cur_derived.get("p_hat", 0.5),
-                bound_low=cur_derived.get("bound_low", 0),
-                bound_high=cur_derived.get("bound_high", 1),
-                rail_low=cur_derived.get("rail_low", 0),
-                rail_high=cur_derived.get("rail_high", 1),
-                kappa=cur_derived.get("kappa", 0),
+                p_hat=p_hat,
+                bound_low=bound_low,
+                bound_high=bound_high,
+                rail_low=rail_low,
+                rail_high=rail_high,
+                kappa=kappa,
                 debug=new_debug,
             )
             market_mid, _ = self._get_market_for_point(config)
@@ -355,9 +482,7 @@ class Runner:
             self._bo3_same_snapshot_polls += 1
 
         t = time.time()
-        health, health_reason, health_age_s = _bo3_health(
-            snap, frame, self._bo3_last_change_epoch, t
-        )
+        health, health_reason, health_age_s = self._bo3_health_from_buffer(frame, t)
         from engine.compute.bounds import compute_bounds
         from engine.compute.rails import compute_rails
         from engine.compute.resolve import resolve_p_hat
@@ -408,6 +533,9 @@ class Runner:
             p_hat, dbg = resolve_p_hat(frame, config, new_state, (rail_low, rail_high))
             dbg = {**dbg, **bounds_debug, **rails_debug}
 
+        from engine.diagnostics.fragility_cs2 import build_raw_debug, compute_fragility_debug
+        dbg["raw"] = build_raw_debug(frame)
+        dbg["fragility"] = compute_fragility_debug(frame)
         market_mid, market_dbg = self._get_market_for_point(config)
         dbg.update(market_dbg)
         # Breach detection: market vs corridors
@@ -447,20 +575,13 @@ class Runner:
         # BO3 liveness diagnostics (success path)
         self._bo3_success_counter += 1
         self._bo3_last_success_epoch = time.time()
-        snap_ts = None
-        if isinstance(snap, dict):
-            snap_ts = snap.get("created_at") or snap.get("updated_at") or snap.get("sent_time") or snap.get("ts")
         dbg["bo3_fetch_ok"] = True
-        dbg["bo3_error"] = None
         dbg["bo3_snapshot_status"] = "live"
         dbg["bo3_feed_error"] = None
         dbg["bo3_match_id_used"] = mid
         dbg["bo3_success_counter"] = self._bo3_success_counter
-        dbg["bo3_last_success_epoch"] = self._bo3_last_success_epoch
-        dbg["bo3_snapshot_ts"] = snap_ts
-        dbg["bo3_age_s"] = (
-            (time.time() - self._bo3_last_success_epoch) if self._bo3_last_success_epoch is not None else None
-        )
+        dbg["bo3_snapshot_ts"] = self._bo3_buf_snapshot_ts
+        dbg.update(self._bo3_buffer_debug(t))
         dbg["bo3_health"] = health
         dbg["bo3_health_reason"] = health_reason
         dbg["bo3_health_age_s"] = health_age_s
@@ -535,15 +656,18 @@ class Runner:
                     last_map_index=getattr(state, "last_map_index", None),
                 )
                 cur = await self._store.get_current()
+                if not isinstance(cur, dict):
+                    cur = {}
+                p_hat, bound_low, bound_high, rail_low, rail_high, kappa = _last_derived_values(cur)
                 d = cur.get("derived") or {}
                 derived_obj = Derived(
-                    p_hat=d.get("p_hat", 0.5),
-                    bound_low=d.get("bound_low", 0),
-                    bound_high=d.get("bound_high", 1),
-                    rail_low=d.get("rail_low", 0),
-                    rail_high=d.get("rail_high", 1),
-                    kappa=d.get("kappa", 0),
-                    debug=d.get("debug", {}),
+                    p_hat=p_hat,
+                    bound_low=bound_low,
+                    bound_high=bound_high,
+                    rail_low=rail_low,
+                    rail_high=rail_high,
+                    kappa=kappa,
+                    debug=d.get("debug", {}) if isinstance(d, dict) else {},
                 )
                 pt = HistoryPoint(
                     time=time.time(),
@@ -616,6 +740,9 @@ class Runner:
             p_hat, dbg = resolve_p_hat(frame, config, new_state, (rail_low, rail_high))
             dbg = {**dbg, **bounds_debug, **rails_debug}
 
+        from engine.diagnostics.fragility_cs2 import build_raw_debug, compute_fragility_debug
+        dbg["raw"] = build_raw_debug(frame)
+        dbg["fragility"] = compute_fragility_debug(frame)
         market_mid, market_dbg = self._get_market_for_point(config)
         dbg.update(market_dbg)
         breach_map_hi, breach_map_lo, breach_series_hi, breach_series_lo, breach_mag, breach_type = compute_breach_flags(
@@ -693,6 +820,8 @@ class Runner:
             else:
                 sleep_interval = interval
                 did_bo3 = await self._tick_bo3(config)
+                if did_bo3 and getattr(self, "_bo3_buf_consecutive_failures", 0) >= 3:
+                    sleep_interval += 5.0  # mild backoff when BO3 fetch keeps failing
                 if not did_bo3:
                     src = getattr(config, "source", None)
                     if src == "DUMMY":
