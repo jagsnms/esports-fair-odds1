@@ -24,4 +24,4 @@ Run both from the repo root in separate terminals:
   powershell -ExecutionPolicy Bypass -File .\scripts\run_frontend_dev.ps1
   ```
 
-URLs: backend **http://127.0.0.1:8000/health** and frontend **http://localhost:5173/**
+URLs: backend **http://127.0.0.1:8000/health** and frontend **http://localhost:5173/**. Backend streams live state and history over WebSocket; frontend shows p_hat and bounds.
