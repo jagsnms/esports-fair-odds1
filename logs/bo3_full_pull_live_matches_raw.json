@@ -1,0 +1,3938 @@
+{
+  "total": {
+    "count": 6,
+    "pages": 1,
+    "offset": 0,
+    "limit": 100
+  },
+  "results": [
+    {
+      "id": 110904,
+      "slug": "gentle-mates-cs-vs-betboom-team-22-02-2026",
+      "status": "current",
+      "parsed_status": "waiting",
+      "discipline_id": 1,
+      "start_date": "2026-02-22T11:10:00.000+00:00",
+      "team1_id": 21396,
+      "team2_id": 7498,
+      "team1_score": 0,
+      "team2_score": 0,
+      "bo_type": 3,
+      "live_coverage": false,
+      "stars": 3,
+      "bet_updates": {
+        "path": "https://refpa04636.pro/L?tag=d_4812392m_129584c_bo3_odds_ww&site=4812392&ad=129584&utm_source=bo3_odds_ww&utm_medium=fix&r=/en/live/Esports/2943675-CS-2-Roman-Imperium-Cup/697882947-Gentle-Mates-BB-Team",
+        "team_1": {
+          "name": "Gentle Mates",
+          "coeff": 1.96,
+          "active": true,
+          "team_id": 21396,
+          "max_coeff": 1.96,
+          "aggrement_score": 0.66
+        },
+        "team_2": {
+          "name": "BetBoom",
+          "coeff": 1.81,
+          "active": true,
+          "team_id": 7498,
+          "max_coeff": 2.08,
+          "aggrement_score": 0.34
+        },
+        "markets_count": 16,
+        "additional_markets": [
+          {
+            "coeff": 1.88,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.88,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.86,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.86,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 3.35,
+            "active": true,
+            "team_id": 21396,
+            "bet_type": "team_1_handicap_under_1_5",
+            "max_coeff": 3.35,
+            "aggrement_score": 0.45
+          },
+          {
+            "coeff": 1.32,
+            "active": true,
+            "team_id": 21396,
+            "bet_type": "team_1_handicap_over_1_5",
+            "max_coeff": 1.32,
+            "aggrement_score": 0.94
+          },
+          {
+            "coeff": 3.18,
+            "active": true,
+            "team_id": 7498,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 3.54,
+            "aggrement_score": 0.06
+          },
+          {
+            "coeff": 1.28,
+            "active": true,
+            "team_id": 7498,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.37,
+            "aggrement_score": 0.55
+          },
+          {
+            "coeff": 3.4,
+            "active": true,
+            "team_id": 7498,
+            "bet_type": "score_0_2",
+            "max_coeff": 3.61,
+            "aggrement_score": 0.06
+          },
+          {
+            "coeff": 3.51,
+            "active": true,
+            "team_id": 7498,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": 0.06
+          },
+          {
+            "coeff": 3.03,
+            "active": true,
+            "team_id": 21396,
+            "bet_type": "score_2_0",
+            "max_coeff": 3.12,
+            "aggrement_score": 0.45
+          },
+          {
+            "coeff": 3.46,
+            "active": true,
+            "team_id": 21396,
+            "bet_type": "score_2_1",
+            "max_coeff": 3.56,
+            "aggrement_score": 0.43
+          },
+          {
+            "coeff": 1.86,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_even",
+            "max_coeff": 1.86,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 1.88,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_odd",
+            "max_coeff": 1.88,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.88,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.88,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.86,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.86,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 2.96,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_1_handicap_under_1_5",
+            "max_coeff": 2.96,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.25,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_1_handicap_over_1_5",
+            "max_coeff": 1.25,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.29,
+            "active": true,
+            "team_id": 15526,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 3.54,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.32,
+            "active": true,
+            "team_id": 15526,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.37,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.26,
+            "active": true,
+            "team_id": 15526,
+            "bet_type": "score_0_2",
+            "max_coeff": 3.61,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.46,
+            "active": true,
+            "team_id": 15526,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 2.96,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_2_0",
+            "max_coeff": 2.96,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.4,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_2_1",
+            "max_coeff": 3.4,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.86,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_even",
+            "max_coeff": 1.86,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 1.88,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_odd",
+            "max_coeff": 1.88,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.88,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.88,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.86,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.86,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 2.96,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_1_handicap_under_1_5",
+            "max_coeff": 2.96,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.25,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_1_handicap_over_1_5",
+            "max_coeff": 1.25,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 2.96,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_2_0",
+            "max_coeff": 2.96,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.4,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_2_1",
+            "max_coeff": 3.4,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.86,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_even",
+            "max_coeff": 1.86,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 1.88,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_odd",
+            "max_coeff": 1.88,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.88,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.88,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.86,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.86,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 3.55,
+            "active": true,
+            "team_id": 18316,
+            "bet_type": "team_1_handicap_under_1_5",
+            "max_coeff": 3.55,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.28,
+            "active": true,
+            "team_id": 18316,
+            "bet_type": "team_1_handicap_over_1_5",
+            "max_coeff": 1.29,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.54,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 3.54,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.37,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.37,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.61,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 3.61,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.82,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.55,
+            "active": true,
+            "team_id": 18316,
+            "bet_type": "score_2_0",
+            "max_coeff": 3.55,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.05,
+            "active": true,
+            "team_id": 18316,
+            "bet_type": "score_2_1",
+            "max_coeff": 3.56,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.86,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_even",
+            "max_coeff": 1.86,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 1.88,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_odd",
+            "max_coeff": 1.88,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.88,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.88,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.86,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.86,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 3.54,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 3.54,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.37,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.37,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.61,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 3.61,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.82,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.86,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_even",
+            "max_coeff": 1.86,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 1.88,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_odd",
+            "max_coeff": 1.88,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.88,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.88,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.86,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.86,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 1.86,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_even",
+            "max_coeff": 1.86,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 1.88,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_odd",
+            "max_coeff": 1.88,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.88,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.88,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.86,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.86,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 1.86,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_even",
+            "max_coeff": 1.86,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 1.88,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_odd",
+            "max_coeff": 1.88,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.88,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.88,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.86,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.86,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 1.86,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_even",
+            "max_coeff": 1.86,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 1.88,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_odd",
+            "max_coeff": 1.88,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.88,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.88,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.86,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.86,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 3.54,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 3.54,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.37,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.37,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.61,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 3.61,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.82,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.86,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_even",
+            "max_coeff": 1.86,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 1.88,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_odd",
+            "max_coeff": 1.88,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.88,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.88,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.86,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.86,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 1.86,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_even",
+            "max_coeff": 1.86,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 1.88,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_odd",
+            "max_coeff": 1.88,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.88,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.88,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.86,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.86,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 1.86,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_even",
+            "max_coeff": 1.86,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 1.88,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_odd",
+            "max_coeff": 1.88,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.99,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.76,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.86,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 3.18,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_1_handicap_under_1_5",
+            "max_coeff": 3.18,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.29,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_1_handicap_over_1_5",
+            "max_coeff": 1.29,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.12,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_2_0",
+            "max_coeff": 3.12,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.56,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_2_1",
+            "max_coeff": 3.56,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.28,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_1_to_win_at_least_one_map",
+            "max_coeff": 1.28,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.26,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_1_to_not_win_at_least_one_map",
+            "max_coeff": 3.26,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.99,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.76,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.86,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 1.29,
+            "active": true,
+            "team_id": 21396,
+            "bet_type": "team_1_to_win_at_least_one_map",
+            "max_coeff": 1.29,
+            "aggrement_score": 0.94
+          },
+          {
+            "coeff": 3.22,
+            "active": true,
+            "team_id": 21396,
+            "bet_type": "team_1_to_not_win_at_least_one_map",
+            "max_coeff": 3.42,
+            "aggrement_score": 0.06
+          },
+          {
+            "coeff": 1.97,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.78,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.86,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 3.08,
+            "active": true,
+            "team_id": 6355,
+            "bet_type": "team_1_handicap_under_1_5",
+            "max_coeff": 3.18,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.26,
+            "active": true,
+            "team_id": 6355,
+            "bet_type": "team_1_handicap_over_1_5",
+            "max_coeff": 1.29,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.46,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 3.54,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.34,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.37,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.42,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 3.61,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.51,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.02,
+            "active": true,
+            "team_id": 6355,
+            "bet_type": "score_2_0",
+            "max_coeff": 3.12,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.46,
+            "active": true,
+            "team_id": 6355,
+            "bet_type": "score_2_1",
+            "max_coeff": 3.56,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.26,
+            "active": true,
+            "team_id": 6355,
+            "bet_type": "team_1_to_win_at_least_one_map",
+            "max_coeff": 1.28,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.42,
+            "active": true,
+            "team_id": 6355,
+            "bet_type": "team_1_to_not_win_at_least_one_map",
+            "max_coeff": 3.42,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.97,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.78,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.86,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 3.45,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 3.54,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.34,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.37,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.42,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 3.61,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.51,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.97,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.78,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.86,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 1.85,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.85,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.86,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 3.7,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.3,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.37,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 3.7,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.8,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.85,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.85,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.86,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 3.7,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.3,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.37,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 3.7,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.75,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.85,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.85,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.86,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 3.7,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.3,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.37,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 3.7,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.75,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.85,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.85,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.86,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 3.7,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.3,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.37,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 3.7,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.75,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.85,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.85,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.86,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 3.7,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.3,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.37,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 3.7,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.75,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.85,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.85,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.86,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 3.7,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.3,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.37,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 3.7,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.75,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.85,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.85,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.86,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 3.7,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.3,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.37,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 3.7,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.75,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.85,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.85,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.86,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 3.7,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.3,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.37,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 3.7,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.75,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.85,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.85,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.86,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 3.7,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.3,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.37,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 3.7,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.75,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.83,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.87,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.87,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 3.7,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.28,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.37,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 3.7,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.8,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.83,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.87,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.87,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 3.7,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.28,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.37,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 3.7,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.8,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.85,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.85,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.87,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 3.3,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 3.7,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.25,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.37,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.3,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 3.7,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.8,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.83,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.87,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.87,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 4.4,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 4.4,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.35,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.37,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 4.4,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 4.4,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.75,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.8,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.9,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.9,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 5.1,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 5.1,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.4,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.4,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 5.1,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 5.1,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.8,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.9,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.9,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 4.9,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 5.1,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.4,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.4,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 4.9,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 5.1,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.8,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.9,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.9,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 5.3,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 5.3,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.43,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.43,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 5.3,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 5.3,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.8,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.9,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.9,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 5.3,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 5.3,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.43,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.43,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 5.3,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 5.3,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.8,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.9,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.9,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 5.3,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 5.3,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.43,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.43,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 5.3,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 5.3,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.8,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.9,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.9,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 5.5,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 5.5,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.43,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.43,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 5.5,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 5.5,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.8,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.9,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.9,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 4.9,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 5.5,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.4,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.43,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 4.9,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 5.5,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.8,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.9,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.9,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 4.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 5.5,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.38,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.43,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 4.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 5.5,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.75,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.8,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.9,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.9,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 4.9,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 5.5,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.4,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.43,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 4.9,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 5.5,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.83,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.87,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.9,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 4.2,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 5.5,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.33,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.43,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 4.2,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 5.5,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.75,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.83,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.87,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.9,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 3.55,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 5.5,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.28,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.43,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.55,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 5.5,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.8,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.85,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.85,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.9,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 3.45,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 5.5,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.26,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.43,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.45,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 5.5,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.8,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.83,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.87,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.9,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 4.2,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 5.5,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.33,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.43,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 4.2,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 5.5,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.75,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.83,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.87,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.9,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 4.3,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 5.5,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.35,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.43,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 4.3,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 5.5,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.75,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.83,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.87,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.9,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 4.3,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 5.5,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.35,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.43,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 4.3,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 5.5,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.75,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.8,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.9,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.9,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 5.8,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 5.8,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.46,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.46,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 5.8,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 5.8,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.8,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.9,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.9,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 5.8,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 5.8,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.46,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.46,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 5.8,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 5.8,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.8,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.9,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.9,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 5.3,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 5.8,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.43,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.46,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 5.3,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 5.8,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.8,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.9,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.9,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 4.9,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 5.8,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.4,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.46,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 4.9,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 5.8,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.8,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.9,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.9,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 5.1,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 5.8,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.4,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.46,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 5.1,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 5.8,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.8,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.9,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.9,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 6.5,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 6.5,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.48,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.48,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 6.5,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 6.5,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.8,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.9,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.9,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 6.5,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 6.5,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.48,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.48,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 6.5,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 6.5,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.77,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.93,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.93,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 6.8,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 6.8,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.5,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.5,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 6.8,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 6.8,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.8,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.9,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.93,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 5.3,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 6.8,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.43,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.5,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 5.3,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 6.8,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.8,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.9,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.93,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 5.3,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 6.8,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.43,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.5,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 5.3,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 6.8,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.83,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.87,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.93,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 3.55,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 6.8,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.28,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.5,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.55,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 6.8,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.8,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.83,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.87,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.93,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 6.8,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.28,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.5,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.7,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 6.8,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.8,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.85,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.85,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.93,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 3.0,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 6.8,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.22,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.5,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.0,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 6.8,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.8,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.85,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 1.99,
+            "aggrement_score": 0.49
+          },
+          {
+            "coeff": 1.85,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.93,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 3.3,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_under_1_5",
+            "max_coeff": 6.8,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.25,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 1.5,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.3,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 6.8,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.8,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 3.82,
+            "aggrement_score": null
+          }
+        ]
+      },
+      "team1": {
+        "id": 21396,
+        "slug": "gentle-mates-cs",
+        "name": "Gentle Mates",
+        "image_url": "https://files.bo3.gg/uploads/team/21396/image/webp-d9424ab9c7ee3b7c0a98b90867182af1.webp"
+      },
+      "team2": {
+        "id": 7498,
+        "slug": "betboom-team",
+        "name": "BetBoom",
+        "image_url": "https://files.bo3.gg/uploads/team/7498/image/webp-0ea46f32f16140a97fa47ed839e5bb69.webp"
+      },
+      "tournament": {
+        "id": 5376,
+        "slug": "roman-imperium-cup-v",
+        "name": "Roman Imperium Cup V",
+        "status": "current",
+        "prize": 11858,
+        "tier_rank": 3,
+        "image_url": "https://files.bo3.gg/uploads/tournament/5376/image/webp-bc21d4b7eff3712901e550c687f31c18.webp"
+      },
+      "streams": [
+        {
+          "name": "watchfulTVb",
+          "preview_image_url": "https://static-cdn.jtvnw.net/previews-ttv/live_user_watchfulTVb-600x336.jpg"
+        },
+        {
+          "name": "rmncs",
+          "preview_image_url": "https://static-cdn.jtvnw.net/previews-ttv/live_user_rmncs-600x336.jpg"
+        },
+        {
+          "name": "x9nium",
+          "preview_image_url": "https://static-cdn.jtvnw.net/previews-ttv/live_user_x9nium-600x336.jpg"
+        },
+        {
+          "name": "forg1",
+          "preview_image_url": "https://files.kick.com/images/channel/11505116/banner_image/default-banner-2.jpg"
+        },
+        {
+          "name": "x9nium",
+          "preview_image_url": "https://files.kick.com/images/channel/3460413/banner_image/default-banner-2.jpg"
+        },
+        {
+          "name": "forg1",
+          "preview_image_url": "https://static-cdn.jtvnw.net/previews-ttv/live_user_forg1-600x336.jpg"
+        },
+        {
+          "name": "bopomo_",
+          "preview_image_url": "https://static-cdn.jtvnw.net/previews-ttv/live_user_bopomo_-600x336.jpg"
+        },
+        {
+          "name": "Bopomo",
+          "preview_image_url": "https://files.kick.com/images/channel/5817606/banner_image/default-banner-2.jpg"
+        }
+      ],
+      "games": [
+        {
+          "id": 158577,
+          "map_name": "de_overpass",
+          "number": 3
+        },
+        {
+          "id": 158578,
+          "map_name": "de_mirage",
+          "number": 2
+        },
+        {
+          "id": 158579,
+          "map_name": "de_nuke",
+          "number": 1
+        }
+      ],
+      "ai_predictions": {
+        "prediction_team1_score": 2,
+        "prediction_team2_score": 1,
+        "prediction_winner_team_id": 21396,
+        "prediction_scores_data": {
+          "neighbor_proximity_factor": 0.718695
+        }
+      }
+    },
+    {
+      "id": 110392,
+      "slug": "illwill-vs-olybet-22-02-2026",
+      "status": "current",
+      "parsed_status": "waiting",
+      "discipline_id": 1,
+      "start_date": "2026-02-22T09:00:00.000+00:00",
+      "team1_id": 21842,
+      "team2_id": 7699,
+      "team1_score": 1,
+      "team2_score": 1,
+      "bo_type": 3,
+      "live_coverage": false,
+      "stars": 0,
+      "bet_updates": {
+        "path": "https://refpa04636.pro/L?tag=d_4812392m_129584c_bo3_odds_ww&site=4812392&ad=129584&utm_source=bo3_odds_ww&utm_medium=fix&r=/en/line/Esports/2923315-CS-2-NODWIN-Clutch-Series/307784706-illwill-OlyBet-SB",
+        "team_1": {
+          "name": "illwill",
+          "coeff": 1.12,
+          "active": true,
+          "team_id": 21842,
+          "max_coeff": 1.12,
+          "aggrement_score": 0.78
+        },
+        "team_2": {
+          "name": "OlyBet",
+          "coeff": 5.69,
+          "active": true,
+          "team_id": 7699,
+          "max_coeff": 5.69,
+          "aggrement_score": 0.22
+        },
+        "markets_count": 14,
+        "additional_markets": [
+          {
+            "coeff": 2.61,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 2.61,
+            "aggrement_score": 0.56
+          },
+          {
+            "coeff": 1.46,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.46,
+            "aggrement_score": 0.44
+          },
+          {
+            "coeff": 1.56,
+            "active": true,
+            "team_id": 21842,
+            "bet_type": "team_1_handicap_under_1_5",
+            "max_coeff": 1.56,
+            "aggrement_score": 0.38
+          },
+          {
+            "coeff": 2.33,
+            "active": true,
+            "team_id": 7699,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 2.33,
+            "aggrement_score": 0.62
+          },
+          {
+            "coeff": 8.95,
+            "active": true,
+            "team_id": 7699,
+            "bet_type": "score_0_2",
+            "max_coeff": 8.95,
+            "aggrement_score": 0.05
+          },
+          {
+            "coeff": 9.05,
+            "active": true,
+            "team_id": 7699,
+            "bet_type": "score_1_2",
+            "max_coeff": 9.05,
+            "aggrement_score": 0.05
+          },
+          {
+            "coeff": 1.56,
+            "active": true,
+            "team_id": 21842,
+            "bet_type": "score_2_0",
+            "max_coeff": 1.56,
+            "aggrement_score": 0.38
+          },
+          {
+            "coeff": 3.07,
+            "active": true,
+            "team_id": 21842,
+            "bet_type": "score_2_1",
+            "max_coeff": 3.07,
+            "aggrement_score": 0.51
+          },
+          {
+            "coeff": 1.46,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_even",
+            "max_coeff": 1.46,
+            "aggrement_score": 0.43
+          },
+          {
+            "coeff": 2.61,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_odd",
+            "max_coeff": 2.61,
+            "aggrement_score": 0.57
+          },
+          {
+            "coeff": 2.61,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 2.61,
+            "aggrement_score": 0.56
+          },
+          {
+            "coeff": 1.46,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.46,
+            "aggrement_score": 0.44
+          },
+          {
+            "coeff": 1.46,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_even",
+            "max_coeff": 1.46,
+            "aggrement_score": 0.43
+          },
+          {
+            "coeff": 2.61,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_odd",
+            "max_coeff": 2.61,
+            "aggrement_score": 0.57
+          },
+          {
+            "coeff": 2.61,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 2.61,
+            "aggrement_score": 0.56
+          },
+          {
+            "coeff": 1.46,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.46,
+            "aggrement_score": 0.44
+          },
+          {
+            "coeff": 1.56,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_1_handicap_under_1_5",
+            "max_coeff": 1.56,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 2.33,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 2.33,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 8.95,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 8.95,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 9.05,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 9.05,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.56,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_2_0",
+            "max_coeff": 1.56,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.07,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_2_1",
+            "max_coeff": 3.07,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.46,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_even",
+            "max_coeff": 1.46,
+            "aggrement_score": 0.43
+          },
+          {
+            "coeff": 2.61,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_odd",
+            "max_coeff": 2.61,
+            "aggrement_score": 0.57
+          },
+          {
+            "coeff": 2.61,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 2.61,
+            "aggrement_score": 0.56
+          },
+          {
+            "coeff": 1.46,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.46,
+            "aggrement_score": 0.44
+          },
+          {
+            "coeff": 1.46,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_even",
+            "max_coeff": 1.46,
+            "aggrement_score": 0.43
+          },
+          {
+            "coeff": 2.61,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_odd",
+            "max_coeff": 2.61,
+            "aggrement_score": 0.57
+          },
+          {
+            "coeff": 2.61,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 2.61,
+            "aggrement_score": 0.56
+          },
+          {
+            "coeff": 1.46,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.46,
+            "aggrement_score": 0.44
+          },
+          {
+            "coeff": 1.46,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_even",
+            "max_coeff": 1.46,
+            "aggrement_score": 0.43
+          },
+          {
+            "coeff": 2.61,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_odd",
+            "max_coeff": 2.61,
+            "aggrement_score": 0.57
+          },
+          {
+            "coeff": 2.61,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 2.61,
+            "aggrement_score": 0.56
+          },
+          {
+            "coeff": 1.46,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.46,
+            "aggrement_score": 0.44
+          },
+          {
+            "coeff": 1.56,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_1_handicap_under_1_5",
+            "max_coeff": 1.56,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 2.33,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 2.33,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 8.95,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 8.95,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 9.05,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 9.05,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.56,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_2_0",
+            "max_coeff": 1.56,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.07,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_2_1",
+            "max_coeff": 3.07,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.46,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_even",
+            "max_coeff": 1.46,
+            "aggrement_score": 0.43
+          },
+          {
+            "coeff": 2.61,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_odd",
+            "max_coeff": 2.61,
+            "aggrement_score": 0.57
+          },
+          {
+            "coeff": 2.61,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 2.61,
+            "aggrement_score": 0.56
+          },
+          {
+            "coeff": 1.46,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.46,
+            "aggrement_score": 0.44
+          },
+          {
+            "coeff": 1.46,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_even",
+            "max_coeff": 1.46,
+            "aggrement_score": 0.43
+          },
+          {
+            "coeff": 2.61,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_odd",
+            "max_coeff": 2.61,
+            "aggrement_score": 0.57
+          },
+          {
+            "coeff": 2.61,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_over_2_5",
+            "max_coeff": 2.61,
+            "aggrement_score": 0.56
+          },
+          {
+            "coeff": 1.46,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_under_2_5",
+            "max_coeff": 1.46,
+            "aggrement_score": 0.44
+          },
+          {
+            "coeff": 1.56,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_1_handicap_under_1_5",
+            "max_coeff": 1.56,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 2.33,
+            "active": true,
+            "team_id": null,
+            "bet_type": "team_2_handicap_over_1_5",
+            "max_coeff": 2.33,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 8.95,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_0_2",
+            "max_coeff": 8.95,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 9.05,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_1_2",
+            "max_coeff": 9.05,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.56,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_2_0",
+            "max_coeff": 1.56,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 3.07,
+            "active": true,
+            "team_id": null,
+            "bet_type": "score_2_1",
+            "max_coeff": 3.07,
+            "aggrement_score": null
+          },
+          {
+            "coeff": 1.46,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_even",
+            "max_coeff": 1.46,
+            "aggrement_score": 0.43
+          },
+          {
+            "coeff": 2.61,
+            "active": true,
+            "team_id": null,
+            "bet_type": "total_maps_odd",
+            "max_coeff": 2.61,
+            "aggrement_score": 0.57
+          }
+        ]
+      },
+      "team1": {
+        "id": 21842,
+        "slug": "illwill",
+        "name": "illwill",
+        "image_url": "https://files.bo3.gg/uploads/team/21842/image/webp-802e07c99e769605201f0472cb948bc4.webp"
+      },
+      "team2": {
+        "id": 7699,
+        "slug": "olybet",
+        "name": "OlyBet",
+        "image_url": "https://files.bo3.gg/uploads/team/7699/image/webp-39aad1e28de1ae1c80623abd60a6daf7.webp"
+      },
+      "tournament": {
+        "id": 5424,
+        "slug": "nodwin-clutch-series-5",
+        "name": "NODWIN Clutch Series 5",
+        "status": "current",
+        "prize": 50000,
+        "tier_rank": 3,
+        "image_url": "https://files.bo3.gg/uploads/tournament/5424/image/webp-6db160772fddfedfb0abbdc2078a5d00.webp"
+      },
+      "streams": [
+        {
+          "name": "Nodwin_CS2",
+          "preview_image_url": ""
+        },
+        {
+          "name": "SigmaCast2",
+          "preview_image_url": "https://static-cdn.jtvnw.net/previews-ttv/live_user_sigmacast2-600x336.jpg"
+        }
+      ],
+      "games": [
+        {
+          "id": 157818,
+          "map_name": "de_mirage",
+          "number": 3
+        },
+        {
+          "id": 157819,
+          "map_name": "de_nuke",
+          "winner_clan_score": 13,
+          "loser_clan_score": 7,
+          "winner_clan_name": "ILLWILL",
+          "loser_clan_name": "OlyBet",
+          "number": 2,
+          "winner_team_clan": {
+            "clan_name": "ILLWILL",
+            "team_id": 21842
+          },
+          "loser_team_clan": {
+            "clan_name": "OlyBet",
+            "team_id": 7699
+          }
+        },
+        {
+          "id": 157820,
+          "map_name": "de_dust2",
+          "winner_clan_score": 13,
+          "loser_clan_score": 8,
+          "winner_clan_name": "OlyBet",
+          "loser_clan_name": "ILLWILL",
+          "number": 1,
+          "winner_team_clan": {
+            "clan_name": "OlyBet",
+            "team_id": 7699
+          },
+          "loser_team_clan": {
+            "clan_name": "ILLWILL",
+            "team_id": 21842
+          }
+        }
+      ],
+      "ai_predictions": {
+        "prediction_team1_score": 2,
+        "prediction_team2_score": 0,
+        "prediction_winner_team_id": 21842,
+        "prediction_scores_data": {
+          "neighbor_proximity_factor": 0.668649
+        }
+      }
+    },
+    {
+      "id": 111264,
+      "slug": "team-novaq-vs-team-nemesis-cs-22-02-2026",
+      "status": "current",
+      "parsed_status": "waiting",
+      "discipline_id": 1,
+      "start_date": "2026-02-22T11:30:00.000+00:00",
+      "team1_id": 20024,
+      "team2_id": 21388,
+      "team1_score": 0,
+      "team2_score": 0,
+      "bo_type": 3,
+      "live_coverage": false,
+      "stars": 1,
+      "team1": {
+        "id": 20024,
+        "slug": "team-novaq",
+        "name": "NOVAQ",
+        "image_url": "https://files.bo3.gg/uploads/team/20024/image/webp-3b9d65f29b1068343a52b4d22b9c6f53.webp"
+      },
+      "team2": {
+        "id": 21388,
+        "slug": "team-nemesis-cs",
+        "name": "Nemesis",
+        "image_url": "https://files.bo3.gg/uploads/team/21388/image/webp-160641ad1ee216616765928a5ebc6a76.webp"
+      },
+      "tournament": {
+        "id": 5443,
+        "slug": "meta-cup-season-4",
+        "name": "META Cup Season 4",
+        "status": "current",
+        "prize": 10000,
+        "tier_rank": 4,
+        "image_url": "https://files.bo3.gg/uploads/tournament/5443/image/webp-16cd0574acee22cd05cf97953f44fe7f.webp"
+      },
+      "streams": [
+        {
+          "name": "meta_esports_kz",
+          "preview_image_url": "https://static-cdn.jtvnw.net/previews-ttv/live_user_meta_esports_kz-600x336.jpg"
+        }
+      ],
+      "games": [
+        {
+          "id": 159538,
+          "number": 3
+        },
+        {
+          "id": 159539,
+          "number": 2
+        },
+        {
+          "id": 159540,
+          "number": 1
+        }
+      ],
+      "ai_predictions": {
+        "prediction_team1_score": 1,
+        "prediction_team2_score": 2,
+        "prediction_winner_team_id": 21388,
+        "prediction_scores_data": {
+          "neighbor_proximity_factor": 0.243041
+        }
+      }
+    },
+    {
+      "id": 111339,
+      "slug": "state-vs-against-all-authority-22-02-2026",
+      "status": "current",
+      "parsed_status": "waiting",
+      "discipline_id": 1,
+      "start_date": "2026-02-22T11:30:00.000+00:00",
+      "team1_id": 10493,
+      "team2_id": 4045,
+      "team1_score": 0,
+      "team2_score": 0,
+      "bo_type": 3,
+      "live_coverage": true,
+      "live_coverage_source": 2,
+      "stars": 0,
+      "bet_updates": {
+        "path": "https://refpa04636.pro/L?tag=d_4812392m_129584c_bo3_odds_ww&site=4812392&ad=129584&utm_source=bo3_odds_ww&utm_medium=fix&r=/en/line/Esports/2652798-CS-2-United-21/307036752-State-aAa",
+        "team_1": {
+          "name": "STATE",
+          "coeff": 1.57,
+          "active": true,
+          "team_id": 10493,
+          "max_coeff": 1.57,
+          "aggrement_score": 0.69
+        },
+        "team_2": {
+          "name": "against All authority",
+          "coeff": 2.279,
+          "active": true,
+          "team_id": 4045,
+          "max_coeff": 2.288,
+          "aggrement_score": 0.31
+        },
+        "markets_count": 2,
+        "additional_markets": []
+      },
+      "team1": {
+        "id": 10493,
+        "slug": "state",
+        "name": "STATE",
+        "image_url": "https://files.bo3.gg/uploads/team/10493/image/webp-2d0658b2d8888635c447a3340eeb00ed.webp"
+      },
+      "team2": {
+        "id": 4045,
+        "slug": "against-all-authority",
+        "name": "against All authority",
+        "image_url": "https://files.bo3.gg/uploads/team/4045/image/webp-edd6c8c0a738e44c00c7ff1c3b16cf03.webp"
+      },
+      "tournament": {
+        "id": 5446,
+        "slug": "united21-season-45",
+        "name": "United21 Season 45",
+        "status": "current",
+        "prize": 10000,
+        "tier_rank": 4,
+        "image_url": "https://files.bo3.gg/uploads/tournament/5446/image/webp-4a71aee82d9b32eec5926939c347cd90.webp"
+      },
+      "streams": [
+        {
+          "name": "United21_en",
+          "preview_image_url": ""
+        }
+      ],
+      "games": [
+        {
+          "id": 159652,
+          "number": 3
+        },
+        {
+          "id": 159653,
+          "number": 2
+        },
+        {
+          "id": 159654,
+          "number": 1
+        }
+      ],
+      "ai_predictions": {
+        "prediction_team1_score": 2,
+        "prediction_team2_score": 0,
+        "prediction_winner_team_id": 10493,
+        "prediction_scores_data": {
+          "neighbor_proximity_factor": 0.71521
+        }
+      }
+    },
+    {
+      "id": 111265,
+      "slug": "omega-kz-vs-nemiga-22-02-2026",
+      "status": "current",
+      "parsed_status": "waiting",
+      "discipline_id": 1,
+      "start_date": "2026-02-22T11:10:00.000+00:00",
+      "team1_id": 22014,
+      "team2_id": 655,
+      "team1_score": 0,
+      "team2_score": 0,
+      "bo_type": 3,
+      "live_coverage": false,
+      "stars": 1,
+      "team1": {
+        "id": 22014,
+        "slug": "omega-kz",
+        "name": "Omega",
+        "image_url": "https://files.bo3.gg/uploads/team/22014/image/webp-d438648dd664fc201705a5e59d4da61b.webp"
+      },
+      "team2": {
+        "id": 655,
+        "slug": "nemiga",
+        "name": "Nemiga",
+        "image_url": "https://files.bo3.gg/uploads/team/655/image/webp-998a59d1bbae3fd5e32b1e46a3f6204e.webp"
+      },
+      "tournament": {
+        "id": 5443,
+        "slug": "meta-cup-season-4",
+        "name": "META Cup Season 4",
+        "status": "current",
+        "prize": 10000,
+        "tier_rank": 4,
+        "image_url": "https://files.bo3.gg/uploads/tournament/5443/image/webp-16cd0574acee22cd05cf97953f44fe7f.webp"
+      },
+      "streams": [
+        {
+          "name": "meta_esports_kz2",
+          "preview_image_url": "https://static-cdn.jtvnw.net/previews-ttv/live_user_meta_esports_kz2-600x336.jpg"
+        }
+      ],
+      "games": [
+        {
+          "id": 159541,
+          "map_name": "de_ancient",
+          "number": 3
+        },
+        {
+          "id": 159542,
+          "map_name": "de_overpass",
+          "number": 2
+        },
+        {
+          "id": 159543,
+          "map_name": "de_dust2",
+          "number": 1
+        }
+      ]
+    },
+    {
+      "id": 110437,
+      "slug": "los-kogutos-vs-fuzos-cs-22-02-2026",
+      "status": "current",
+      "parsed_status": "partially_done",
+      "discipline_id": 1,
+      "start_date": "2026-02-22T09:20:00.000+00:00",
+      "team1_id": 1093,
+      "team2_id": 22802,
+      "team1_score": 1,
+      "team2_score": 1,
+      "bo_type": 3,
+      "team1_last_game_score": 10,
+      "team2_last_game_score": 3,
+      "live_coverage": true,
+      "live_coverage_source": 2,
+      "live_updates": {
+        "team_1": {
+          "side": "TERRORIST",
+          "game_score": 10,
+          "match_score": 1,
+          "economy_level": 0,
+          "equipment_value": 700
+        },
+        "team_2": {
+          "side": "CT",
+          "game_score": 3,
+          "match_score": 1,
+          "economy_level": 0,
+          "equipment_value": 13450
+        },
+        "map_name": "de_mirage",
+        "game_ended": false,
+        "game_number": 3,
+        "round_phase": "IN_PROGRESS",
+        "round_number": 14
+      },
+      "stars": 0,
+      "team1": {
+        "id": 1093,
+        "slug": "los-kogutos",
+        "name": "los kogutos",
+        "image_url": "https://files.bo3.gg/uploads/team/1093/image/c71170a2550fec12106f1763d65204a4.png"
+      },
+      "team2": {
+        "id": 22802,
+        "slug": "fuzos-cs",
+        "name": "Fuzos",
+        "image_url": "https://files.bo3.gg/uploads/team/22802/image/webp-4e0104952780f2de9689f77596859299.webp"
+      },
+      "tournament": {
+        "id": 5365,
+        "slug": "european-pro-league-series-5",
+        "name": "European Pro League Series 5",
+        "status": "current",
+        "prize": 20000,
+        "tier_rank": 4,
+        "image_url": "https://files.bo3.gg/uploads/tournament/5365/image/webp-c04c704d3eedfdb4c1b11b84b186652e.webp"
+      },
+      "streams": [
+        {
+          "name": "eplcs_en"
+        },
+        {
+          "name": "Pedrotavares12",
+          "preview_image_url": "https://static-cdn.jtvnw.net/previews-ttv/live_user_pedrotavares12-600x336.jpg"
+        },
+        {
+          "name": "tchomi_",
+          "preview_image_url": "https://static-cdn.jtvnw.net/previews-ttv/live_user_tchomi_-600x336.jpg"
+        }
+      ],
+      "games": [
+        {
+          "id": 157953,
+          "map_name": "de_mirage",
+          "number": 3
+        },
+        {
+          "id": 157954,
+          "map_name": "de_dust2",
+          "winner_clan_score": 13,
+          "loser_clan_score": 7,
+          "winner_clan_name": "Fuzos",
+          "loser_clan_name": "los kogutos",
+          "number": 2,
+          "winner_team_clan": {
+            "clan_name": "Fuzos",
+            "team_id": 22802
+          },
+          "loser_team_clan": {
+            "clan_name": "los kogutos",
+            "team_id": 1093
+          }
+        },
+        {
+          "id": 157955,
+          "map_name": "de_ancient",
+          "winner_clan_score": 13,
+          "loser_clan_score": 7,
+          "winner_clan_name": "los kogutos",
+          "loser_clan_name": "Fuzos",
+          "number": 1,
+          "winner_team_clan": {
+            "clan_name": "los kogutos",
+            "team_id": 1093
+          },
+          "loser_team_clan": {
+            "clan_name": "Fuzos",
+            "team_id": 22802
+          }
+        }
+      ],
+      "ai_predictions": {
+        "prediction_team1_score": 0,
+        "prediction_team2_score": 2,
+        "prediction_winner_team_id": 22802,
+        "prediction_scores_data": {
+          "neighbor_proximity_factor": 0.122675
+        }
+      }
+    }
+  ],
+  "links": {
+    "self": "/api/v1/matches?filter%5Bmatches.discipline_id%5D%5Beq%5D=1&filter%5Bmatches.status%5D%5Bin%5D=current&page%5Blimit%5D=100&sort=tier_rank%2C-start_date"
+  }
+}
