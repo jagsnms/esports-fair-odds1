@@ -796,6 +796,51 @@ function App() {
         ))}
       </section>
       <section style={{ marginTop: 16, padding: 12, border: '1px solid #374151', borderRadius: 4 }}>
+        <h3 style={{ marginTop: 0 }}>PHAT / Model Debug</h3>
+        {(() => {
+          const debug = (current?.derived as { debug?: Record<string, unknown> } | undefined)?.debug
+          if (!debug || typeof debug !== 'object') {
+            return <p style={{ fontSize: 12, color: '#9ca3af' }}>No debug (connect and run BO3/Replay).</p>
+          }
+          const d = debug as Record<string, unknown>
+          const v = (key: string) => {
+            const val = d[key]
+            if (val === undefined || val === null) return '—'
+            if (typeof val === 'boolean') return val ? 'true' : 'false'
+            if (typeof val === 'number') return Number.isInteger(val) ? String(val) : (val as number).toFixed(4)
+            return String(val)
+          }
+          const vNested = (obj: unknown, key: string) => {
+            if (obj == null || typeof obj !== 'object') return '—'
+            const o = obj as Record<string, unknown>
+            const val = o[key]
+            if (val === undefined || val === null) return '—'
+            if (typeof val === 'boolean') return val ? 'true' : 'false'
+            if (typeof val === 'number') return Number.isInteger(val) ? String(val) : (val as number).toFixed(4)
+            return String(val)
+          }
+          const ap = d.active_points as Record<string, unknown> | undefined
+          const lines: string[] = [
+            'Prematch:',
+            `  prematch_series_used=${v('prematch_series_used')}  prematch_map_used=${v('prematch_map_used')}  prematch_locked=${v('prematch_locked')}`,
+            'Corridors:',
+            `  series_low=${v('series_low')}  series_high=${v('series_high')}  map_low=${v('map_low')}  map_high=${v('map_high')}`,
+            'Resolver:',
+            `  p_hat_old=${v('p_hat_old')}  p_hat_final=${v('p_hat_final')}  midround_enabled=${v('midround_enabled')}  bo3_health=${v('bo3_health')}`,
+            'Midround V2:',
+            `  q_intra=${v('q_intra')}  raw_score=${v('raw_score')}  urgency=${v('urgency')}  time_progress=${v('time_progress')}`,
+            `  used_time=${v('used_time')}  used_loadout=${v('used_loadout')}  used_bomb_direction=${v('used_bomb_direction')}  used_armor=${v('used_armor')}  used_econ=${v('used_econ')}`,
+            'Endpoints:',
+            `  canonical_if_a_round=${v('canonical_if_a_round')}  canonical_if_b_round=${v('canonical_if_b_round')}  base_span=${v('base_span')}  k=${v('k')}  a_active=${ap ? vNested(ap, 'a_active') : v('a_active')}  b_active=${ap ? vNested(ap, 'b_active') : v('b_active')}`,
+          ]
+          return (
+            <pre style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace', margin: 0, color: '#9ca3af', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+              {lines.join('\n')}
+            </pre>
+          )
+        })()}
+      </section>
+      <section style={{ marginTop: 16, padding: 12, border: '1px solid #374151', borderRadius: 4 }}>
         <h3 style={{ marginTop: 0 }}>Replay (JSONL)</h3>
         <p>
           <label>
