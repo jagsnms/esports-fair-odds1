@@ -70,3 +70,26 @@ def series_win_prob_live(
         p_if_lose_current = series_prob_needed(target - mwA, target - (mwB + 1), pf)
 
     return float(pc * p_if_win_current + (1.0 - pc) * p_if_lose_current)
+
+
+def derive_p_map_from_p_series(best_of: int, prematch_series: float) -> float:
+    """
+    Inverse: given series win prob (prematch, 0-0), find p_map such that
+    series_win_prob_live(best_of, 0, 0, p_map, p_map) == prematch_series.
+    Uses bisection on p_map in [0.02, 0.98]. Returns p_map in that range.
+    """
+    target = _clip01(float(prematch_series))
+    bo = max(1, int(best_of))
+    if bo not in (3, 5):
+        bo = 3
+    lo, hi = 0.02, 0.98
+    for _ in range(60):
+        mid = (lo + hi) * 0.5
+        p_series = series_win_prob_live(bo, 0, 0, mid, mid)
+        if abs(p_series - target) < 1e-9:
+            return mid
+        if p_series < target:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) * 0.5

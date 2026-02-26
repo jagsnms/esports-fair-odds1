@@ -21,8 +21,9 @@ class Config:
     poll_interval_s: float = 5.0
     contract_scope: str = ""
     series_fmt: str = ""
-    prematch_map: Any = None
-    prematch_series: Any = None
+    prematch_series: Optional[float] = None  # manual SERIES input (0..1)
+    prematch_map: Optional[float] = None  # derived from prematch_series
+    prematch_locked: bool = False
     lock_team_mapping: bool = False  # identity lock: do not overwrite team mapping from feed
     market_delay_s: float = 0.0
     team_a_is_team_one: bool = True  # BO3: team A = team_one (True) or team_two (False)

@@ -66,6 +66,7 @@ function App() {
   const [marketOptions, setMarketOptions] = useState<Array<{ key: string; label: string; ticker_yes: string }>>([])
   const [selectedMarketKey, setSelectedMarketKey] = useState('')
   const [marketError, setMarketError] = useState<string | null>(null)
+  const [prematchSeriesInput, setPrematchSeriesInput] = useState('')
   const [breaches, setBreaches] = useState<Array<{
     ts_epoch: number
     match_id: number | null
@@ -557,6 +558,106 @@ function App() {
             <p style={{ fontSize: 13, color: '#9ca3af' }}>
               BO3 status: <strong>{status}</strong>
               {err != null && err !== '' && <> ({err})</>}
+            </p>
+          )
+        })()}
+      </section>
+      <section style={{ marginTop: 16, padding: 12, border: '1px solid #374151', borderRadius: 4 }}>
+        <h3 style={{ marginTop: 0 }}>Prematch</h3>
+        <p>
+          <label>
+            prematch_series (0–1):{' '}
+            <input
+              type="number"
+              min={0}
+              max={1}
+              step={0.01}
+              value={prematchSeriesInput}
+              onChange={(e) => setPrematchSeriesInput(e.target.value)}
+              placeholder="0.5"
+              style={{ width: 80 }}
+            />
+          </label>
+          {' '}
+          <button
+            type="button"
+            onClick={async () => {
+              const v = parseFloat(prematchSeriesInput)
+              if (Number.isNaN(v) || v <= 0 || v >= 1) {
+                setConfigError('prematch_series must be between 0.01 and 0.99')
+                return
+              }
+              setConfigError(null)
+              try {
+                const r = await fetch(`${API_BASE}/api/v1/prematch/set`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ prematch_series: v, prematch_locked: true }),
+                })
+                if (!r.ok) {
+                  const body = await r.json().catch(() => ({}))
+                  setConfigError((body as { detail?: string })?.detail ?? r.statusText)
+                  return
+                }
+                const data = await r.json()
+                setCurrent(data)
+              } catch (e) {
+                setConfigError(e instanceof Error ? e.message : String(e))
+              }
+            }}
+          >
+            Set prematch (lock)
+          </button>
+          {' '}
+          <button
+            type="button"
+            onClick={async () => {
+              setConfigError(null)
+              try {
+                const r = await fetch(`${API_BASE}/api/v1/prematch/unlock`, { method: 'POST' })
+                if (!r.ok) return
+                const data = await r.json()
+                setCurrent(data)
+              } catch {
+                // ignore
+              }
+            }}
+          >
+            Unlock prematch
+          </button>
+          {' '}
+          <button
+            type="button"
+            onClick={async () => {
+              setConfigError(null)
+              try {
+                const r = await fetch(`${API_BASE}/api/v1/prematch/clear`, { method: 'POST' })
+                if (!r.ok) return
+                const data = await r.json()
+                setCurrent(data)
+              } catch {
+                // ignore
+              }
+            }}
+          >
+            Clear
+          </button>
+        </p>
+        {(() => {
+          const config = (current?.state as { config?: { prematch_series?: number | null; prematch_map?: number | null; prematch_locked?: boolean } })?.config
+          const ps = config?.prematch_series
+          const pm = config?.prematch_map
+          const locked = config?.prematch_locked ?? false
+          if (ps == null && pm == null) {
+            return <p style={{ fontSize: 13, color: '#9ca3af' }}>No prematch set. Use 0.01–0.99 and Set prematch (lock).</p>
+          }
+          return (
+            <p style={{ fontSize: 13, color: '#9ca3af' }}>
+              prematch_series: <strong>{ps != null ? ps.toFixed(4) : '—'}</strong>
+              {' · '}
+              prematch_map (derived): <strong>{pm != null ? pm.toFixed(4) : '—'}</strong>
+              {' · '}
+              locked: <strong>{locked ? 'yes' : 'no'}</strong>
             </p>
           )
         })()}

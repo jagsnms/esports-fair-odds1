@@ -17,8 +17,9 @@ DEFAULTS: dict[str, Any] = {
     "poll_interval_s": 5.0,
     "contract_scope": "",
     "series_fmt": "",
-    "prematch_map": None,
     "prematch_series": None,
+    "prematch_map": None,
+    "prematch_locked": False,
     "lock_team_mapping": False,
     "market_delay_s": 0.0,
     "team_a_is_team_one": True,
@@ -56,6 +57,9 @@ def merge_config(current: Config, partial: dict[str, Any]) -> Config:
     """
     allowed = set(DEFAULTS)
     updates = {k: v for k, v in partial.items() if k in allowed}
+    if getattr(current, "prematch_locked", False):
+        updates.pop("prematch_series", None)
+        updates.pop("prematch_map", None)
     if not updates:
         return current
     if "source" in updates and isinstance(updates["source"], str):
@@ -70,8 +74,9 @@ def merge_config(current: Config, partial: dict[str, Any]) -> Config:
         "poll_interval_s": getattr(current, "poll_interval_s"),
         "contract_scope": getattr(current, "contract_scope"),
         "series_fmt": getattr(current, "series_fmt"),
-        "prematch_map": getattr(current, "prematch_map"),
         "prematch_series": getattr(current, "prematch_series"),
+        "prematch_map": getattr(current, "prematch_map"),
+        "prematch_locked": getattr(current, "prematch_locked", False),
         "lock_team_mapping": getattr(current, "lock_team_mapping"),
         "market_delay_s": getattr(current, "market_delay_s"),
         "team_a_is_team_one": getattr(current, "team_a_is_team_one", True),
