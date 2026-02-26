@@ -803,9 +803,25 @@ function App() {
             return <p style={{ fontSize: 12, color: '#9ca3af' }}>No debug (connect and run BO3/Replay).</p>
           }
           const d = debug as Record<string, unknown>
+          const MAX_JSON_LEN = 800
+          const formatVal = (val: unknown): string => {
+            if (val === undefined || val === null) return '—'
+            if (typeof val === 'object') {
+              try {
+                const json = JSON.stringify(val, null, 2)
+                return json.length > MAX_JSON_LEN ? json.slice(0, MAX_JSON_LEN) + '…' : json
+              } catch {
+                return String(val)
+              }
+            }
+            if (typeof val === 'boolean') return val ? 'true' : 'false'
+            if (typeof val === 'number') return Number.isInteger(val) ? String(val) : (val as number).toFixed(4)
+            return String(val)
+          }
           const v = (key: string) => {
             const val = d[key]
             if (val === undefined || val === null) return '—'
+            if (typeof val === 'object' && val !== null) return formatVal(val)
             if (typeof val === 'boolean') return val ? 'true' : 'false'
             if (typeof val === 'number') return Number.isInteger(val) ? String(val) : (val as number).toFixed(4)
             return String(val)
@@ -819,20 +835,51 @@ function App() {
             if (typeof val === 'number') return Number.isInteger(val) ? String(val) : (val as number).toFixed(4)
             return String(val)
           }
+          const truncateJson = (obj: unknown): string => {
+            try {
+              const json = JSON.stringify(obj, null, 2)
+              return json.length > MAX_JSON_LEN ? json.slice(0, MAX_JSON_LEN) + '…' : json
+            } catch {
+              return String(obj)
+            }
+          }
+          const scalarStr = (val: unknown): string => {
+            if (val === undefined || val === null) return '—'
+            if (typeof val === 'number') return Number.isInteger(val) ? String(val) : (val as number).toFixed(4)
+            return String(val)
+          }
+          const seriesLow = d.series_low ?? d.bound_low
+          const seriesHigh = d.series_high ?? d.bound_high
+          const mapLow = d.map_low ?? d.rail_low
+          const mapHigh = d.map_high ?? d.rail_high
+          const mid = (d.midround_v2 != null && typeof d.midround_v2 === 'object') ? (d.midround_v2 as Record<string, unknown>) : d
+          const mv = (key: string) => {
+            const val = mid[key]
+            if (val === undefined || val === null) return '—'
+            if (typeof val === 'boolean') return val ? 'true' : 'false'
+            if (typeof val === 'number') return Number.isInteger(val) ? String(val) : (val as number).toFixed(4)
+            return String(val)
+          }
           const ap = d.active_points as Record<string, unknown> | undefined
           const lines: string[] = [
             'Prematch:',
             `  prematch_series_used=${v('prematch_series_used')}  prematch_map_used=${v('prematch_map_used')}  prematch_locked=${v('prematch_locked')}`,
             'Corridors:',
-            `  series_low=${v('series_low')}  series_high=${v('series_high')}  map_low=${v('map_low')}  map_high=${v('map_high')}`,
+            `  series_low=${scalarStr(seriesLow)}  series_high=${scalarStr(seriesHigh)}  map_low=${scalarStr(mapLow)}  map_high=${scalarStr(mapHigh)}`,
             'Resolver:',
             `  p_hat_old=${v('p_hat_old')}  p_hat_final=${v('p_hat_final')}  midround_enabled=${v('midround_enabled')}  bo3_health=${v('bo3_health')}`,
             'Midround V2:',
-            `  q_intra=${v('q_intra')}  raw_score=${v('raw_score')}  urgency=${v('urgency')}  time_progress=${v('time_progress')}`,
-            `  used_time=${v('used_time')}  used_loadout=${v('used_loadout')}  used_bomb_direction=${v('used_bomb_direction')}  used_armor=${v('used_armor')}  used_econ=${v('used_econ')}`,
+            `  q_intra=${mv('q_intra')}  raw_score=${mv('raw_score')}  urgency=${mv('urgency')}  time_progress=${mv('time_progress')}`,
+            `  used_time=${mv('used_time')}  used_loadout=${mv('used_loadout')}  used_bomb_direction=${mv('used_bomb_direction')}  used_armor=${mv('used_armor')}  used_econ=${mv('used_econ')}`,
             'Endpoints:',
             `  canonical_if_a_round=${v('canonical_if_a_round')}  canonical_if_b_round=${v('canonical_if_b_round')}  base_span=${v('base_span')}  k=${v('k')}  a_active=${ap ? vNested(ap, 'a_active') : v('a_active')}  b_active=${ap ? vNested(ap, 'b_active') : v('b_active')}`,
           ]
+          if (d.raw != null) {
+            lines.push('', 'Raw:', truncateJson(d.raw))
+          }
+          if (d.fragility != null) {
+            lines.push('', 'Fragility:', truncateJson(d.fragility))
+          }
           return (
             <pre style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace', margin: 0, color: '#9ca3af', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
               {lines.join('\n')}
