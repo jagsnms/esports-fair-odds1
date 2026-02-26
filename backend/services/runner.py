@@ -89,18 +89,52 @@ class Runner:
         from engine.compute.rails import compute_rails
         from engine.compute.resolve import resolve_p_hat
         from engine.state.reducer import reduce_state
+        from engine.diagnostics.inter_map_break import detect_inter_map_break
 
         old_state = await self._store.get_state()
         new_state = reduce_state(old_state, frame, config)
         bounds_result = compute_bounds(frame, config, new_state)
         bound_low, bound_high = bounds_result[0], bounds_result[1]
         bounds_debug = bounds_result[2] if len(bounds_result) > 2 else {}
-        bounds = (bound_low, bound_high)
-        rails_result = compute_rails(frame, config, new_state, bounds)
-        rail_low, rail_high = rails_result[0], rails_result[1]
-        rails_debug = rails_result[2] if len(rails_result) > 2 else {}
-        p_hat, dbg = resolve_p_hat(frame, config, new_state, (rail_low, rail_high))
-        dbg = {**dbg, **bounds_debug, **rails_debug}
+
+        # Detect inter-map break (between maps) and keep corridors/p_hat stable.
+        is_break, break_reason = detect_inter_map_break(frame, new_state)
+        if is_break:
+            series_width = bound_high - bound_low
+            center = max(bound_low, min(bound_high, 0.5 * (bound_low + bound_high)))
+            # Use a modest map width inside series; avoid collapsing to zero.
+            map_width = min(series_width * 0.6, 0.30)
+            half = 0.5 * map_width
+            rail_low = max(bound_low, min(bound_high, center - half))
+            rail_high = max(bound_low, min(bound_high, center + half))
+            # Try to reuse last p_hat if available; else midpoint.
+            cur = await self._store.get_current()
+            d = (cur.get("derived") or {}) if isinstance(cur, dict) else {}
+            last_p = d.get("p_hat")
+            if isinstance(last_p, (int, float)):
+                p_hat = float(last_p)
+            else:
+                p_hat = center
+            p_hat = max(rail_low, min(rail_high, p_hat))
+            dbg: dict[str, Any] = {
+                "inter_map_break": True,
+                "inter_map_break_reason": break_reason,
+                "p_hat_old": last_p,
+                "p_hat_final": p_hat,
+                "series_low": bound_low,
+                "series_high": bound_high,
+                "map_low": rail_low,
+                "map_high": rail_high,
+            }
+            dbg.update(bounds_debug)
+        else:
+            bounds = (bound_low, bound_high)
+            rails_result = compute_rails(frame, config, new_state, bounds)
+            rail_low, rail_high = rails_result[0], rails_result[1]
+            rails_debug = rails_result[2] if len(rails_result) > 2 else {}
+            p_hat, dbg = resolve_p_hat(frame, config, new_state, (rail_low, rail_high))
+            dbg = {**dbg, **bounds_debug, **rails_debug}
+
         point = HistoryPoint(
             time=t,
             p_hat=p_hat,
@@ -210,18 +244,49 @@ class Runner:
         from engine.compute.rails import compute_rails
         from engine.compute.resolve import resolve_p_hat
         from engine.state.reducer import reduce_state
+        from engine.diagnostics.inter_map_break import detect_inter_map_break
 
         old_state = await self._store.get_state()
         new_state = reduce_state(old_state, frame, config)
         bounds_result = compute_bounds(frame, config, new_state)
         bound_low, bound_high = bounds_result[0], bounds_result[1]
         bounds_debug = bounds_result[2] if len(bounds_result) > 2 else {}
-        bounds = (bound_low, bound_high)
-        rails_result = compute_rails(frame, config, new_state, bounds)
-        rail_low, rail_high = rails_result[0], rails_result[1]
-        rails_debug = rails_result[2] if len(rails_result) > 2 else {}
-        p_hat, dbg = resolve_p_hat(frame, config, new_state, (rail_low, rail_high))
-        dbg = {**dbg, **bounds_debug, **rails_debug}
+
+        is_break, break_reason = detect_inter_map_break(frame, new_state)
+        if is_break:
+            series_width = bound_high - bound_low
+            center = max(bound_low, min(bound_high, 0.5 * (bound_low + bound_high)))
+            map_width = min(series_width * 0.6, 0.30)
+            half = 0.5 * map_width
+            rail_low = max(bound_low, min(bound_high, center - half))
+            rail_high = max(bound_low, min(bound_high, center + half))
+            cur = await self._store.get_current()
+            d = (cur.get("derived") or {}) if isinstance(cur, dict) else {}
+            last_p = d.get("p_hat")
+            if isinstance(last_p, (int, float)):
+                p_hat = float(last_p)
+            else:
+                p_hat = center
+            p_hat = max(rail_low, min(rail_high, p_hat))
+            dbg: dict[str, Any] = {
+                "inter_map_break": True,
+                "inter_map_break_reason": break_reason,
+                "p_hat_old": last_p,
+                "p_hat_final": p_hat,
+                "series_low": bound_low,
+                "series_high": bound_high,
+                "map_low": rail_low,
+                "map_high": rail_high,
+            }
+            dbg.update(bounds_debug)
+        else:
+            bounds = (bound_low, bound_high)
+            rails_result = compute_rails(frame, config, new_state, bounds)
+            rail_low, rail_high = rails_result[0], rails_result[1]
+            rails_debug = rails_result[2] if len(rails_result) > 2 else {}
+            p_hat, dbg = resolve_p_hat(frame, config, new_state, (rail_low, rail_high))
+            dbg = {**dbg, **bounds_debug, **rails_debug}
+
         point = HistoryPoint(
             time=t,
             p_hat=p_hat,

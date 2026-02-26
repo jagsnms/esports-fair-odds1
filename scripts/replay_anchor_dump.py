@@ -58,6 +58,11 @@ def run(
     match_id: int,
     max_ticks: int = 200,
     anchors: list[int] | None = None,
+    *,
+    find_close_late: bool = False,
+    min_score_sum: int = 18,
+    max_abs_diff: int = 2,
+    n: int = 6,
 ) -> None:
     entries = load_bo3_jsonl_entries(path)
     payloads_with_team_a = _collect_payloads_and_team_a(entries, match_id)
@@ -80,6 +85,7 @@ def run(
         last_map_index=None,
     )
     anchor_set = set(anchors or [])
+    auto_candidates: list[int] = []
 
     for tick_idx in range(min(max_ticks, len(payloads_with_team_a))):
         payload, _ = payloads_with_team_a[tick_idx]
@@ -94,13 +100,23 @@ def run(
         rails = (rail_lo, rail_hi)
         p_hat, dbg = resolve_p_hat(frame, config, state, rails)
         p_hat_old = dbg.get("p_hat_old", p_hat)
+        inter_break = bool(dbg.get("inter_map_break", False))
+        inter_break_reason = dbg.get("inter_map_break_reason")
         seg = state.segment_id
         scores = getattr(frame, "scores", (0, 0))
+        ra = int(scores[0]) if len(scores) > 0 and scores[0] is not None else 0
+        rb = int(scores[1]) if len(scores) > 1 and scores[1] is not None else 0
+        score_sum = ra + rb
+        score_diff = ra - rb
         # Compact line
         print(
             f"tick={tick_idx} seg={seg} scores={scores[0]}-{scores[1]} "
-            f"rails=({rail_lo:.3f},{rail_hi:.3f}) p_hat_old={p_hat_old:.4f} p_hat_final={p_hat:.4f}"
+            f"rails=({rail_lo:.3f},{rail_hi:.3f}) p_hat_old={p_hat_old:.4f} p_hat_final={p_hat:.4f} "
+            f"inter_map_break={inter_break}"
         )
+        # Collect close/late candidates if requested
+        if find_close_late and score_sum >= min_score_sum and abs(score_diff) <= max_abs_diff:
+            auto_candidates.append(tick_idx)
         if tick_idx in anchor_set:
             features = compute_cs2_midround_features(frame, config=config)
             round_phase = features.get("round_phase")
@@ -156,6 +172,113 @@ def run(
                 f"  midround_v2: q_intra={q_intra} raw_score={raw_score} urgency={urgency} "
                 f"p_mid_clamped={p_mid_clamped} used_bomb_direction={used_bomb} used_time={used_time}"
             )
+            if inter_break:
+                print(f"  inter_map_break=True reason={inter_break_reason}")
+            print("  ---")
+
+    # If anchors were not provided but auto-pick mode is enabled, choose and print them now.
+    if find_close_late and not anchors and auto_candidates:
+        total = len(auto_candidates)
+        if total <= n:
+            chosen = auto_candidates
+        else:
+            # Evenly spaced sample across candidates
+            step = max(1, total // n)
+            chosen = [auto_candidates[i] for i in range(0, total, step)][:n]
+        print(f"auto_chosen_anchors={chosen}")
+        # Re-run only the anchor-detail printing for chosen ticks
+        anchor_set = set(chosen)
+        for tick_idx in chosen:
+            if tick_idx >= len(payloads_with_team_a):
+                continue
+            payload, _ = payloads_with_team_a[tick_idx]
+            frame = bo3_snapshot_to_frame(payload, team_a_is_team_one=team_a_is_team_one)
+            # We need a consistent state trail up to this tick; reuse the same forward pass
+            # by re-running reduce_state/compute up to tick_idx.
+            # Simple approach: recompute from scratch up to each chosen tick.
+            cfg = Config(
+                midround_enabled=True,
+                team_a_is_team_one=team_a_is_team_one,
+                contract_scope="map",
+            )
+            st = State(
+                config=cfg,
+                last_frame=None,
+                map_index=0,
+                last_total_rounds=0,
+                segment_id=0,
+                last_series_score=None,
+                last_map_index=None,
+            )
+            for i in range(tick_idx + 1):
+                p_i, _ = payloads_with_team_a[i]
+                f_i = bo3_snapshot_to_frame(p_i, team_a_is_team_one=team_a_is_team_one)
+                st = reduce_state(st, f_i, cfg)
+            # Now compute bounds/rails/resolve for this tick using st and frame
+            bounds_result = compute_bounds(frame, cfg, st)
+            bound_lo, bound_hi = bounds_result[0], bounds_result[1]
+            bounds = (bound_lo, bound_hi)
+            rails_result = compute_rails(frame, cfg, st, bounds)
+            rail_lo, rail_hi = rails_result[0], rails_result[1]
+            rails_debug = rails_result[2] if len(rails_result) > 2 else {}
+            rails = (rail_lo, rail_hi)
+            p_hat, dbg = resolve_p_hat(frame, cfg, st, rails)
+            p_hat_old = dbg.get("p_hat_old", p_hat)
+            seg = st.segment_id
+            scores = getattr(frame, "scores", (0, 0))
+            features = compute_cs2_midround_features(frame, config=cfg)
+            round_phase = features.get("round_phase")
+            t_remaining = features.get("time_remaining_s")
+            bomb = features.get("bomb_planted", 0)
+            a_side = features.get("a_side")
+            alive = getattr(frame, "alive_counts", (0, 0))
+            hp = getattr(frame, "hp_totals", (0.0, 0.0))
+            loadout = getattr(frame, "loadout_totals") or (0.0, 0.0)
+            series_width = bound_hi - bound_lo
+            map_width = rail_hi - rail_lo
+            map_width_raw_before = rails_debug.get("map_width_raw_before_cap") or rails_debug.get("map_width_before") or map_width
+            map_width_after_widen = rails_debug.get("map_width_after_widen") or rails_debug.get("map_width_after") or map_width
+            map_width_after_cap = rails_debug.get("map_width_after_cap") or map_width
+            width_cap_used = rails_debug.get("width_cap_used")
+            context_risk = rails_debug.get("context_risk")
+            uncertainty_mult = rails_debug.get("uncertainty_multiplier")
+            v2 = dbg.get("midround_v2") or {}
+            q_intra = v2.get("q_intra")
+            raw_score = v2.get("raw_score")
+            urgency = v2.get("urgency")
+            p_mid_clamped = v2.get("p_mid_clamped")
+            used_bomb = v2.get("used_bomb_direction")
+            used_time = v2.get("used_time")
+            print("  --- anchor ---")
+            print(
+                f"  tick_idx={tick_idx} seg={seg} round_phase={round_phase!r} "
+                f"t_remaining={t_remaining} bomb={bool(bomb)} a_side={a_side!r}"
+            )
+            print(
+                f"  alive_counts={alive} hp_totals=({hp[0]:.0f},{hp[1]:.0f}) "
+                f"loadout_totals=({loadout[0]:.0f},{loadout[1]:.0f})"
+            )
+            print(
+                f"  series corridor: series_low={bound_lo:.4f} series_high={bound_hi:.4f} "
+                f"series_width={series_width:.4f}"
+            )
+            print(
+                f"  map corridor: map_low={rail_lo:.4f} map_high={rail_hi:.4f} "
+                f"map_width={map_width:.4f}"
+            )
+            print(
+                f"  map_width_raw_before_cap={map_width_raw_before!s} "
+                f"map_width_after_widen={map_width_after_widen!s} "
+                f"map_width_after_cap={map_width_after_cap!s} width_cap_used={width_cap_used!s}"
+            )
+            print(
+                f"  context_risk={context_risk!s} uncertainty_multiplier={uncertainty_mult!s}"
+            )
+            print(f"  p_hat_old={p_hat_old:.4f} p_hat_final={p_hat:.4f}")
+            print(
+                f"  midround_v2: q_intra={q_intra} raw_score={raw_score} urgency={urgency} "
+                f"p_mid_clamped={p_mid_clamped} used_bomb_direction={used_bomb} used_time={used_time}"
+            )
             print("  ---")
 
 
@@ -165,6 +288,10 @@ def main() -> None:
     ap.add_argument("--match_id", type=int, required=True, help="Match ID to filter")
     ap.add_argument("--max_ticks", type=int, default=200, help="Max ticks to run")
     ap.add_argument("--anchors", type=str, default="", help="Comma-separated tick indices for detailed blocks (e.g. 0,5,10)")
+    ap.add_argument("--find_close_late", action="store_true", help="Auto-pick anchors from close, late-round states")
+    ap.add_argument("--min_score_sum", type=int, default=18, help="Minimum score_sum (ra+rb) for auto anchors")
+    ap.add_argument("--max_abs_diff", type=int, default=2, help="Maximum |ra-rb| for auto anchors")
+    ap.add_argument("--n", type=int, default=6, help="Maximum number of auto anchors to select")
     args = ap.parse_args()
     anchors_list: list[int] = []
     if args.anchors.strip():
@@ -175,7 +302,16 @@ def main() -> None:
                     anchors_list.append(int(s))
                 except ValueError:
                     pass
-    run(path=args.path, match_id=args.match_id, max_ticks=args.max_ticks, anchors=anchors_list or None)
+    run(
+        path=args.path,
+        match_id=args.match_id,
+        max_ticks=args.max_ticks,
+        anchors=anchors_list or None,
+        find_close_late=args.find_close_late,
+        min_score_sum=args.min_score_sum,
+        max_abs_diff=args.max_abs_diff,
+        n=args.n,
+    )
 
 
 if __name__ == "__main__":
