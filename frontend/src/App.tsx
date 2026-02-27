@@ -1240,13 +1240,10 @@ function MatchHUD({
   const playersB: HudPlayerRow[] = useDto ? fromDto(dtoPlayersB) : fromRaw(rawPlayersB)
 
   const hasPlayers = playersA.length > 0 || playersB.length > 0
-  const pad = (arr: HudPlayerRow[], n: number) => {
-    const out = [...arr]
-    while (out.length < n) out.push({})
-    return out.slice(0, n)
-  }
-  const rowsA = pad(playersA, 5)
-  const rowsB = pad(playersB, 5)
+  const rowsA: Array<HudPlayerRow | null> = [...playersA]
+  const rowsB: Array<HudPlayerRow | null> = [...playersB]
+  while (rowsA.length < 5) rowsA.push(null)
+  while (rowsB.length < 5) rowsB.push(null)
   const hpA = frame.hp_totals?.[0] ?? 0
   const hpB = frame.hp_totals?.[1] ?? 0
   const cashA = frame.cash_totals?.[0] ?? 0
@@ -1337,7 +1334,7 @@ function MatchHUD({
           <div style={{ padding: '6px 8px', fontSize: 13, fontWeight: 600, ...sideColor(teamASide) }}>
             {teams[0] ?? 'Team A'}
           </div>
-          {hasPlayers ? rowsA.map((p, i) => (p.nickname != null || p.health != null ? <PlayerRow key={i} p={p} index={i} /> : <PlaceholderRow key={i} />)) : (
+          {hasPlayers ? rowsA.map((p, i) => (p ? <PlayerRow key={i} p={p} index={i} /> : <PlaceholderRow key={i} />)) : (
             <>
               {[0, 1, 2, 3, 4].map((i) => <PlaceholderRow key={i} />)}
               <div style={{ padding: '4px 8px', fontSize: 11, color: '#6b7280', borderTop: '1px solid #374151' }}>
@@ -1350,7 +1347,7 @@ function MatchHUD({
           <div style={{ padding: '6px 8px', fontSize: 13, fontWeight: 600, ...sideColor(teamBSide) }}>
             {teams[1] ?? 'Team B'}
           </div>
-          {hasPlayers ? rowsB.map((p, i) => (p.nickname != null || p.health != null ? <PlayerRow key={i} p={p} index={i} /> : <PlaceholderRow key={i} />)) : (
+          {hasPlayers ? rowsB.map((p, i) => (p ? <PlayerRow key={i} p={p} index={i} /> : <PlaceholderRow key={i} />)) : (
             <>
               {[0, 1, 2, 3, 4].map((i) => <PlaceholderRow key={i} />)}
               <div style={{ padding: '4px 8px', fontSize: 11, color: '#6b7280', borderTop: '1px solid #374151' }}>
