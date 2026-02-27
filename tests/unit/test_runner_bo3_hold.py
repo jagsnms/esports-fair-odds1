@@ -272,13 +272,16 @@ async def test_broadcast_point_does_not_mutate_store_state() -> None:
     assert last_frame_after.get("players_a"), "players_a should still be present in store state"
     assert last_frame_after.get("players_b"), "players_b should still be present in store state"
 
-    # Wire payload should have players stripped from last_frame in 'current'
+    # Wire payloads: point messages contain only point; frame messages contain frame with players
     point_msgs = [m for m in broadcasts if m.get("type") == "point"]
+    frame_msgs = [m for m in broadcasts if m.get("type") == "frame"]
     assert len(point_msgs) == 1
-    wire_cur = point_msgs[0].get("current") or {}
-    wire_last_frame = (wire_cur.get("state") or {}).get("last_frame") or {}
-    assert "players_a" not in wire_last_frame
-    assert "players_b" not in wire_last_frame
+    assert "current" not in point_msgs[0]
+    assert "frame" not in point_msgs[0]
+    assert len(frame_msgs) == 1
+    frame_payload = frame_msgs[0].get("frame") or {}
+    assert frame_payload.get("players_a")
+    assert frame_payload.get("players_b")
 
 
 def test_broadcast_point_does_not_mutate_store_state_sync() -> None:

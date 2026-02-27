@@ -47,6 +47,7 @@ const filterHistoryToSeg = (history: Point[] | undefined, seg: number): Point[] 
 function App() {
   const [wsStatus, setWsStatus] = useState<'connecting' | 'open' | 'closed' | 'error'>('connecting')
   const [current, setCurrent] = useState<{ state?: unknown; derived?: { p_hat?: number } } | null>(null)
+  const [hudFrame, setHudFrame] = useState<LastFrame | null>(null)
   const [snapshotHistory, setSnapshotHistory] = useState<Point[]>([])
   const [chartReady, setChartReady] = useState(false)
   const [isPaused, setIsPaused] = useState(false)
@@ -340,19 +341,19 @@ function App() {
         const msg = JSON.parse(event.data as string)
         if (msg.type === 'snapshot') {
           setCurrent(msg.current ?? null)
-          const seg = (msg.current as { state?: { segment_id?: number } })?.state?.segment_id ?? 0
+          const seg = (msg.current as { state?: { segment_id?: number; last_frame?: LastFrame } })?.state?.segment_id ?? 0
           currentSegRef.current = seg
           const hist = Array.isArray(msg.history) ? (msg.history as Point[]) : []
           const lastSegmentOnly = filterHistoryToSeg(hist, seg)
           setSnapshotHistory(lastSegmentOnly)
           if (pSeriesRef.current && lastSegmentOnly.length > 0) setDataFromHistory(lastSegmentOnly)
+          const lf = (msg.current as { state?: { last_frame?: LastFrame } } | undefined)?.state?.last_frame ?? null
+          setHudFrame(lf)
+        } else if (msg.type === 'frame' && msg.frame) {
+          setHudFrame(msg.frame as LastFrame)
         } else if (msg.type === 'point' && msg.point) {
           const pt = msg.point as Point
-          if (msg.current != null) {
-            setCurrent(msg.current as typeof current)
-          } else {
-            setCurrent((prev) => ({ ...prev, state: prev?.state, derived: { ...prev?.derived, p_hat: pt.p } }))
-          }
+          setCurrent((prev) => ({ ...prev, state: prev?.state, derived: { ...prev?.derived, p_hat: pt.p } }))
           if (!pSeriesRef.current) {
             pendingPointsRef.current.push(pt)
             return
@@ -1052,7 +1053,10 @@ function App() {
       </section>
       {/* MatchHUD: broadcast scoreboard (Thunderpick-like) + chart */}
       <div style={{ display: 'flex', flexDirection: 'column', marginTop: 16, height: '75vh', minHeight: 520, minWidth: 0 }}>
-        <MatchHUD current={current} />
+        <MatchHUD
+          frame={hudFrame ?? ((current?.state as { last_frame?: LastFrame } | undefined)?.last_frame ?? null)}
+          debug={(current?.derived as { debug?: { bo3_health?: string; bo3_buffer_age_s?: number | null } } | undefined)?.debug}
+        />
         <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
           <div
             style={{
@@ -1132,12 +1136,13 @@ type LastFrame = {
   team_two?: { name?: string; side?: string; player_states?: PlayerStateRow[] }
 }
 
-function MatchHUD({ current }: { current: { state?: { last_frame?: LastFrame }; derived?: { debug?: Record<string, unknown> } } | null }) {
-  const frame = current?.state?.last_frame
-  const debug = current?.derived?.debug as {
-    bo3_health?: string
-    bo3_buffer_age_s?: number | null
-  } | undefined
+function MatchHUD({
+  frame,
+  debug,
+}: {
+  frame: LastFrame | null
+  debug?: { bo3_health?: string; bo3_buffer_age_s?: number | null }
+}) {
   const bo3Health = debug?.bo3_health ?? '—'
   const bufferAgeS = debug?.bo3_buffer_age_s
   const bufferAgeStr = bufferAgeS != null ? `${Math.round(bufferAgeS)}s` : ''
