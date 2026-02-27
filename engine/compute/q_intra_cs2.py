@@ -67,11 +67,8 @@ def _get_bomb_planted(frame: Frame) -> bool:
 
 
 def _get_time_remaining(frame: Frame) -> tuple[bool, float | None]:
-    """Return (used, t_remaining). Used only if numeric and in plausible range."""
-    bomb_phase = getattr(frame, "bomb_phase_time_remaining", None)
-    if not isinstance(bomb_phase, dict):
-        return False, None
-    t = bomb_phase.get("round_time_remaining")
+    """Return (used, t_remaining). Use canonical Frame.round_time_remaining_s (seconds)."""
+    t = getattr(frame, "round_time_remaining_s", None)
     if t is None:
         return False, None
     try:

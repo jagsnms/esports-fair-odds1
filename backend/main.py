@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.api.routes_bo3 import router as bo3_router
+from backend.api.routes_debug import router as debug_router
 from backend.api.routes_market import router as market_router
 from backend.api.routes_prematch import router as prematch_router
 from backend.api.routes_replay import router as replay_router
@@ -52,6 +53,7 @@ app.add_middleware(
 app.include_router(state_router, prefix="/api/v1")
 app.include_router(config_router, prefix="/api/v1")
 app.include_router(bo3_router, prefix="/api/v1")
+app.include_router(debug_router, prefix="/api/v1")
 app.include_router(market_router, prefix="/api/v1")
 app.include_router(prematch_router, prefix="/api/v1")
 app.include_router(replay_router, prefix="/api/v1")

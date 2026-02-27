@@ -10,9 +10,10 @@ from engine.models import Frame
 
 
 def _frame(
-    alive_counts: tuple[int, int] | None = None,
-    hp_totals: tuple[float, float] | None = None,
+    alive_counts: tuple[int, int] | tuple[int] | None = None,
+    hp_totals: tuple[float, float] | tuple[float] | None = None,
     bomb_phase_time_remaining: Any = None,
+    round_time_remaining_s: float | None = None,
 ) -> Frame:
     return Frame(
         timestamp=0.0,
@@ -21,6 +22,7 @@ def _frame(
         alive_counts=alive_counts if alive_counts is not None else (0, 0),
         hp_totals=hp_totals if hp_totals is not None else (0.0, 0.0),
         bomb_phase_time_remaining=bomb_phase_time_remaining,
+        round_time_remaining_s=round_time_remaining_s,
     )
 
 
@@ -41,27 +43,8 @@ def test_q_in_zero_one() -> None:
 
 def test_missing_inputs_q_half_and_reason() -> None:
     """When required microstate inputs are missing, return q=0.5 and reason in debug."""
-    # Frame with no usable alive or hp: use defaults that are "missing" by having neither
-    # actually present. Our impl treats (0,0) as present (we can read them). So we need
-    # a frame where alive and hp are not usable. We don't have a way to pass "missing"
-    # except by not having the attr. Frame() has alive_counts=(0,0), hp_totals=(0.0,0.0)
-    # so both are "present" (tuple len 2). So we need to pass something that fails
-    # the "present" check: e.g. alive_counts=() or a frame with no alive/hp.
-    # In our implementation, alive_present is True if isinstance tuple/list and len>=2.
-    # So (0,0) gives alive_present=True. To get missing we need to not have both.
-    # We can't easily construct a Frame with alive_counts being a single element tuple
-    # (len 1) - that would make alive_present False. Same for hp.
-    # So: Frame with alive_counts=(1,) or (None, None)? Our code does len(alive) >= 2
-    # so (1,) -> False. And int(None) would raise - we catch and return False, 0.0.
-    # Actually for (None, None) we have len 2, then int(None) raises ValueError -> return False, 0.0.
-    # So alive_present=False for (None, None). Same for hp (None, None). So both False -> missing_microstate.
-    f = Frame(
-        timestamp=0.0,
-        teams=("A", "B"),
-        scores=(0, 0),
-        alive_counts=(None, None),  # type: ignore[arg-type]
-        hp_totals=(None, None),    # type: ignore[arg-type]
-    )
+    # Use single-element tuples so len>=2 fails and alive_present/hp_present are False.
+    f = _frame(alive_counts=(1,), hp_totals=(1.0,))  # type: ignore[arg-type]
     q, debug = compute_q_intra_cs2(f)
     assert q == 0.5
     assert debug.get("reason") == "missing_microstate"
@@ -129,11 +112,11 @@ def test_time_gating_no_time_term_used_false() -> None:
 
 
 def test_time_gating_with_plausible_time() -> None:
-    """When round_time_remaining is numeric and in range, time_term_used is True."""
+    """When round_time_remaining_s is set and in range, time_term_used is True."""
     f = _frame(
         alive_counts=(3, 2),
         hp_totals=(300.0, 250.0),
-        bomb_phase_time_remaining={"round_time_remaining": 45.0},
+        round_time_remaining_s=45.0,
     )
     q, debug = compute_q_intra_cs2(f)
     assert debug["time_term_used"] is True
