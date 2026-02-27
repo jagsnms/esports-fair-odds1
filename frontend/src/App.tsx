@@ -87,6 +87,7 @@ function App() {
     breach_type: string
     breach_mag: number | null
   }>>([])
+  const [debugOpen, setDebugOpen] = useState(false)
 
   const chartRef = useRef<HTMLDivElement>(null)
   const chartInstanceRef = useRef<IChartApi | null>(null)
@@ -378,8 +379,9 @@ function App() {
   }, [wsReconnectTrigger])
 
   return (
-    <div style={{ padding: 16, maxWidth: 900, margin: '0 auto' }}>
-      <h1>ESports Fair Odds</h1>
+    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div style={{ padding: 16, maxWidth: 900, margin: '0 auto', display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+        <h1>ESports Fair Odds</h1>
       <p>
         <strong>Connection:</strong>{' '}
         <span
@@ -1052,7 +1054,7 @@ function App() {
         {replayError && <p style={{ color: '#ef4444', fontSize: 14 }}>{replayError}</p>}
       </section>
       {/* MatchHUD: broadcast scoreboard (Thunderpick-like) + chart */}
-      <div style={{ display: 'flex', flexDirection: 'column', marginTop: 16, height: '75vh', minHeight: 520, minWidth: 0 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', marginTop: 16, flex: 1, minHeight: 0, minWidth: 0 }}>
         <MatchHUD
           frame={hudFrame ?? ((current?.state as { last_frame?: LastFrame } | undefined)?.last_frame ?? null)}
           debug={(current?.derived as { debug?: { bo3_health?: string; bo3_buffer_age_s?: number | null } } | undefined)?.debug}
@@ -1084,6 +1086,180 @@ function App() {
           />
         </div>
       </div>
+      </div>
+      <DebugDrawer open={debugOpen} onToggle={() => setDebugOpen((o) => !o)}>
+        <section style={{ marginBottom: 12, padding: 12, border: '1px solid #374151', borderRadius: 4 }}>
+          <h3 style={{ marginTop: 0 }}>Breaches</h3>
+          <p>
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  const r = await fetch(`${API_BASE}/api/v1/market/breaches?limit=100`)
+                  if (!r.ok) return
+                  const data = await r.json()
+                  setBreaches(Array.isArray(data) ? data : [])
+                } catch {
+                  setBreaches([])
+                }
+              }}
+            >
+              Refresh breaches
+            </button>
+            {' '}
+            <span style={{ fontSize: 12, color: '#9ca3af' }}>Last 20 shown</span>
+          </p>
+          {breaches.length === 0 && <p style={{ fontSize: 13, color: '#9ca3af' }}>No breach events. Click Refresh or wait for auto-poll.</p>}
+          {breaches.slice(-20).reverse().map((evt, i) => (
+            <div key={i} style={{ fontSize: 12, marginBottom: 6, padding: 6, background: '#1f2937', borderRadius: 4 }}>
+              <span style={{ color: '#9ca3af' }}>{new Date((evt.ts_epoch ?? 0) * 1000).toISOString().replace('T', ' ').slice(0, 19)}</span>
+              {' '}
+              <strong>{evt.breach_type}</strong>
+              {evt.breach_mag != null && <> mag={evt.breach_mag.toFixed(4)}</>}
+              {' '}
+              score {evt.scores?.[0] ?? 0}-{evt.scores?.[1] ?? 0}
+              {evt.market_mid != null && (
+                <> · market_mid={evt.market_mid.toFixed(4)} vs [{evt.map_low?.toFixed(4) ?? '?'}, {evt.map_high?.toFixed(4) ?? '?'}]</>
+              )}
+            </div>
+          ))}
+        </section>
+        <section style={{ marginBottom: 12, padding: 12, border: '1px solid #374151', borderRadius: 4 }}>
+          <h3 style={{ marginTop: 0 }}>PHAT / Model Debug</h3>
+          {(() => {
+            const debug = (current?.derived as { debug?: Record<string, unknown> } | undefined)?.debug
+            if (!debug || typeof debug !== 'object') {
+              return <p style={{ fontSize: 12, color: '#9ca3af' }}>No debug (connect and run BO3/Replay).</p>
+            }
+            const d = debug as Record<string, unknown>
+            const MAX_JSON_LEN = 800
+            const formatVal = (val: unknown): string => {
+              if (val === undefined || val === null) return '—'
+              if (typeof val === 'object') {
+                try {
+                  const json = JSON.stringify(val, null, 2)
+                  return json.length > MAX_JSON_LEN ? json.slice(0, MAX_JSON_LEN) + '…' : json
+                } catch {
+                  return String(val)
+                }
+              }
+              if (typeof val === 'boolean') return val ? 'true' : 'false'
+              if (typeof val === 'number') return Number.isInteger(val) ? String(val) : (val as number).toFixed(4)
+              return String(val)
+            }
+            const v = (key: string) => {
+              const val = d[key]
+              if (val === undefined || val === null) return '—'
+              if (typeof val === 'object' && val !== null) return formatVal(val)
+              if (typeof val === 'boolean') return val ? 'true' : 'false'
+              if (typeof val === 'number') return Number.isInteger(val) ? String(val) : (val as number).toFixed(4)
+              return String(val)
+            }
+            const vNested = (obj: unknown, key: string) => {
+              if (obj == null || typeof obj !== 'object') return '—'
+              const o = obj as Record<string, unknown>
+              const val = o[key]
+              if (val === undefined || val === null) return '—'
+              if (typeof val === 'boolean') return val ? 'true' : 'false'
+              if (typeof val === 'number') return Number.isInteger(val) ? String(val) : (val as number).toFixed(4)
+              return String(val)
+            }
+            const truncateJson = (obj: unknown): string => {
+              try {
+                const json = JSON.stringify(obj, null, 2)
+                return json.length > MAX_JSON_LEN ? json.slice(0, MAX_JSON_LEN) + '…' : json
+              } catch {
+                return String(obj)
+              }
+            }
+            const scalarStr = (val: unknown): string => {
+              if (val === undefined || val === null) return '—'
+              if (typeof val === 'number') return Number.isInteger(val) ? String(val) : (val as number).toFixed(4)
+              return String(val)
+            }
+            const seriesLow = d.series_low ?? d.bound_low
+            const seriesHigh = d.series_high ?? d.bound_high
+            const mapLow = d.map_low ?? d.rail_low
+            const mapHigh = d.map_high ?? d.rail_high
+            const mid = (d.midround_v2 != null && typeof d.midround_v2 === 'object') ? (d.midround_v2 as Record<string, unknown>) : d
+            const mv = (key: string) => {
+              const val = mid[key]
+              if (val === undefined || val === null) return '—'
+              if (typeof val === 'boolean') return val ? 'true' : 'false'
+              if (typeof val === 'number') return Number.isInteger(val) ? String(val) : (val as number).toFixed(4)
+              return String(val)
+            }
+            const ap = d.active_points as Record<string, unknown> | undefined
+            const lines: string[] = [
+              'Prematch:',
+              `  prematch_series_used=${v('prematch_series_used')}  prematch_map_used=${v('prematch_map_used')}  prematch_locked=${v('prematch_locked')}`,
+              'Corridors:',
+              `  series_low=${scalarStr(seriesLow)}  series_high=${scalarStr(seriesHigh)}  map_low=${scalarStr(mapLow)}  map_high=${scalarStr(mapHigh)}`,
+              'Resolver:',
+              `  p_hat_old=${v('p_hat_old')}  p_hat_final=${v('p_hat_final')}  bo3_health=${v('bo3_health')}`,
+              'Midround V2:',
+              `  q_intra=${mv('q_intra')}  raw_score=${mv('raw_score')}  urgency=${mv('urgency')}  time_progress=${mv('time_progress')}`,
+              `  used_time=${mv('used_time')}  used_loadout=${mv('used_loadout')}  used_bomb_direction=${mv('used_bomb_direction')}  used_armor=${mv('used_armor')}  used_econ=${mv('used_econ')}`,
+              'Endpoints:',
+              `  canonical_if_a_round=${v('canonical_if_a_round')}  canonical_if_b_round=${v('canonical_if_b_round')}  base_span=${v('base_span')}  k=${v('k')}  a_active=${ap ? vNested(ap, 'a_active') : v('a_active')}  b_active=${ap ? vNested(ap, 'b_active') : v('b_active')}`,
+            ]
+            if (d.raw != null) {
+              lines.push('', 'Raw:', truncateJson(d.raw))
+            }
+            if (d.fragility != null) {
+              lines.push('', 'Fragility:', truncateJson(d.fragility))
+            }
+            return (
+              <pre style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace', margin: 0, color: '#9ca3af', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                {lines.join('\n')}
+              </pre>
+            )
+          })()}
+        </section>
+        <section style={{ marginBottom: 0, padding: 12, border: '1px solid #374151', borderRadius: 4 }}>
+          <h3 style={{ marginTop: 0 }}>Debug: Raw BO3 Snapshot</h3>
+          <p>
+            <button
+              type="button"
+              onClick={async () => {
+                setRawSnapshotError(null)
+                try {
+                  const r = await fetch(`${API_BASE}/api/v1/debug/bo3/last_snapshot`)
+                  if (!r.ok) {
+                    const body = await r.json().catch(() => ({}))
+                    setRawSnapshotJson(null)
+                    setRawSnapshotError((body as { detail?: string })?.detail ?? r.statusText)
+                    return
+                  }
+                  const data = await r.json()
+                  const str = JSON.stringify(data, null, 2)
+                  const maxLen = 120000
+                  setRawSnapshotJson(str.length > maxLen ? str.slice(0, maxLen) + '…' : str)
+                  setRawSnapshotOpen(true)
+                } catch (e) {
+                  setRawSnapshotJson(null)
+                  setRawSnapshotError(e instanceof Error ? e.message : String(e))
+                }
+              }}
+            >
+              Fetch raw snapshot
+            </button>
+            {rawSnapshotError && <span style={{ marginLeft: 8, color: '#ef4444', fontSize: 12 }}>{rawSnapshotError}</span>}
+          </p>
+          {rawSnapshotJson != null && (
+            <div>
+              <button type="button" onClick={() => setRawSnapshotOpen((o) => !o)} style={{ fontSize: 12, marginBottom: 4 }}>
+                {rawSnapshotOpen ? 'Collapse' : 'Expand'}
+              </button>
+              {rawSnapshotOpen && (
+                <pre style={{ fontSize: 10, fontFamily: 'ui-monospace, monospace', margin: 0, color: '#9ca3af', whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: 400, overflow: 'auto', border: '1px solid #374151', padding: 8, borderRadius: 4 }}>
+                  {rawSnapshotJson}
+                </pre>
+              )}
+            </div>
+          )}
+        </section>
+      </DebugDrawer>
     </div>
   )
 }
@@ -1362,3 +1538,51 @@ function MatchHUD({
 }
 
 export default App
+
+type DebugDrawerProps = {
+  open: boolean
+  onToggle: () => void
+  children: React.ReactNode
+}
+
+function DebugDrawer({ open, onToggle, children }: DebugDrawerProps) {
+  const height = open ? 320 : 0
+  return (
+    <div style={{ flexShrink: 0, borderTop: '1px solid #374151', background: '#020617' }}>
+      <button
+        type="button"
+        onClick={onToggle}
+        style={{
+          width: '100%',
+          padding: '4px 8px',
+          fontSize: 12,
+          background: '#111827',
+          color: '#e5e7eb',
+          border: 'none',
+          borderTop: '1px solid #374151',
+          cursor: 'pointer',
+          textAlign: 'left',
+        }}
+      >
+        Debug {open ? '▼' : '▲'}
+      </button>
+      <div
+        style={{
+          height,
+          overflow: 'hidden',
+          transition: 'height 0.2s ease',
+        }}
+      >
+        <div
+          style={{
+            height: '100%',
+            overflowY: 'auto',
+            padding: 12,
+          }}
+        >
+          {children}
+        </div>
+      </div>
+    </div>
+  )
+}
