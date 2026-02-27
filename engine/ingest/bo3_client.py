@@ -40,11 +40,15 @@ async def list_live_matches() -> list[dict[str, Any]]:
         name1 = t1.get("name", "Team 1") if isinstance(t1.get("name"), str) else "Team 1"
         name2 = t2.get("name", "Team 2") if isinstance(t2.get("name"), str) else "Team 2"
         bo_type = m.get("bo_type", 3)
+        live_coverage = m.get("live_coverage", False)
+        parsed_status = m.get("parsed_status")
         out.append({
             "id": mid,
             "team1_name": str(name1),
             "team2_name": str(name2),
             "bo_type": int(bo_type) if bo_type is not None else 3,
+            "live_coverage": bool(live_coverage),
+            "parsed_status": str(parsed_status) if parsed_status is not None else None,
         })
     return out
 

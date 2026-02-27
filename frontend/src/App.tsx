@@ -28,7 +28,14 @@ type Point = {
 }
 
 /** BO3 live match from /api/v1/bo3/live_matches */
-type Bo3Match = { id: number; team1_name: string; team2_name: string; bo_type: number }
+type Bo3Match = {
+  id: number
+  team1_name: string
+  team2_name: string
+  bo_type: number
+  live_coverage?: boolean
+  parsed_status?: string | null
+}
 
 const filterHistoryToSeg = (history: Point[] | undefined, seg: number): Point[] => {
   if (!history || history.length === 0) return []
@@ -54,6 +61,7 @@ function App() {
   const [wsReconnectTrigger, setWsReconnectTrigger] = useState(0)
 
   const [liveMatches, setLiveMatches] = useState<Bo3Match[]>([])
+  const [bo3ListLoaded, setBo3ListLoaded] = useState(false)
   const [selectedMatchId, setSelectedMatchId] = useState<string>('')
   const [teamAIsTeamOne, setTeamAIsTeamOne] = useState(true)
   const [configError, setConfigError] = useState<string | null>(null)
@@ -115,6 +123,22 @@ function App() {
   const pausedRef = useRef(false)
   const pendingPointsRef = useRef<Point[]>([])
   const currentSegRef = useRef<number>(0)
+
+  // BO3 list: refresh every 10s while panel is open and list has been loaded
+  useEffect(() => {
+    if (activePanel !== 'bo3' || !bo3ListLoaded) return
+    const refresh = async () => {
+      try {
+        const r = await fetch(`${API_BASE}/api/v1/bo3/live_matches`)
+        const data = await r.json()
+        setLiveMatches(Array.isArray(data) ? data : [])
+      } catch {
+        // keep previous list on error
+      }
+    }
+    const id = setInterval(refresh, 10_000)
+    return () => clearInterval(id)
+  }, [activePanel, bo3ListLoaded])
 
   useEffect(() => {
     pausedRef.current = isPaused
@@ -235,6 +259,7 @@ function App() {
     chartInstanceRef.current = chart
     pSeriesRef.current = chart.addLineSeries({
       color: '#3b82f6',
+      lineWidth: 1,
       title: 'p_hat',
       priceLineVisible: false,
       lastValueVisible: true,
@@ -325,22 +350,26 @@ function App() {
     async (newSeg: number) => {
       try {
         const oldSeg = currentSegRef.current
+        // Temporary debug for seg transitions
         // eslint-disable-next-line no-console
         console.debug('seg-change: refreshing from backend', { oldSeg, newSeg })
 
-        const [rCur, rHist] = await Promise.all([
+        const [curResp, histResp] = await Promise.all([
           fetch(`${API_BASE}/api/v1/state/current`),
           fetch(`${API_BASE}/api/v1/state/history?limit=2000`),
         ])
 
-        if (!rCur.ok || !rHist.ok) {
+        if (!curResp.ok || !histResp.ok) {
           // eslint-disable-next-line no-console
-          console.debug('seg-change: refresh failed', { curStatus: rCur.status, histStatus: rHist.status })
+          console.debug('seg-change: refresh failed', {
+            currentStatus: curResp.status,
+            historyStatus: histResp.status,
+          })
           return
         }
 
-        const cur = await rCur.json()
-        const history = (await rHist.json()) as Point[]
+        const [cur, historyRaw] = await Promise.all([curResp.json(), histResp.json()])
+        const history = Array.isArray(historyRaw) ? (historyRaw as Point[]) : []
         const filtered = filterHistoryToSeg(history, newSeg)
 
         const segValues = history
@@ -417,6 +446,13 @@ function App() {
     return () => ws.close()
   }, [wsReconnectTrigger, applyPointToChart, refreshSegmentFromBackend, setDataFromHistory])
 
+  // Status label for BO3 list: snapshot available vs not
+  const bo3MatchStatusLabel = (m: Bo3Match): string => {
+    if (m.live_coverage === true) return 'Live'
+    if (m.parsed_status) return m.parsed_status
+    return 'No snapshot'
+  }
+
   // Drawer content (we reuse your existing sections unchanged, just moved)
   const Bo3Panel = (
     <section style={{ padding: 12, border: '1px solid #374151', borderRadius: 6 }}>
@@ -429,6 +465,7 @@ function App() {
               const r = await fetch(`${API_BASE}/api/v1/bo3/live_matches`)
               const data = await r.json()
               setLiveMatches(Array.isArray(data) ? data : [])
+              setBo3ListLoaded(true)
             } catch {
               setLiveMatches([])
             }
@@ -436,20 +473,30 @@ function App() {
         >
           Load BO3 live matches
         </button>
+        {bo3ListLoaded && (
+          <span style={{ marginLeft: 8, fontSize: 11, color: '#9ca3af' }}>
+            Refreshes every 10s
+          </span>
+        )}
       </p>
       <p>
         <label>
           Match:{' '}
-          <select value={selectedMatchId} onChange={(e) => setSelectedMatchId(e.target.value)} style={{ minWidth: 200 }}>
+          <select value={selectedMatchId} onChange={(e) => setSelectedMatchId(e.target.value)} style={{ minWidth: 240 }}>
             <option value="">—</option>
             {liveMatches.map((m) => (
               <option key={m.id} value={String(m.id)}>
-                {m.team1_name} vs {m.team2_name} (bo{m.bo_type})
+                {m.team1_name} vs {m.team2_name} (bo{m.bo_type}) · {bo3MatchStatusLabel(m)}
               </option>
             ))}
           </select>
         </label>
       </p>
+      {liveMatches.length > 0 && (
+        <p style={{ fontSize: 11, color: '#6b7280', marginTop: -4, marginBottom: 8 }}>
+          Live = snapshot OK · No snapshot = 404 if you activate
+        </p>
+      )}
       <p>
         <label>
           Team A is:{' '}

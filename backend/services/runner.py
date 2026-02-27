@@ -5,12 +5,15 @@ Market: poll Kalshi when enabled, push to delay buffer, attach market_mid to poi
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any
 
 from engine.models import Config, Derived, Frame, HistoryPoint, State
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from backend.services.broadcaster import Broadcaster
@@ -140,6 +143,30 @@ def _bo3_health(
     if age > BO3_STALE_THRESHOLD_SEC:
         return ("STALE", f"no change {int(age)}s", age)
     return ("GOOD", None, None)
+
+
+def compute_corridor_invariants(
+    *,
+    series_low: float,
+    series_high: float,
+    map_low: float,
+    map_high: float,
+    p_hat: float,
+    eps: float = 1e-9,
+) -> dict[str, Any]:
+    """Return non-fatal invariant flags for corridor ordering and p_hat inclusion."""
+    order_ok = (series_low - eps) <= map_low <= map_high <= (series_high + eps)
+    p_in_map_ok = (map_low - eps) <= p_hat <= (map_high + eps)
+    violations: list[str] = []
+    if not order_ok:
+        violations.append("series_map_order")
+    if not p_in_map_ok:
+        violations.append("p_hat_outside_map")
+    return {
+        "invariant_series_map_order_ok": order_ok,
+        "invariant_p_hat_in_map_ok": p_in_map_ok,
+        "invariant_violations": violations,
+    }
 
 
 def compute_breach_flags(
@@ -561,6 +588,19 @@ class Runner:
         dbg["breach_series_hi"] = breach_series_hi
         dbg["breach_series_lo"] = breach_series_lo
         dbg["breach_mag"] = breach_mag
+        inv = compute_corridor_invariants(
+            series_low=bound_low,
+            series_high=bound_high,
+            map_low=rail_low,
+            map_high=rail_high,
+            p_hat=p_hat,
+        )
+        dbg.update(inv)
+        if inv["invariant_violations"]:
+            logger.warning(
+                "corridor invariant violation",
+                extra={"violations": inv["invariant_violations"], "seg": getattr(new_state, "segment_id", 0)},
+            )
         if breach_type is not None and (self._last_breach_type is None or self._last_breach_type != breach_type):
             scores = (0, 0)
             if new_state.last_frame is not None:
@@ -769,6 +809,19 @@ class Runner:
         dbg["breach_series_hi"] = breach_series_hi
         dbg["breach_series_lo"] = breach_series_lo
         dbg["breach_mag"] = breach_mag
+        inv = compute_corridor_invariants(
+            series_low=bound_low,
+            series_high=bound_high,
+            map_low=rail_low,
+            map_high=rail_high,
+            p_hat=p_hat,
+        )
+        dbg.update(inv)
+        if inv["invariant_violations"]:
+            logger.warning(
+                "corridor invariant violation",
+                extra={"violations": inv["invariant_violations"], "seg": getattr(new_state, "segment_id", 0)},
+            )
         if breach_type is not None and (self._last_breach_type is None or self._last_breach_type != breach_type):
             scores = (0, 0)
             if new_state.last_frame is not None:
