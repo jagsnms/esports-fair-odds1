@@ -480,9 +480,9 @@ class Runner:
                 market_mid=market_mid,
                 segment_id=getattr(state, "segment_id", 0),
             )
-        await self._store.append_point(hold_point, state, fail_derived)
-        await self._broadcast_point(hold_point)
-        await self._broadcast_frame()
+            await self._store.append_point(hold_point, state, fail_derived)
+            await self._broadcast_point(hold_point)
+            await self._broadcast_frame()
             if status == "stale":
                 self._bo3_same_snapshot_polls += 1
             return True
@@ -697,8 +697,8 @@ class Runner:
             await self._store.append_point(pt, loop_state, derived_obj)
             await self._broadcast_point(pt)
             await self._broadcast_frame()
-                self._replay_index = 0
-            return True
+            self._replay_index = 0
+        return True
 
         payload = self._replay_payloads[self._replay_index]
         team_a_is_team_one = getattr(config, "team_a_is_team_one", True)
