@@ -348,7 +348,11 @@ function App() {
           if (pSeriesRef.current && lastSegmentOnly.length > 0) setDataFromHistory(lastSegmentOnly)
         } else if (msg.type === 'point' && msg.point) {
           const pt = msg.point as Point
-          setCurrent((prev) => ({ ...prev, state: prev?.state, derived: { ...prev?.derived, p_hat: pt.p } }))
+          if (msg.current != null) {
+            setCurrent(msg.current as typeof current)
+          } else {
+            setCurrent((prev) => ({ ...prev, state: prev?.state, derived: { ...prev?.derived, p_hat: pt.p } }))
+          }
           if (!pSeriesRef.current) {
             pendingPointsRef.current.push(pt)
             return
@@ -1046,32 +1050,312 @@ function App() {
         </p>
         {replayError && <p style={{ color: '#ef4444', fontSize: 14 }}>{replayError}</p>}
       </section>
-      <div style={{ position: 'relative', marginTop: 16 }}>
-        <div
-          style={{
-            position: 'absolute',
-            left: 8,
-            top: 8,
-            zIndex: 10,
-            fontSize: 12,
-            fontFamily: 'monospace',
-            color: '#9ca3af',
-            background: 'rgba(26, 26, 26, 0.9)',
-            padding: '4px 8px',
-            borderRadius: 4,
-          }}
-        >
-          Crosshair t: {crosshairT !== null ? String(crosshairT) : '—'}
+      {/* MatchHUD: broadcast scoreboard (Thunderpick-like) + chart */}
+      <div style={{ display: 'flex', flexDirection: 'column', marginTop: 16, height: '75vh', minHeight: 520, minWidth: 0 }}>
+        <MatchHUD current={current} />
+        <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
+          <div
+            style={{
+              position: 'absolute',
+              left: 8,
+              top: 8,
+              zIndex: 10,
+              fontSize: 12,
+              fontFamily: 'monospace',
+              color: '#9ca3af',
+              background: 'rgba(26, 26, 26, 0.9)',
+              padding: '4px 8px',
+              borderRadius: 4,
+            }}
+          >
+            Crosshair t: {crosshairT !== null ? String(crosshairT) : '—'}
+          </div>
+          <div
+            ref={chartRef}
+            style={{
+              width: '100%',
+              height: '100%',
+              minHeight: 300,
+            }}
+          />
         </div>
-        <div
-          ref={chartRef}
-          style={{
-            width: '100%',
-            height: '75vh',
-          }}
-        />
       </div>
     </div>
+  )
+}
+
+/** Player state from feed (team_one/team_two.player_states) when available (raw fallback) */
+type PlayerStateRow = {
+  nickname?: string
+  is_alive?: boolean
+  health?: number
+  balance?: number
+  equipment_value?: number
+  has_bomb?: boolean
+  has_defuse_kit?: boolean
+  has_helmet?: boolean
+  has_kevlar?: boolean
+}
+
+/** PlayerRow DTO from backend Frame.players_a / players_b */
+type PlayerDto = {
+  name?: string | null
+  alive?: boolean | null
+  hp?: number | null
+  armor?: number | null
+  helmet?: boolean | null
+  cash?: number | null
+  loadout?: number | null
+  weapons?: string[] | null
+  has_bomb?: boolean | null
+  has_kit?: boolean | null
+}
+
+/** Last frame: normalized (teams, scores, totals) + HUD players + optional raw team_one/team_two with player_states */
+type LastFrame = {
+  teams?: string[]
+  scores?: number[]
+  alive_counts?: number[]
+  hp_totals?: number[]
+  cash_totals?: number[] | null
+  loadout_totals?: number[] | null
+  wealth_totals?: number[] | null
+  bomb_phase_time_remaining?: { round_phase?: string; is_bomb_planted?: boolean } | null
+  round_time_remaining_s?: number | null
+  map_index?: number
+  series_score?: number[]
+  map_name?: string
+  a_side?: string | null
+  players_a?: PlayerDto[]
+  players_b?: PlayerDto[]
+  team_one?: { name?: string; side?: string; player_states?: PlayerStateRow[] }
+  team_two?: { name?: string; side?: string; player_states?: PlayerStateRow[] }
+}
+
+function MatchHUD({ current }: { current: { state?: { last_frame?: LastFrame }; derived?: { debug?: Record<string, unknown> } } | null }) {
+  const frame = current?.state?.last_frame
+  const debug = current?.derived?.debug as {
+    bo3_health?: string
+    bo3_buffer_age_s?: number | null
+  } | undefined
+  const bo3Health = debug?.bo3_health ?? '—'
+  const bufferAgeS = debug?.bo3_buffer_age_s
+  const bufferAgeStr = bufferAgeS != null ? `${Math.round(bufferAgeS)}s` : ''
+
+  if (!frame) {
+    return (
+      <section style={{ flex: '0 0 auto', height: 120, padding: 12, border: '1px solid #374151', borderRadius: 4, background: '#1f2937', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <span style={{ color: '#9ca3af', fontSize: 14 }}>No match frame — connect BO3 or Replay</span>
+      </section>
+    )
+  }
+
+  const teams = frame.teams ?? ['A', 'B']
+  const scores = frame.scores ?? [0, 0]
+  const mapName = frame.map_name || '—'
+  const mapIndex = (frame.map_index ?? 0) + 1
+  const seriesScore = frame.series_score ?? [0, 0]
+  const phaseObj = frame.bomb_phase_time_remaining
+  const roundPhase = (phaseObj && typeof phaseObj === 'object' && phaseObj.round_phase) ? String(phaseObj.round_phase) : '—'
+  const clockS = frame.round_time_remaining_s
+  const clockStr = clockS != null ? `${Math.floor(clockS / 60)}:${String(Math.floor(clockS % 60)).padStart(2, '0')}` : '—'
+  const aSide = frame.a_side ? String(frame.a_side).toUpperCase() : null
+  const teamASide = frame.team_one?.side ? String(frame.team_one.side).toUpperCase() : aSide
+  const teamBSide = frame.team_two?.side ? String(frame.team_two.side).toUpperCase() : (aSide === 'CT' ? 'T' : aSide === 'T' ? 'CT' : null)
+
+  const sideColor = (side: string | null) => {
+    if (!side) return { bg: '#374151', color: '#e5e7eb' }
+    if (side === 'CT') return { bg: '#1e3a5f', color: '#93c5fd' }
+    if (side === 'TERRORIST' || side === 'T') return { bg: '#5c3d1e', color: '#fcd34d' }
+    return { bg: '#374151', color: '#e5e7eb' }
+  }
+
+  const dtoPlayersA: PlayerDto[] = Array.isArray(frame.players_a) ? frame.players_a : []
+  const dtoPlayersB: PlayerDto[] = Array.isArray(frame.players_b) ? frame.players_b : []
+  const rawPlayersA: PlayerStateRow[] =
+    frame.team_one?.player_states && Array.isArray(frame.team_one.player_states) ? frame.team_one.player_states : []
+  const rawPlayersB: PlayerStateRow[] =
+    frame.team_two?.player_states && Array.isArray(frame.team_two.player_states) ? frame.team_two.player_states : []
+
+  type HudPlayerRow = {
+    name: string
+    alive: boolean
+    hp: number
+    cash: number
+    loadout: number
+    hasBomb: boolean
+    hasKit: boolean
+    hasHelmet: boolean
+    hasKevlar: boolean
+  }
+
+  const fromDto = (rows: PlayerDto[]): HudPlayerRow[] =>
+    rows.map((p) => {
+      const alive = p.alive !== false
+      const hp = typeof p.hp === 'number' ? p.hp : 0
+      const cash = typeof p.cash === 'number' ? p.cash : 0
+      const loadout = typeof p.loadout === 'number' ? p.loadout : 0
+      const armor = typeof p.armor === 'number' ? p.armor : 0
+      const name = (p.name && String(p.name)) || '—'
+      return {
+        name,
+        alive,
+        hp,
+        cash,
+        loadout,
+        hasBomb: !!p.has_bomb,
+        hasKit: !!p.has_kit,
+        hasHelmet: !!p.helmet,
+        hasKevlar: armor > 0,
+      }
+    })
+
+  const fromRaw = (rows: PlayerStateRow[]): HudPlayerRow[] =>
+    rows.map((p) => {
+      const alive = p.is_alive !== false
+      const hp = typeof p.health === 'number' ? p.health : 0
+      const cash = typeof p.balance === 'number' ? p.balance : 0
+      const loadout = typeof p.equipment_value === 'number' ? p.equipment_value : 0
+      const name = (p.nickname && String(p.nickname)) || '—'
+      return {
+        name,
+        alive,
+        hp,
+        cash,
+        loadout,
+        hasBomb: !!p.has_bomb,
+        hasKit: !!p.has_defuse_kit,
+        hasHelmet: !!p.has_helmet,
+        hasKevlar: !!p.has_kevlar,
+      }
+    })
+
+  const useDto = dtoPlayersA.length > 0 || dtoPlayersB.length > 0
+  const playersA: HudPlayerRow[] = useDto ? fromDto(dtoPlayersA) : fromRaw(rawPlayersA)
+  const playersB: HudPlayerRow[] = useDto ? fromDto(dtoPlayersB) : fromRaw(rawPlayersB)
+
+  const hasPlayers = playersA.length > 0 || playersB.length > 0
+  const pad = (arr: HudPlayerRow[], n: number) => {
+    const out = [...arr]
+    while (out.length < n) out.push({})
+    return out.slice(0, n)
+  }
+  const rowsA = pad(playersA, 5)
+  const rowsB = pad(playersB, 5)
+  const hpA = frame.hp_totals?.[0] ?? 0
+  const hpB = frame.hp_totals?.[1] ?? 0
+  const cashA = frame.cash_totals?.[0] ?? 0
+  const cashB = frame.cash_totals?.[1] ?? 0
+  const loadoutA = frame.loadout_totals?.[0] ?? 0
+  const loadoutB = frame.loadout_totals?.[1] ?? 0
+  const aliveA = frame.alive_counts?.[0] ?? 0
+  const aliveB = frame.alive_counts?.[1] ?? 0
+
+  const PlayerRow = ({ p, index }: { p: HudPlayerRow; index: number }) => {
+    const { alive, hp, cash, loadout, name, hasBomb, hasKit, hasHelmet, hasKevlar } = p
+    return (
+      <div
+        key={index}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '4px 8px',
+          fontSize: 12,
+          opacity: alive ? 1 : 0.5,
+          color: alive ? '#e5e7eb' : '#6b7280',
+          background: alive ? 'transparent' : 'rgba(0,0,0,0.2)',
+          borderRadius: 4,
+        }}
+      >
+        <span style={{ flex: '0 0 12px', textAlign: 'center' }}>{hasBomb ? '💣' : ''}</span>
+        <span style={{ flex: '0 0 12px', textAlign: 'center' }}>{hasKit ? '🛡' : ''}</span>
+        <span style={{ flex: '0 0 12px', textAlign: 'center' }}>{(hasHelmet || hasKevlar) ? '⛑' : ''}</span>
+        <span style={{ minWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={name}>{name}</span>
+        <span style={{ width: 60 }}>
+          <span style={{ display: 'inline-block', width: 36, height: 6, background: '#374151', borderRadius: 2, overflow: 'hidden' }}>
+            <span style={{ display: 'inline-block', height: '100%', width: `${Math.max(0, Math.min(100, hp))}%`, background: alive ? '#22c55e' : '#6b7280' }} />
+          </span>
+          <span style={{ marginLeft: 4 }}>{hp}</span>
+        </span>
+        <span style={{ width: 44, color: '#9ca3af' }}>${cash}</span>
+        <span style={{ width: 48, color: '#9ca3af' }}>${loadout}</span>
+      </div>
+    )
+  }
+
+  const PlaceholderRow = () => (
+    <div style={{ padding: '4px 8px', fontSize: 12, color: '#6b7280' }}>—</div>
+  )
+
+  return (
+    <section
+      style={{
+        flex: '0 0 auto',
+        height: 280,
+        maxHeight: 320,
+        padding: 0,
+        border: '1px solid #374151',
+        borderRadius: 4,
+        background: '#111827',
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
+      {/* Top bar: series info + BO3 health */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: '#1f2937', borderBottom: '1px solid #374151', flexWrap: 'wrap', gap: 8 }}>
+        <div style={{ fontSize: 12, color: '#9ca3af' }}>
+          <span>BO3</span>
+          <span style={{ marginLeft: 8 }}>Map {mapIndex}</span>
+          <span style={{ marginLeft: 8 }}>{mapName}</span>
+          <span style={{ marginLeft: 8 }}>({seriesScore[0] ?? 0}–{seriesScore[1] ?? 0})</span>
+        </div>
+        <div style={{ fontSize: 12, color: '#9ca3af' }}>
+          BO3 health: <strong style={{ color: '#e5e7eb' }}>{bo3Health}</strong>
+          {bufferAgeStr && <span style={{ marginLeft: 8 }}>age {bufferAgeStr}</span>}
+        </div>
+      </div>
+      {/* Middle: big map score + phase + clock */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 24, padding: '12px 16px', borderBottom: '1px solid #374151' }}>
+        <div style={{ fontSize: 28, fontWeight: 700, color: '#e5e7eb' }}>{teams[0] ?? 'A'}</div>
+        <div style={{ fontSize: 32, fontWeight: 800, color: '#fbbf24' }}>{scores[0] ?? 0} – {scores[1] ?? 0}</div>
+        <div style={{ fontSize: 28, fontWeight: 700, color: '#e5e7eb' }}>{teams[1] ?? 'B'}</div>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'center', gap: 16, padding: '4px 16px', fontSize: 12, color: '#9ca3af' }}>
+        <span>{roundPhase}</span>
+        <span>Clock: {clockStr}</span>
+      </div>
+      {/* Two columns: Team A (left), Team B (right) */}
+      <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', borderRight: '1px solid #374151' }}>
+          <div style={{ padding: '6px 8px', fontSize: 13, fontWeight: 600, ...sideColor(teamASide) }}>
+            {teams[0] ?? 'Team A'}
+          </div>
+          {hasPlayers ? rowsA.map((p, i) => (p.nickname != null || p.health != null ? <PlayerRow key={i} p={p} index={i} /> : <PlaceholderRow key={i} />)) : (
+            <>
+              {[0, 1, 2, 3, 4].map((i) => <PlaceholderRow key={i} />)}
+              <div style={{ padding: '4px 8px', fontSize: 11, color: '#6b7280', borderTop: '1px solid #374151' }}>
+                Alive: {aliveA} · HP: {hpA} · $: {cashA} · Eq: {loadoutA}
+              </div>
+            </>
+          )}
+        </div>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+          <div style={{ padding: '6px 8px', fontSize: 13, fontWeight: 600, ...sideColor(teamBSide) }}>
+            {teams[1] ?? 'Team B'}
+          </div>
+          {hasPlayers ? rowsB.map((p, i) => (p.nickname != null || p.health != null ? <PlayerRow key={i} p={p} index={i} /> : <PlaceholderRow key={i} />)) : (
+            <>
+              {[0, 1, 2, 3, 4].map((i) => <PlaceholderRow key={i} />)}
+              <div style={{ padding: '4px 8px', fontSize: 11, color: '#6b7280', borderTop: '1px solid #374151' }}>
+                Alive: {aliveB} · HP: {hpB} · $: {cashB} · Eq: {loadoutB}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </section>
   )
 }
 
