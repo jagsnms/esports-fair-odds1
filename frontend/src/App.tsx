@@ -52,42 +52,57 @@ function App() {
   const [chartReady, setChartReady] = useState(false)
   const [isPaused, setIsPaused] = useState(false)
   const [wsReconnectTrigger, setWsReconnectTrigger] = useState(0)
+
   const [liveMatches, setLiveMatches] = useState<Bo3Match[]>([])
   const [selectedMatchId, setSelectedMatchId] = useState<string>('')
   const [teamAIsTeamOne, setTeamAIsTeamOne] = useState(true)
   const [configError, setConfigError] = useState<string | null>(null)
+
   const [replayPath, setReplayPath] = useState('logs/bo3_pulls.jsonl')
   const [replayMatchId, setReplayMatchId] = useState('')
   const [replaySpeed, setReplaySpeed] = useState(1)
   const [replayLoop, setReplayLoop] = useState(true)
   const [replayError, setReplayError] = useState<string | null>(null)
-  const [replayMatches, setReplayMatches] = useState<Array<{ match_id: number; team1: string; team2: string; count: number }>>([])
+  const [replayMatches, setReplayMatches] = useState<
+    Array<{ match_id: number; team1: string; team2: string; count: number }>
+  >([])
+
   const [crosshairT, setCrosshairT] = useState<string | number | null>(null)
+
   const [kalshiUrl, setKalshiUrl] = useState('')
   const [marketOptions, setMarketOptions] = useState<Array<{ key: string; label: string; ticker_yes: string }>>([])
   const [selectedMarketKey, setSelectedMarketKey] = useState('')
   const [marketError, setMarketError] = useState<string | null>(null)
+
   const [prematchSeriesInput, setPrematchSeriesInput] = useState('')
+
   const [rawSnapshotJson, setRawSnapshotJson] = useState<string | null>(null)
   const [rawSnapshotError, setRawSnapshotError] = useState<string | null>(null)
   const [rawSnapshotOpen, setRawSnapshotOpen] = useState(false)
-  const [breaches, setBreaches] = useState<Array<{
-    ts_epoch: number
-    match_id: number | null
-    seg: number
-    scores: number[]
-    series_score: number[]
-    map_index: number
-    market_mid: number | null
-    p_hat: number
-    series_low: number
-    series_high: number
-    map_low: number
-    map_high: number
-    breach_type: string
-    breach_mag: number | null
-  }>>([])
+
+  const [breaches, setBreaches] = useState<
+    Array<{
+      ts_epoch: number
+      match_id: number | null
+      seg: number
+      scores: number[]
+      series_score: number[]
+      map_index: number
+      market_mid: number | null
+      p_hat: number
+      series_low: number
+      series_high: number
+      map_low: number
+      map_high: number
+      breach_type: string
+      breach_mag: number | null
+    }>
+  >([])
+
   const [debugOpen, setDebugOpen] = useState(false)
+
+  // LEFT TOOLBAR: one drawer panel at a time
+  const [activePanel, setActivePanel] = useState<'bo3' | 'prematch' | 'market' | 'replay' | null>('bo3')
 
   const chartRef = useRef<HTMLDivElement>(null)
   const chartInstanceRef = useRef<IChartApi | null>(null)
@@ -192,6 +207,16 @@ function App() {
     setDataFromHistory(snapshotHistory)
   }, [snapshotHistory, chartReady, setDataFromHistory])
 
+  // Resize chart when drawer opens/closes (or chart becomes ready)
+  useEffect(() => {
+    if (!chartReady || !chartRef.current || !chartInstanceRef.current) return
+    chartInstanceRef.current.applyOptions({
+      width: chartRef.current.clientWidth,
+      height: chartRef.current.clientHeight || 300,
+    })
+    chartInstanceRef.current.timeScale().fitContent()
+  }, [activePanel, chartReady])
+
   // Chart + series created exactly once
   useEffect(() => {
     if (!chartRef.current) return
@@ -279,6 +304,11 @@ function App() {
     window.addEventListener('resize', handleResize)
     return () => {
       window.removeEventListener('resize', handleResize)
+      try {
+        unsubCrosshair()
+      } catch {
+        // ignore
+      }
       chart.remove()
       chartInstanceRef.current = null
       pSeriesRef.current = null
@@ -290,38 +320,47 @@ function App() {
     }
   }, [])
 
+  // IMPORTANT: /api/v1/state/current does NOT include history; fetch history endpoint too.
   const refreshSegmentFromBackend = useCallback(
     async (newSeg: number) => {
       try {
         const oldSeg = currentSegRef.current
-        // Temporary debug for seg transitions
         // eslint-disable-next-line no-console
         console.debug('seg-change: refreshing from backend', { oldSeg, newSeg })
-        const r = await fetch(`${API_BASE}/api/v1/state/current`)
-        if (!r.ok) {
+
+        const [rCur, rHist] = await Promise.all([
+          fetch(`${API_BASE}/api/v1/state/current`),
+          fetch(`${API_BASE}/api/v1/state/history?limit=2000`),
+        ])
+
+        if (!rCur.ok || !rHist.ok) {
           // eslint-disable-next-line no-console
-          console.debug('seg-change: refresh failed', { status: r.status })
+          console.debug('seg-change: refresh failed', { curStatus: rCur.status, histStatus: rHist.status })
           return
         }
-        const cur = await r.json()
-        const history = (cur.history ?? []) as Point[]
+
+        const cur = await rCur.json()
+        const history = (await rHist.json()) as Point[]
         const filtered = filterHistoryToSeg(history, newSeg)
-         const segValues = history
+
+        const segValues = history
           .map((p) => p.seg)
           .filter((v): v is number => v !== undefined && v !== null)
         const latestSeg = segValues.length > 0 ? Math.max(...segValues) : null
+
         setCurrent(cur)
         setSnapshotHistory(filtered)
         if (pSeriesRef.current && filtered.length > 0) {
           setDataFromHistory(filtered)
         }
+
         // eslint-disable-next-line no-console
         console.debug('seg-change: refresh ok', {
           oldSeg,
           newSeg,
           historyLength: history.length,
           filteredLength: filtered.length,
-            latestSeg,
+          latestSeg,
         })
       } catch (e) {
         // eslint-disable-next-line no-console
@@ -376,7 +415,457 @@ function App() {
       }
     }
     return () => ws.close()
-  }, [wsReconnectTrigger])
+  }, [wsReconnectTrigger, applyPointToChart, refreshSegmentFromBackend, setDataFromHistory])
+
+  // Drawer content (we reuse your existing sections unchanged, just moved)
+  const Bo3Panel = (
+    <section style={{ padding: 12, border: '1px solid #374151', borderRadius: 6 }}>
+      <h3 style={{ marginTop: 0 }}>BO3</h3>
+      <p style={{ marginTop: 0 }}>
+        <button
+          type="button"
+          onClick={async () => {
+            try {
+              const r = await fetch(`${API_BASE}/api/v1/bo3/live_matches`)
+              const data = await r.json()
+              setLiveMatches(Array.isArray(data) ? data : [])
+            } catch {
+              setLiveMatches([])
+            }
+          }}
+        >
+          Load BO3 live matches
+        </button>
+      </p>
+      <p>
+        <label>
+          Match:{' '}
+          <select value={selectedMatchId} onChange={(e) => setSelectedMatchId(e.target.value)} style={{ minWidth: 200 }}>
+            <option value="">—</option>
+            {liveMatches.map((m) => (
+              <option key={m.id} value={String(m.id)}>
+                {m.team1_name} vs {m.team2_name} (bo{m.bo_type})
+              </option>
+            ))}
+          </select>
+        </label>
+      </p>
+      <p>
+        <label>
+          Team A is:{' '}
+          <select value={teamAIsTeamOne ? 'team1' : 'team2'} onChange={(e) => setTeamAIsTeamOne(e.target.value === 'team1')}>
+            <option value="team1">Team 1</option>
+            <option value="team2">Team 2</option>
+          </select>
+        </label>
+      </p>
+      <p>
+        <button
+          type="button"
+          disabled={!selectedMatchId || !Number.isFinite(Number(selectedMatchId)) || !Number.isInteger(Number(selectedMatchId))}
+          onClick={async () => {
+            if (!selectedMatchId) return
+            const n = Number(selectedMatchId)
+            if (!Number.isFinite(n) || !Number.isInteger(n)) return
+            setConfigError(null)
+            try {
+              const r = await fetch(`${API_BASE}/api/v1/config`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  source: 'BO3',
+                  match_id: n,
+                  team_a_is_team_one: teamAIsTeamOne,
+                }),
+              })
+              if (!r.ok) {
+                const body = await r.json().catch(() => ({}))
+                const msg = (body as { detail?: string })?.detail ?? (body as { message?: string })?.message ?? r.statusText
+                setConfigError(String(msg))
+                return
+              }
+              setConfigError(null)
+              setWsReconnectTrigger((prev) => prev + 1)
+            } catch (e) {
+              setConfigError(e instanceof Error ? e.message : String(e))
+            }
+          }}
+        >
+          Activate BO3
+        </button>
+      </p>
+      {configError && <p style={{ color: '#ef4444', fontSize: 13, margin: 0 }}>{configError}</p>}
+
+      {(() => {
+        const debug = (current?.derived as {
+          debug?: {
+            bo3_health?: string
+            bo3_health_reason?: string | null
+            bo3_snapshot_status?: string
+            bo3_feed_error?: string | null
+            bo3_buffer_age_s?: number | null
+            bo3_buffer_consecutive_failures?: number
+          }
+        } | undefined)?.debug
+
+        const health = debug?.bo3_health
+        const healthReason = debug?.bo3_health_reason
+        const status = debug?.bo3_snapshot_status
+        const err = debug?.bo3_feed_error
+        const bufferAgeS = debug?.bo3_buffer_age_s
+        const consecutiveFailures = debug?.bo3_buffer_consecutive_failures
+
+        if (health != null) {
+          const reason = healthReason != null && healthReason !== '' ? ` (${healthReason})` : ''
+          const agePart = bufferAgeS != null ? `age ${Math.round(bufferAgeS)}s` : ''
+          const failsPart = consecutiveFailures != null && consecutiveFailures > 0 ? `fails ${consecutiveFailures}` : ''
+          const extraBits = [agePart, failsPart].filter(Boolean)
+          const extra = extraBits.length ? ` (${extraBits.join(', ')})` : ''
+          return (
+            <p style={{ fontSize: 12, color: '#9ca3af', marginBottom: 0 }}>
+              BO3 health: <strong style={{ color: '#e5e7eb' }}>{health}</strong>
+              {reason}
+              {extra}
+            </p>
+          )
+        }
+        if (status == null) return null
+        return (
+          <p style={{ fontSize: 12, color: '#9ca3af', marginBottom: 0 }}>
+            BO3 status: <strong style={{ color: '#e5e7eb' }}>{status}</strong>
+            {err != null && err !== '' && <> ({err})</>}
+          </p>
+        )
+      })()}
+    </section>
+  )
+
+  const PrematchPanel = (
+    <section style={{ padding: 12, border: '1px solid #374151', borderRadius: 6 }}>
+      <h3 style={{ marginTop: 0 }}>Prematch</h3>
+      <p style={{ marginTop: 0 }}>
+        <label>
+          prematch_series (0–1):{' '}
+          <input
+            type="number"
+            min={0}
+            max={1}
+            step={0.01}
+            value={prematchSeriesInput}
+            onChange={(e) => setPrematchSeriesInput(e.target.value)}
+            placeholder="0.5"
+            style={{ width: 80 }}
+          />
+        </label>{' '}
+        <button
+          type="button"
+          onClick={async () => {
+            const v = parseFloat(prematchSeriesInput)
+            if (Number.isNaN(v) || v <= 0 || v >= 1) {
+              setConfigError('prematch_series must be between 0.01 and 0.99')
+              return
+            }
+            setConfigError(null)
+            try {
+              const r = await fetch(`${API_BASE}/api/v1/prematch/set`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prematch_series: v, prematch_locked: true }),
+              })
+              if (!r.ok) {
+                const body = await r.json().catch(() => ({}))
+                setConfigError((body as { detail?: string })?.detail ?? r.statusText)
+                return
+              }
+              const data = await r.json()
+              setCurrent(data)
+            } catch (e) {
+              setConfigError(e instanceof Error ? e.message : String(e))
+            }
+          }}
+        >
+          Set prematch (lock)
+        </button>{' '}
+        <button
+          type="button"
+          onClick={async () => {
+            setConfigError(null)
+            try {
+              const r = await fetch(`${API_BASE}/api/v1/prematch/unlock`, { method: 'POST' })
+              if (!r.ok) return
+              const data = await r.json()
+              setCurrent(data)
+            } catch {
+              // ignore
+            }
+          }}
+        >
+          Unlock
+        </button>{' '}
+        <button
+          type="button"
+          onClick={async () => {
+            setConfigError(null)
+            try {
+              const r = await fetch(`${API_BASE}/api/v1/prematch/clear`, { method: 'POST' })
+              if (!r.ok) return
+              const data = await r.json()
+              setCurrent(data)
+            } catch {
+              // ignore
+            }
+          }}
+        >
+          Clear
+        </button>
+      </p>
+      {(() => {
+        const config = (current?.state as {
+          config?: { prematch_series?: number | null; prematch_map?: number | null; prematch_locked?: boolean }
+        })?.config
+        const ps = config?.prematch_series
+        const pm = config?.prematch_map
+        const locked = config?.prematch_locked ?? false
+        if (ps == null && pm == null) {
+          return (
+            <p style={{ fontSize: 12, color: '#9ca3af', margin: 0 }}>
+              No prematch set. Use 0.01–0.99 and Set prematch (lock).
+            </p>
+          )
+        }
+        return (
+          <p style={{ fontSize: 12, color: '#9ca3af', margin: 0 }}>
+            prematch_series: <strong style={{ color: '#e5e7eb' }}>{ps != null ? ps.toFixed(4) : '—'}</strong>
+            {' · '}
+            prematch_map: <strong style={{ color: '#e5e7eb' }}>{pm != null ? pm.toFixed(4) : '—'}</strong>
+            {' · '}
+            locked: <strong style={{ color: '#e5e7eb' }}>{locked ? 'yes' : 'no'}</strong>
+          </p>
+        )
+      })()}
+    </section>
+  )
+
+  const MarketPanel = (
+    <section style={{ padding: 12, border: '1px solid #374151', borderRadius: 6 }}>
+      <h3 style={{ marginTop: 0 }}>Market (Kalshi)</h3>
+      <p style={{ marginTop: 0 }}>
+        <label>
+          Kalshi URL:{' '}
+          <input
+            type="text"
+            value={kalshiUrl}
+            onChange={(e) => setKalshiUrl(e.target.value)}
+            placeholder="https://kalshi.com/..."
+            style={{ width: '100%' }}
+          />
+        </label>{' '}
+        <button
+          type="button"
+          onClick={async () => {
+            setMarketError(null)
+            if (!kalshiUrl.trim()) {
+              setMarketError('Enter a Kalshi URL')
+              return
+            }
+            try {
+              const r = await fetch(`${API_BASE}/api/v1/market/resolve`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ kalshi_url: kalshiUrl.trim() }),
+              })
+              if (!r.ok) {
+                const body = await r.json().catch(() => ({}))
+                setMarketError((body as { detail?: string })?.detail ?? r.statusText)
+                setMarketOptions([])
+                return
+              }
+              const data = await r.json()
+              const opts = Array.isArray((data as any).options) ? ((data as any).options as any[]) : []
+              setMarketOptions(opts as any)
+              if (opts.length > 0 && (data as any).suggested) setSelectedMarketKey((data as any).suggested as string)
+              else if (opts.length > 0) setSelectedMarketKey(String((opts[0] as any).key))
+            } catch (e) {
+              setMarketError(e instanceof Error ? e.message : String(e))
+              setMarketOptions([])
+            }
+          }}
+        >
+          Load markets
+        </button>
+      </p>
+
+      {marketOptions.length > 0 && (
+        <p style={{ marginTop: 0 }}>
+          <label>
+            Team / side:{' '}
+            <select value={selectedMarketKey} onChange={(e) => setSelectedMarketKey(e.target.value)} style={{ minWidth: 200 }}>
+              {marketOptions.map((opt) => (
+                <option key={opt.key} value={opt.key}>
+                  {opt.label || opt.key}
+                </option>
+              ))}
+            </select>
+          </label>{' '}
+          <button
+            type="button"
+            onClick={async () => {
+              setMarketError(null)
+              try {
+                const r = await fetch(`${API_BASE}/api/v1/market/select`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    kalshi_url: kalshiUrl.trim() || undefined,
+                    market_side_key: selectedMarketKey,
+                  }),
+                })
+                if (!r.ok) {
+                  const body = await r.json().catch(() => ({}))
+                  setMarketError((body as { detail?: string })?.detail ?? r.statusText)
+                  return
+                }
+                const data = await r.json()
+                setCurrent(data)
+                setWsReconnectTrigger((prev) => prev + 1)
+              } catch (e) {
+                setMarketError(e instanceof Error ? e.message : String(e))
+              }
+            }}
+          >
+            Track selected
+          </button>
+        </p>
+      )}
+
+      {marketError && (
+        <p style={{ color: '#ef4444', fontSize: 13, margin: 0 }}>
+          {marketError}
+        </p>
+      )}
+    </section>
+  )
+
+  const ReplayPanel = (
+    <section style={{ padding: 12, border: '1px solid #374151', borderRadius: 6 }}>
+      <h3 style={{ marginTop: 0 }}>Replay (JSONL)</h3>
+      <p style={{ marginTop: 0 }}>
+        <label>
+          Path:{' '}
+          <input type="text" value={replayPath} onChange={(e) => setReplayPath(e.target.value)} style={{ width: '100%' }} />
+        </label>
+      </p>
+      <p style={{ marginTop: 0 }}>
+        <button
+          type="button"
+          onClick={async () => {
+            setReplayError(null)
+            try {
+              const r = await fetch(`${API_BASE}/api/v1/replay/matches?path=${encodeURIComponent(replayPath)}`)
+              if (!r.ok) {
+                const body = await r.json().catch(() => ({}))
+                setReplayError((body as { detail?: string })?.detail ?? r.statusText)
+                setReplayMatches([])
+                return
+              }
+              const data = (await r.json()) as { matches?: { id: string; label: string }[] }
+              // Your API in this branch returns a list of objects; keep same behavior as before if needed:
+              // Fallback: if array, set directly; if object, set data.matches.
+              if (Array.isArray(data as any)) {
+                setReplayMatches(data as any)
+              } else {
+                const matches = (data as any).matches
+                setReplayMatches(Array.isArray(matches) ? matches : [])
+              }
+            } catch (e) {
+              setReplayError(e instanceof Error ? e.message : String(e))
+              setReplayMatches([])
+            }
+          }}
+        >
+          Load replay matches
+        </button>
+      </p>
+      <p style={{ marginTop: 0 }}>
+        <label>
+          Match:{' '}
+          <select value={replayMatchId} onChange={(e) => setReplayMatchId(e.target.value)} style={{ minWidth: 200 }}>
+            <option value="">—</option>
+            {replayMatches.map((m) => (
+              <option key={m.match_id} value={String(m.match_id)}>
+                {m.match_id} — {m.team1} vs {m.team2} ({m.count})
+              </option>
+            ))}
+          </select>
+        </label>
+      </p>
+      <p style={{ marginTop: 0 }}>
+        <label>
+          Speed:{' '}
+          <input type="number" min={0.1} step={0.5} value={replaySpeed} onChange={(e) => setReplaySpeed(Number(e.target.value) || 1)} style={{ width: 60 }} />
+        </label>{' '}
+        <label>
+          <input type="checkbox" checked={replayLoop} onChange={(e) => setReplayLoop(e.target.checked)} /> Loop
+        </label>
+      </p>
+      <p style={{ marginTop: 0 }}>
+        <button
+          type="button"
+          onClick={async () => {
+            setReplayError(null)
+            try {
+              const r = await fetch(`${API_BASE}/api/v1/replay/load`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  path: replayPath,
+                  match_id: replayMatchId ? Number(replayMatchId) : undefined,
+                  speed: replaySpeed,
+                  loop: replayLoop,
+                }),
+              })
+              if (!r.ok) {
+                const body = await r.json().catch(() => ({}))
+                setReplayError((body as { detail?: string })?.detail ?? r.statusText)
+                return
+              }
+              setWsReconnectTrigger((prev) => prev + 1)
+            } catch (e) {
+              setReplayError(e instanceof Error ? e.message : String(e))
+            }
+          }}
+        >
+          Load Replay
+        </button>{' '}
+        <button
+          type="button"
+          onClick={async () => {
+            setReplayError(null)
+            try {
+              await fetch(`${API_BASE}/api/v1/replay/stop`, { method: 'POST' })
+              setWsReconnectTrigger((prev) => prev + 1)
+            } catch (e) {
+              setReplayError(e instanceof Error ? e.message : String(e))
+            }
+          }}
+        >
+          Stop
+        </button>
+      </p>
+      {replayError && (
+        <p style={{ color: '#ef4444', fontSize: 13, margin: 0 }}>
+          {replayError}
+        </p>
+      )}
+    </section>
+  )
+
+  const DrawerContent =
+    activePanel === 'bo3' ? Bo3Panel :
+    activePanel === 'prematch' ? PrematchPanel :
+    activePanel === 'market' ? MarketPanel :
+    activePanel === 'replay' ? ReplayPanel :
+    null
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -389,16 +878,83 @@ function App() {
           overflow: 'hidden',
         }}
       >
-        {/* Main body: left HUD+chart, right sidebar */}
-        <div style={{ display: 'flex', flex: 1, minHeight: 0, marginTop: 16, gap: 16 }}>
-          {/* Left: HUD + chart */}
-          <div style={{ flex: 3, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+        {/* Main row: toolbar + drawer + HUD+chart */}
+        <div style={{ display: 'flex', flex: 1, minHeight: 0, marginTop: 12, gap: 12 }}>
+          {/* Left toolbar */}
+          <div
+            style={{
+              width: 60,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+              alignItems: 'stretch',
+              flexShrink: 0,
+            }}
+          >
+            {(
+              [
+                { id: 'bo3' as const, label: 'BO3' },
+                { id: 'prematch' as const, label: 'Pre' },
+                { id: 'market' as const, label: 'Mkt' },
+                { id: 'replay' as const, label: 'Rep' },
+              ] as const
+            ).map((tab) => {
+              const isActive = activePanel === tab.id
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActivePanel((prev) => (prev === tab.id ? null : tab.id))}
+                  style={{
+                    padding: '6px 6px',
+                    fontSize: 11,
+                    borderRadius: 6,
+                    border: '1px solid ' + (isActive ? '#4b5563' : '#374151'),
+                    background: isActive ? '#111827' : '#020617',
+                    color: '#e5e7eb',
+                    cursor: 'pointer',
+                    textAlign: 'center',
+                  }}
+                >
+                  {tab.label}
+                </button>
+              )
+            })}
+          </div>
+
+          {/* Drawer (optional) */}
+          {activePanel && (
+            <div
+              style={{
+                width: 320,
+                minWidth: 280,
+                maxWidth: 360,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 12,
+                overflowY: 'auto',
+                border: '1px solid #1f2937',
+                borderRadius: 8,
+                padding: 10,
+                fontSize: 13,
+                color: '#e5e7eb',
+                background: '#020617',
+                flexShrink: 0,
+              }}
+            >
+              {DrawerContent}
+            </div>
+          )}
+
+          {/* Main: HUD + chart */}
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
             <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
               <MatchHUD
                 frame={hudFrame ?? ((current?.state as { last_frame?: LastFrame } | undefined)?.last_frame ?? null)}
                 debug={(current?.derived as { debug?: { bo3_health?: string; bo3_buffer_age_s?: number | null } } | undefined)?.debug}
               />
               <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
+                {/* Minimal overlay: status dot + p_hat only */}
                 <div
                   style={{
                     position: 'absolute',
@@ -412,74 +968,36 @@ function App() {
                     padding: '4px 6px',
                     borderRadius: 4,
                     display: 'flex',
-                    flexDirection: 'column',
-                    gap: 2,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 4,
                   }}
                 >
-                  <span>
-                    <span
-                      style={{
-                        display: 'inline-block',
-                        width: 8,
-                        height: 8,
-                        borderRadius: '999px',
-                        marginRight: 4,
-                        backgroundColor:
-                          wsStatus === 'open'
-                            ? '#22c55e'
-                            : wsStatus === 'error'
-                            ? '#ef4444'
-                            : wsStatus === 'closed'
-                            ? '#f97316'
-                            : '#6b7280',
-                      }}
-                    />
-                    {wsStatus}
-                    {current?.derived?.p_hat != null && (
-                      <>
-                        {' · '}
-                        p_hat={current.derived.p_hat.toFixed(4)}
-                      </>
-                    )}
-                  </span>
-                  <span>
-                    <button
-                      type="button"
-                      onClick={() => setIsPaused((p) => !p)}
-                      style={{
-                        fontSize: 10,
-                        padding: '1px 4px',
-                        marginRight: 4,
-                        background: '#111827',
-                        color: '#e5e7eb',
-                        border: '1px solid #374151',
-                        borderRadius: 3,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      {isPaused ? 'Resume' : 'Pause'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsPaused(false)
-                        setWsReconnectTrigger((n) => n + 1)
-                      }}
-                      style={{
-                        fontSize: 10,
-                        padding: '1px 4px',
-                        background: '#111827',
-                        color: '#e5e7eb',
-                        border: '1px solid #374151',
-                        borderRadius: 3,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      Reconnect
-                    </button>
-                  </span>
-                  <span>Crosshair t: {crosshairT !== null ? String(crosshairT) : '—'}</span>
+                  <span
+                    style={{
+                      display: 'inline-block',
+                      width: 8,
+                      height: 8,
+                      borderRadius: '999px',
+                      marginRight: 4,
+                      backgroundColor:
+                        wsStatus === 'open'
+                          ? '#22c55e'
+                          : wsStatus === 'error'
+                          ? '#ef4444'
+                          : wsStatus === 'closed'
+                          ? '#f97316'
+                          : '#6b7280',
+                    }}
+                  />
+                  <span>{wsStatus}</span>
+                  {current?.derived?.p_hat != null && (
+                    <span>
+                      {' · '}p_hat={current.derived.p_hat.toFixed(4)}
+                    </span>
+                  )}
                 </div>
+
                 <div
                   ref={chartRef}
                   style={{
@@ -491,500 +1009,13 @@ function App() {
               </div>
             </div>
           </div>
-          {/* Right: sidebar */}
-          <div
-            style={{
-              flex: 1,
-              minWidth: 260,
-              maxWidth: 420,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 12,
-              overflowY: 'auto',
-            }}
-          >
-            <section style={{ padding: 12, border: '1px solid #374151', borderRadius: 4 }}>
-              <h3 style={{ marginTop: 0 }}>BO3</h3>
-              <p>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    try {
-                      const r = await fetch(`${API_BASE}/api/v1/bo3/live_matches`)
-                      const data = await r.json()
-                      setLiveMatches(Array.isArray(data) ? data : [])
-                    } catch {
-                      setLiveMatches([])
-                    }
-                  }}
-                >
-                  Load BO3 live matches
-                </button>
-              </p>
-              <p>
-                <label>
-                  Match:{' '}
-                  <select
-                    value={selectedMatchId}
-                    onChange={(e) => setSelectedMatchId(e.target.value)}
-                    style={{ minWidth: 200 }}
-                  >
-                    <option value="">—</option>
-                    {liveMatches.map((m) => (
-                      <option key={m.id} value={String(m.id)}>
-                        {m.team1_name} vs {m.team2_name} (bo{m.bo_type})
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </p>
-              <p>
-                <label>
-                  Team A is:{' '}
-                  <select
-                    value={teamAIsTeamOne ? 'team1' : 'team2'}
-                    onChange={(e) => setTeamAIsTeamOne(e.target.value === 'team1')}
-                  >
-                    <option value="team1">Team 1</option>
-                    <option value="team2">Team 2</option>
-                  </select>
-                </label>
-              </p>
-              <p>
-                <button
-                  type="button"
-                  disabled={
-                    !selectedMatchId ||
-                    !Number.isFinite(Number(selectedMatchId)) ||
-                    !Number.isInteger(Number(selectedMatchId))
-                  }
-                  onClick={async () => {
-                    if (!selectedMatchId) return
-                    const n = Number(selectedMatchId)
-                    if (!Number.isFinite(n) || !Number.isInteger(n)) return
-                    setConfigError(null)
-                    try {
-                      const r = await fetch(`${API_BASE}/api/v1/config`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          source: 'BO3',
-                          match_id: n,
-                          team_a_is_team_one: teamAIsTeamOne,
-                        }),
-                      })
-                      if (!r.ok) {
-                        const body = await r.json().catch(() => ({}))
-                        const msg =
-                          (body as { detail?: string })?.detail ??
-                          (body as { message?: string })?.message ??
-                          r.statusText
-                        setConfigError(String(msg))
-                        return
-                      }
-                      setConfigError(null)
-                      setWsReconnectTrigger((prev) => prev + 1)
-                    } catch (e) {
-                      setConfigError(e instanceof Error ? e.message : String(e))
-                    }
-                  }}
-                >
-                  Activate BO3
-                </button>
-              </p>
-              {configError && (
-                <p style={{ color: '#ef4444', fontSize: 14 }}>{configError}</p>
-              )}
-              {current?.state && (
-                <p style={{ fontSize: 14, color: '#9ca3af' }}>
-                  Source: <strong>{(current.state as { config?: { source?: string } })?.config?.source ?? '—'}</strong>
-                  {' · '}
-                  Match:{' '}
-                  <strong>{(current.state as { config?: { match_id?: number | null } })?.config?.match_id ?? '—'}</strong>
-                  {(current.state as { last_frame?: { teams?: string[]; scores?: number[] } })?.last_frame?.teams && (
-                    <>
-                      {' · '}
-                      {(current.state as { last_frame?: { teams?: string[] } }).last_frame?.teams?.join(' vs ')}
-                      {' '}
-                      ({(current.state as { last_frame?: { scores?: number[] } }).last_frame?.scores?.[0] ?? 0}
-                      –
-                      {(current.state as { last_frame?: { scores?: number[] } }).last_frame?.scores?.[1] ?? 0})
-                    </>
-                  )}
-                </p>
-              )}
-              {(() => {
-                const debug = (current?.derived as {
-                  debug?: {
-                    bo3_health?: string
-                    bo3_health_reason?: string | null
-                    bo3_snapshot_status?: string
-                    bo3_feed_error?: string | null
-                    bo3_buffer_age_s?: number | null
-                    bo3_buffer_consecutive_failures?: number
-                  }
-                } | undefined)?.debug
-                const health = debug?.bo3_health
-                const healthReason = debug?.bo3_health_reason
-                const status = debug?.bo3_snapshot_status
-                const err = debug?.bo3_feed_error
-                const bufferAgeS = debug?.bo3_buffer_age_s
-                const consecutiveFailures = debug?.bo3_buffer_consecutive_failures
-                if (health != null) {
-                  const reason = healthReason != null && healthReason !== '' ? ` (${healthReason})` : ''
-                  const agePart = bufferAgeS != null ? `age ${Math.round(bufferAgeS)}s` : ''
-                  const failsPart = consecutiveFailures != null && consecutiveFailures > 0 ? `fails ${consecutiveFailures}` : ''
-                  const extra = [agePart, failsPart].filter(Boolean).length > 0 ? ` (${[agePart, failsPart].filter(Boolean).join(', ')})` : ''
-                  return (
-                    <p style={{ fontSize: 13, color: '#9ca3af' }}>
-                      BO3 health: <strong>{health}</strong>{reason}{extra}
-                    </p>
-                  )
-                }
-                if (status == null) return null
-                return (
-                  <p style={{ fontSize: 13, color: '#9ca3af' }}>
-                    BO3 status: <strong>{status}</strong>
-                    {err != null && err !== '' && <> ({err})</>}
-                  </p>
-                )
-              })()}
-            </section>
-            <section style={{ padding: 12, border: '1px solid #374151', borderRadius: 4 }}>
-              <h3 style={{ marginTop: 0 }}>Prematch</h3>
-              <p>
-                <label>
-                  prematch_series (0–1):{' '}
-                  <input
-                    type="number"
-                    min={0}
-                    max={1}
-                    step={0.01}
-                    value={prematchSeriesInput}
-                    onChange={(e) => setPrematchSeriesInput(e.target.value)}
-                    placeholder="0.5"
-                    style={{ width: 80 }}
-                  />
-                </label>
-                {' '}
-                <button
-                  type="button"
-                  onClick={async () => {
-                    const v = parseFloat(prematchSeriesInput)
-                    if (Number.isNaN(v) || v <= 0 || v >= 1) {
-                      setConfigError('prematch_series must be between 0.01 and 0.99')
-                      return
-                    }
-                    setConfigError(null)
-                    try {
-                      const r = await fetch(`${API_BASE}/api/v1/prematch/set`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ prematch_series: v, prematch_locked: true }),
-                      })
-                      if (!r.ok) {
-                        const body = await r.json().catch(() => ({}))
-                        setConfigError((body as { detail?: string })?.detail ?? r.statusText)
-                        return
-                      }
-                      const data = await r.json()
-                      setCurrent(data)
-                    } catch (e) {
-                      setConfigError(e instanceof Error ? e.message : String(e))
-                    }
-                  }}
-                >
-                  Set prematch (lock)
-                </button>
-                {' '}
-                <button
-                  type="button"
-                  onClick={async () => {
-                    setConfigError(null)
-                    try {
-                      const r = await fetch(`${API_BASE}/api/v1/prematch/unlock`, { method: 'POST' })
-                      if (!r.ok) return
-                      const data = await r.json()
-                      setCurrent(data)
-                    } catch {
-                      // ignore
-                    }
-                  }}
-                >
-                  Unlock prematch
-                </button>
-                {' '}
-                <button
-                  type="button"
-                  onClick={async () => {
-                    setConfigError(null)
-                    try {
-                      const r = await fetch(`${API_BASE}/api/v1/prematch/clear`, { method: 'POST' })
-                      if (!r.ok) return
-                      const data = await r.json()
-                      setCurrent(data)
-                    } catch {
-                      // ignore
-                    }
-                  }}
-                >
-                  Clear
-                </button>
-              </p>
-              {(() => {
-                const config = (current?.state as { config?: { prematch_series?: number | null; prematch_map?: number | null; prematch_locked?: boolean } })?.config
-                const ps = config?.prematch_series
-                const pm = config?.prematch_map
-                const locked = config?.prematch_locked ?? false
-                if (ps == null && pm == null) {
-                  return <p style={{ fontSize: 13, color: '#9ca3af' }}>No prematch set. Use 0.01–0.99 and Set prematch (lock).</p>
-                }
-                return (
-                  <p style={{ fontSize: 13, color: '#9ca3af' }}>
-                    prematch_series: <strong>{ps != null ? ps.toFixed(4) : '—'}</strong>
-                    {' · '}
-                    prematch_map (derived): <strong>{pm != null ? pm.toFixed(4) : '—'}</strong>
-                    {' · '}
-                    locked: <strong>{locked ? 'yes' : 'no'}</strong>
-                  </p>
-                )
-              })()}
-            </section>
-            <section style={{ padding: 12, border: '1px solid #374151', borderRadius: 4 }}>
-              <h3 style={{ marginTop: 0 }}>Market (Kalshi)</h3>
-              <p>
-                <label>
-                  Kalshi URL:{' '}
-                  <input
-                    type="text"
-                    value={kalshiUrl}
-                    onChange={(e) => setKalshiUrl(e.target.value)}
-                    placeholder="https://kalshi.com/..."
-                    style={{ width: '100%' }}
-                  />
-                </label>
-                {' '}
-                <button
-                  type="button"
-                  onClick={async () => {
-                    setMarketError(null)
-                    if (!kalshiUrl.trim()) {
-                      setMarketError('Enter a Kalshi URL')
-                      return
-                    }
-                    try {
-                      const r = await fetch(`${API_BASE}/api/v1/market/resolve`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ kalshi_url: kalshiUrl.trim() }),
-                      })
-                      if (!r.ok) {
-                        const body = await r.json().catch(() => ({}))
-                        setMarketError((body as { detail?: string })?.detail ?? r.statusText)
-                        setMarketOptions([])
-                        return
-                      }
-                      const data = await r.json()
-                      const opts = Array.isArray(data.options) ? data.options : []
-                      setMarketOptions(opts)
-                      if (opts.length > 0 && data.suggested) setSelectedMarketKey(data.suggested)
-                      else if (opts.length > 0) setSelectedMarketKey(opts[0].key)
-                    } catch (e) {
-                      setMarketError(e instanceof Error ? e.message : String(e))
-                      setMarketOptions([])
-                    }
-                  }}
-                >
-                  Load markets
-                </button>
-              </p>
-              {marketOptions.length > 0 && (
-                <p>
-                  <label>
-                    Team / side:{' '}
-                    <select
-                      value={selectedMarketKey}
-                      onChange={(e) => setSelectedMarketKey(e.target.value)}
-                      style={{ minWidth: 200 }}
-                    >
-                      {marketOptions.map((opt) => (
-                        <option key={opt.key} value={opt.key}>
-                          {opt.label || opt.key}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  {' '}
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      setMarketError(null)
-                      try {
-                        const r = await fetch(`${API_BASE}/api/v1/market/select`, {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({
-                            kalshi_url: kalshiUrl.trim() || undefined,
-                            market_side_key: selectedMarketKey,
-                          }),
-                        })
-                        if (!r.ok) {
-                          const body = await r.json().catch(() => ({}))
-                          setMarketError((body as { detail?: string })?.detail ?? r.statusText)
-                          return
-                        }
-                        const data = await r.json()
-                        setCurrent(data)
-                        setWsReconnectTrigger((prev) => prev + 1)
-                      } catch (e) {
-                        setMarketError(e instanceof Error ? e.message : String(e))
-                      }
-                    }}
-                  >
-                    Track selected
-                  </button>
-                </p>
-              )}
-              {marketError && <p style={{ color: '#ef4444', fontSize: 14 }}>{marketError}</p>}
-            </section>
-            <section style={{ padding: 12, border: '1px solid #374151', borderRadius: 4 }}>
-              <h3 style={{ marginTop: 0 }}>Replay (JSONL)</h3>
-              <p>
-                <label>
-                  Path:{' '}
-                  <input
-                    type="text"
-                    value={replayPath}
-                    onChange={(e) => setReplayPath(e.target.value)}
-                    style={{ width: '100%' }}
-                  />
-                </label>
-              </p>
-              <p>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    setReplayError(null)
-                    try {
-                      const r = await fetch(`${API_BASE}/api/v1/replay/matches?path=${encodeURIComponent(replayPath)}`)
-                      if (!r.ok) {
-                        const body = await r.json().catch(() => ({}))
-                        setReplayError((body as { detail?: string })?.detail ?? r.statusText)
-                        setReplayMatches([])
-                        return
-                      }
-                      const data = await r.json()
-                      setReplayMatches(Array.isArray(data) ? data : [])
-                    } catch (e) {
-                      setReplayError(e instanceof Error ? e.message : String(e))
-                      setReplayMatches([])
-                    }
-                  }}
-                >
-                  Load replay matches
-                </button>
-              </p>
-              <p>
-                <label>
-                  Match:{' '}
-                  <select
-                    value={replayMatchId}
-                    onChange={(e) => setReplayMatchId(e.target.value)}
-                    style={{ minWidth: 200 }}
-                  >
-                    <option value="">— Select or type below —</option>
-                    {replayMatches.map((m) => (
-                      <option key={m.match_id} value={String(m.match_id)}>
-                        {m.match_id} — {m.team1} vs {m.team2} ({m.count})
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </p>
-              <p>
-                <label>
-                  Match ID (manual):{' '}
-                  <input
-                    type="number"
-                    value={replayMatchId}
-                    onChange={(e) => setReplayMatchId(e.target.value)}
-                    placeholder="optional filter"
-                    style={{ width: 100 }}
-                  />
-                </label>
-              </p>
-              <p>
-                <label>
-                  Speed:{' '}
-                  <input
-                    type="number"
-                    min={0.1}
-                    step={0.5}
-                    value={replaySpeed}
-                    onChange={(e) => setReplaySpeed(Number(e.target.value) || 1)}
-                    style={{ width: 60 }}
-                  />
-                </label>
-                {' '}
-                <label>
-                  <input type="checkbox" checked={replayLoop} onChange={(e) => setReplayLoop(e.target.checked)} />
-                  Loop
-                </label>
-              </p>
-              <p>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    setReplayError(null)
-                    try {
-                      const r = await fetch(`${API_BASE}/api/v1/replay/load`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          path: replayPath,
-                          match_id: replayMatchId ? Number(replayMatchId) : undefined,
-                          speed: replaySpeed,
-                          loop: replayLoop,
-                        }),
-                      })
-                      if (!r.ok) {
-                        const body = await r.json().catch(() => ({}))
-                        setReplayError((body as { detail?: string })?.detail ?? r.statusText)
-                        return
-                      }
-                      setWsReconnectTrigger((prev) => prev + 1)
-                    } catch (e) {
-                      setReplayError(e instanceof Error ? e.message : String(e))
-                    }
-                  }}
-                >
-                  Load Replay
-                </button>
-                {' '}
-                <button
-                  type="button"
-                  onClick={async () => {
-                    setReplayError(null)
-                    try {
-                      await fetch(`${API_BASE}/api/v1/replay/stop`, { method: 'POST' })
-                      setWsReconnectTrigger((prev) => prev + 1)
-                    } catch (e) {
-                      setReplayError(e instanceof Error ? e.message : String(e))
-                    }
-                  }}
-                >
-                  Stop Replay
-                </button>
-              </p>
-              {replayError && <p style={{ color: '#ef4444', fontSize: 14 }}>{replayError}</p>}
-            </section>
-          </div>
         </div>
       </div>
+
       <DebugDrawer open={debugOpen} onToggle={() => setDebugOpen((o) => !o)}>
-        <section style={{ marginBottom: 12, padding: 12, border: '1px solid #374151', borderRadius: 4 }}>
+        <section style={{ marginBottom: 12, padding: 12, border: '1px solid #374151', borderRadius: 6 }}>
           <h3 style={{ marginTop: 0 }}>Breaches</h3>
-          <p>
+          <p style={{ marginTop: 0 }}>
             <button
               type="button"
               onClick={async () => {
@@ -999,26 +1030,38 @@ function App() {
               }}
             >
               Refresh breaches
-            </button>
-            {' '}
+            </button>{' '}
             <span style={{ fontSize: 12, color: '#9ca3af' }}>Last 20 shown</span>
           </p>
-          {breaches.length === 0 && <p style={{ fontSize: 13, color: '#9ca3af' }}>No breach events. Click Refresh or wait for auto-poll.</p>}
-          {breaches.slice(-20).reverse().map((evt, i) => (
-            <div key={i} style={{ fontSize: 12, marginBottom: 6, padding: 6, background: '#1f2937', borderRadius: 4 }}>
-              <span style={{ color: '#9ca3af' }}>{new Date((evt.ts_epoch ?? 0) * 1000).toISOString().replace('T', ' ').slice(0, 19)}</span>
-              {' '}
-              <strong>{evt.breach_type}</strong>
-              {evt.breach_mag != null && <> mag={evt.breach_mag.toFixed(4)}</>}
-              {' '}
-              score {evt.scores?.[0] ?? 0}-{evt.scores?.[1] ?? 0}
-              {evt.market_mid != null && (
-                <> · market_mid={evt.market_mid.toFixed(4)} vs [{evt.map_low?.toFixed(4) ?? '?'}, {evt.map_high?.toFixed(4) ?? '?'}]</>
-              )}
-            </div>
-          ))}
+          {breaches.length === 0 && (
+            <p style={{ fontSize: 13, color: '#9ca3af' }}>No breach events. Click Refresh or wait for auto-poll.</p>
+          )}
+          {breaches
+            .slice(-20)
+            .reverse()
+            .map((evt, i) => (
+              <div
+                key={i}
+                style={{ fontSize: 12, marginBottom: 6, padding: 6, background: '#1f2937', borderRadius: 6 }}
+              >
+                <span style={{ color: '#9ca3af' }}>
+                  {new Date((evt.ts_epoch ?? 0) * 1000).toISOString().replace('T', ' ').slice(0, 19)}
+                </span>{' '}
+                <strong>{evt.breach_type}</strong>
+                {evt.breach_mag != null && <> mag={evt.breach_mag.toFixed(4)}</>}{' '}
+                score {evt.scores?.[0] ?? 0}-{evt.scores?.[1] ?? 0}
+                {evt.market_mid != null && (
+                  <>
+                    {' '}
+                    · market_mid={evt.market_mid.toFixed(4)} vs [{evt.map_low?.toFixed(4) ?? '?'},{' '}
+                    {evt.map_high?.toFixed(4) ?? '?'}]
+                  </>
+                )}
+              </div>
+            ))}
         </section>
-        <section style={{ marginBottom: 12, padding: 12, border: '1px solid #374151', borderRadius: 4 }}>
+
+        <section style={{ marginBottom: 12, padding: 12, border: '1px solid #374151', borderRadius: 6 }}>
           <h3 style={{ marginTop: 0 }}>PHAT / Model Debug</h3>
           {(() => {
             const debug = (current?.derived as { debug?: Record<string, unknown> } | undefined)?.debug
@@ -1075,9 +1118,10 @@ function App() {
             const seriesHigh = d.series_high ?? d.bound_high
             const mapLow = d.map_low ?? d.rail_low
             const mapHigh = d.map_high ?? d.rail_high
-            const mid = (d.midround_v2 != null && typeof d.midround_v2 === 'object') ? (d.midround_v2 as Record<string, unknown>) : d
+            const mid =
+              d.midround_v2 != null && typeof d.midround_v2 === 'object' ? (d.midround_v2 as Record<string, unknown>) : d
             const mv = (key: string) => {
-              const val = mid[key]
+              const val = (mid as any)[key]
               if (val === undefined || val === null) return '—'
               if (typeof val === 'boolean') return val ? 'true' : 'false'
               if (typeof val === 'number') return Number.isInteger(val) ? String(val) : (val as number).toFixed(4)
@@ -1104,15 +1148,25 @@ function App() {
               lines.push('', 'Fragility:', truncateJson(d.fragility))
             }
             return (
-              <pre style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace', margin: 0, color: '#9ca3af', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+              <pre
+                style={{
+                  fontSize: 11,
+                  fontFamily: 'ui-monospace, monospace',
+                  margin: 0,
+                  color: '#9ca3af',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-all',
+                }}
+              >
                 {lines.join('\n')}
               </pre>
             )
           })()}
         </section>
-        <section style={{ marginBottom: 0, padding: 12, border: '1px solid #374151', borderRadius: 4 }}>
+
+        <section style={{ marginBottom: 0, padding: 12, border: '1px solid #374151', borderRadius: 6 }}>
           <h3 style={{ marginTop: 0 }}>Debug: Raw BO3 Snapshot</h3>
-          <p>
+          <p style={{ marginTop: 0 }}>
             <button
               type="button"
               onClick={async () => {
@@ -1138,7 +1192,11 @@ function App() {
             >
               Fetch raw snapshot
             </button>
-            {rawSnapshotError && <span style={{ marginLeft: 8, color: '#ef4444', fontSize: 12 }}>{rawSnapshotError}</span>}
+            {rawSnapshotError && (
+              <span style={{ marginLeft: 8, color: '#ef4444', fontSize: 12 }}>
+                {rawSnapshotError}
+              </span>
+            )}
           </p>
           {rawSnapshotJson != null && (
             <div>
@@ -1146,7 +1204,21 @@ function App() {
                 {rawSnapshotOpen ? 'Collapse' : 'Expand'}
               </button>
               {rawSnapshotOpen && (
-                <pre style={{ fontSize: 10, fontFamily: 'ui-monospace, monospace', margin: 0, color: '#9ca3af', whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: 400, overflow: 'auto', border: '1px solid #374151', padding: 8, borderRadius: 4 }}>
+                <pre
+                  style={{
+                    fontSize: 10,
+                    fontFamily: 'ui-monospace, monospace',
+                    margin: 0,
+                    color: '#9ca3af',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-all',
+                    maxHeight: 400,
+                    overflow: 'auto',
+                    border: '1px solid #374151',
+                    padding: 8,
+                    borderRadius: 6,
+                  }}
+                >
                   {rawSnapshotJson}
                 </pre>
               )}
@@ -1219,7 +1291,19 @@ function MatchHUD({
 
   if (!frame) {
     return (
-      <section style={{ flex: '0 0 auto', height: 120, padding: 12, border: '1px solid #374151', borderRadius: 4, background: '#1f2937', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <section
+        style={{
+          flex: '0 0 auto',
+          height: 120,
+          padding: 12,
+          border: '1px solid #374151',
+          borderRadius: 4,
+          background: '#1f2937',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
         <span style={{ color: '#9ca3af', fontSize: 14 }}>No match frame — connect BO3 or Replay</span>
       </section>
     )
@@ -1231,12 +1315,18 @@ function MatchHUD({
   const mapIndex = (frame.map_index ?? 0) + 1
   const seriesScore = frame.series_score ?? [0, 0]
   const phaseObj = frame.bomb_phase_time_remaining
-  const roundPhase = (phaseObj && typeof phaseObj === 'object' && phaseObj.round_phase) ? String(phaseObj.round_phase) : '—'
+  const roundPhase = phaseObj && typeof phaseObj === 'object' && phaseObj.round_phase ? String(phaseObj.round_phase) : '—'
   const clockS = frame.round_time_remaining_s
   const clockStr = clockS != null ? `${Math.floor(clockS / 60)}:${String(Math.floor(clockS % 60)).padStart(2, '0')}` : '—'
   const aSide = frame.a_side ? String(frame.a_side).toUpperCase() : null
   const teamASide = frame.team_one?.side ? String(frame.team_one.side).toUpperCase() : aSide
-  const teamBSide = frame.team_two?.side ? String(frame.team_two.side).toUpperCase() : (aSide === 'CT' ? 'T' : aSide === 'T' ? 'CT' : null)
+  const teamBSide = frame.team_two?.side
+    ? String(frame.team_two.side).toUpperCase()
+    : aSide === 'CT'
+    ? 'T'
+    : aSide === 'T'
+    ? 'CT'
+    : null
 
   const sideColor = (side: string | null) => {
     if (!side) return { bg: '#374151', color: '#e5e7eb' }
@@ -1337,13 +1427,15 @@ function MatchHUD({
           opacity: alive ? 1 : 0.5,
           color: alive ? '#e5e7eb' : '#6b7280',
           background: alive ? 'transparent' : 'rgba(0,0,0,0.2)',
-          borderRadius: 4,
+          borderRadius: 6,
         }}
       >
         <span style={{ flex: '0 0 12px', textAlign: 'center' }}>{hasBomb ? '💣' : ''}</span>
         <span style={{ flex: '0 0 12px', textAlign: 'center' }}>{hasKit ? '🛡' : ''}</span>
-        <span style={{ flex: '0 0 12px', textAlign: 'center' }}>{(hasHelmet || hasKevlar) ? '⛑' : ''}</span>
-        <span style={{ minWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={name}>{name}</span>
+        <span style={{ flex: '0 0 12px', textAlign: 'center' }}>{hasHelmet || hasKevlar ? '⛑' : ''}</span>
+        <span style={{ minWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={name}>
+          {name}
+        </span>
         <span style={{ width: 60 }}>
           <span style={{ display: 'inline-block', width: 36, height: 6, background: '#374151', borderRadius: 2, overflow: 'hidden' }}>
             <span style={{ display: 'inline-block', height: '100%', width: `${Math.max(0, Math.min(100, hp))}%`, background: alive ? '#22c55e' : '#6b7280' }} />
@@ -1356,9 +1448,7 @@ function MatchHUD({
     )
   }
 
-  const PlaceholderRow = () => (
-    <div style={{ padding: '4px 8px', fontSize: 12, color: '#6b7280' }}>—</div>
-  )
+  const PlaceholderRow = () => <div style={{ padding: '4px 8px', fontSize: 12, color: '#6b7280' }}>—</div>
 
   return (
     <section
@@ -1368,58 +1458,78 @@ function MatchHUD({
         maxHeight: 320,
         padding: 0,
         border: '1px solid #374151',
-        borderRadius: 4,
+        borderRadius: 6,
         background: '#111827',
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',
       }}
     >
-      {/* Top bar: series info + BO3 health */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: '#1f2937', borderBottom: '1px solid #374151', flexWrap: 'wrap', gap: 8 }}>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: '8px 12px',
+          background: '#1f2937',
+          borderBottom: '1px solid #374151',
+          flexWrap: 'wrap',
+          gap: 8,
+        }}
+      >
         <div style={{ fontSize: 12, color: '#9ca3af' }}>
           <span>BO3</span>
           <span style={{ marginLeft: 8 }}>Map {mapIndex}</span>
           <span style={{ marginLeft: 8 }}>{mapName}</span>
-          <span style={{ marginLeft: 8 }}>({seriesScore[0] ?? 0}–{seriesScore[1] ?? 0})</span>
+          <span style={{ marginLeft: 8 }}>
+            ({seriesScore[0] ?? 0}–{seriesScore[1] ?? 0})
+          </span>
         </div>
         <div style={{ fontSize: 12, color: '#9ca3af' }}>
           BO3 health: <strong style={{ color: '#e5e7eb' }}>{bo3Health}</strong>
           {bufferAgeStr && <span style={{ marginLeft: 8 }}>age {bufferAgeStr}</span>}
         </div>
       </div>
-      {/* Middle: big map score + phase + clock */}
+
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 24, padding: '12px 16px', borderBottom: '1px solid #374151' }}>
         <div style={{ fontSize: 28, fontWeight: 700, color: '#e5e7eb' }}>{teams[0] ?? 'A'}</div>
-        <div style={{ fontSize: 32, fontWeight: 800, color: '#fbbf24' }}>{scores[0] ?? 0} – {scores[1] ?? 0}</div>
+        <div style={{ fontSize: 32, fontWeight: 800, color: '#fbbf24' }}>
+          {scores[0] ?? 0} – {scores[1] ?? 0}
+        </div>
         <div style={{ fontSize: 28, fontWeight: 700, color: '#e5e7eb' }}>{teams[1] ?? 'B'}</div>
       </div>
+
       <div style={{ display: 'flex', justifyContent: 'center', gap: 16, padding: '4px 16px', fontSize: 12, color: '#9ca3af' }}>
         <span>{roundPhase}</span>
         <span>Clock: {clockStr}</span>
       </div>
-      {/* Two columns: Team A (left), Team B (right) */}
+
       <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', borderRight: '1px solid #374151' }}>
-          <div style={{ padding: '6px 8px', fontSize: 13, fontWeight: 600, ...sideColor(teamASide) }}>
-            {teams[0] ?? 'Team A'}
-          </div>
-          {hasPlayers ? rowsA.map((p, i) => (p ? <PlayerRow key={i} p={p} index={i} /> : <PlaceholderRow key={i} />)) : (
+          <div style={{ padding: '6px 8px', fontSize: 13, fontWeight: 600, ...sideColor(teamASide) }}>{teams[0] ?? 'Team A'}</div>
+          {hasPlayers ? (
+            rowsA.map((p, i) => (p ? <PlayerRow key={i} p={p} index={i} /> : <PlaceholderRow key={i} />))
+          ) : (
             <>
-              {[0, 1, 2, 3, 4].map((i) => <PlaceholderRow key={i} />)}
+              {[0, 1, 2, 3, 4].map((i) => (
+                <PlaceholderRow key={i} />
+              ))}
               <div style={{ padding: '4px 8px', fontSize: 11, color: '#6b7280', borderTop: '1px solid #374151' }}>
                 Alive: {aliveA} · HP: {hpA} · $: {cashA} · Eq: {loadoutA}
               </div>
             </>
           )}
         </div>
+
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-          <div style={{ padding: '6px 8px', fontSize: 13, fontWeight: 600, ...sideColor(teamBSide) }}>
-            {teams[1] ?? 'Team B'}
-          </div>
-          {hasPlayers ? rowsB.map((p, i) => (p ? <PlayerRow key={i} p={p} index={i} /> : <PlaceholderRow key={i} />)) : (
+          <div style={{ padding: '6px 8px', fontSize: 13, fontWeight: 600, ...sideColor(teamBSide) }}>{teams[1] ?? 'Team B'}</div>
+          {hasPlayers ? (
+            rowsB.map((p, i) => (p ? <PlayerRow key={i} p={p} index={i} /> : <PlaceholderRow key={i} />))
+          ) : (
             <>
-              {[0, 1, 2, 3, 4].map((i) => <PlaceholderRow key={i} />)}
+              {[0, 1, 2, 3, 4].map((i) => (
+                <PlaceholderRow key={i} />
+              ))}
               <div style={{ padding: '4px 8px', fontSize: 11, color: '#6b7280', borderTop: '1px solid #374151' }}>
                 Alive: {aliveB} · HP: {hpB} · $: {cashB} · Eq: {loadoutB}
               </div>
