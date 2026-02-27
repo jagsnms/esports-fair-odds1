@@ -389,33 +389,6 @@ function App() {
           overflow: 'hidden',
         }}
       >
-        <h1>ESports Fair Odds</h1>
-        <p>
-          <strong>Connection:</strong>{' '}
-          <span
-            style={{
-              color:
-                wsStatus === 'open' ? 'green' : wsStatus === 'error' ? 'red' : wsStatus === 'closed' ? 'orange' : 'gray',
-            }}
-          >
-            {wsStatus}
-          </span>
-          {' — '}
-          <code>{WS_URL}</code>
-          {' · '}
-          <label>
-            <input type="checkbox" checked={isPaused} onChange={(e) => setIsPaused(e.target.checked)} /> Pause
-          </label>
-          {' '}
-          <button type="button" onClick={() => { setIsPaused(false); setWsReconnectTrigger((n) => n + 1) }}>
-            Resume (catch up)
-          </button>
-        </p>
-        {current?.derived?.p_hat != null && (
-          <p style={{ fontSize: 14, color: '#9ca3af' }}>
-            Current p_hat: <strong>{current.derived.p_hat.toFixed(4)}</strong>
-          </p>
-        )}
         {/* Main body: left HUD+chart, right sidebar */}
         <div style={{ display: 'flex', flex: 1, minHeight: 0, marginTop: 16, gap: 16 }}>
           {/* Left: HUD + chart */}
@@ -432,15 +405,80 @@ function App() {
                     left: 8,
                     top: 8,
                     zIndex: 10,
-                    fontSize: 12,
+                    fontSize: 11,
                     fontFamily: 'monospace',
                     color: '#9ca3af',
-                    background: 'rgba(26, 26, 26, 0.9)',
-                    padding: '4px 8px',
+                    background: 'rgba(15, 23, 42, 0.95)',
+                    padding: '4px 6px',
                     borderRadius: 4,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 2,
                   }}
                 >
-                  Crosshair t: {crosshairT !== null ? String(crosshairT) : '—'}
+                  <span>
+                    <span
+                      style={{
+                        display: 'inline-block',
+                        width: 8,
+                        height: 8,
+                        borderRadius: '999px',
+                        marginRight: 4,
+                        backgroundColor:
+                          wsStatus === 'open'
+                            ? '#22c55e'
+                            : wsStatus === 'error'
+                            ? '#ef4444'
+                            : wsStatus === 'closed'
+                            ? '#f97316'
+                            : '#6b7280',
+                      }}
+                    />
+                    {wsStatus}
+                    {current?.derived?.p_hat != null && (
+                      <>
+                        {' · '}
+                        p_hat={current.derived.p_hat.toFixed(4)}
+                      </>
+                    )}
+                  </span>
+                  <span>
+                    <button
+                      type="button"
+                      onClick={() => setIsPaused((p) => !p)}
+                      style={{
+                        fontSize: 10,
+                        padding: '1px 4px',
+                        marginRight: 4,
+                        background: '#111827',
+                        color: '#e5e7eb',
+                        border: '1px solid #374151',
+                        borderRadius: 3,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {isPaused ? 'Resume' : 'Pause'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsPaused(false)
+                        setWsReconnectTrigger((n) => n + 1)
+                      }}
+                      style={{
+                        fontSize: 10,
+                        padding: '1px 4px',
+                        background: '#111827',
+                        color: '#e5e7eb',
+                        border: '1px solid #374151',
+                        borderRadius: 3,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Reconnect
+                    </button>
+                  </span>
+                  <span>Crosshair t: {crosshairT !== null ? String(crosshairT) : '—'}</span>
                 </div>
                 <div
                   ref={chartRef}
