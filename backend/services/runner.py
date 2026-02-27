@@ -288,6 +288,20 @@ class Runner:
         if self._task is not None:
             self._task.cancel()
 
+    async def _broadcast_point(self, point: HistoryPoint) -> None:
+        """Broadcast point plus current state; strip HUD-only players from incremental messages."""
+        wire = _history_point_to_wire(point)
+        current = await self._store.get_current()
+        try:
+            state_obj = current.get("state") or {}
+            last_frame = state_obj.get("last_frame")
+            if isinstance(last_frame, dict):
+                last_frame.pop("players_a", None)
+                last_frame.pop("players_b", None)
+        except Exception:
+            pass
+        await self._broadcaster.broadcast({"type": "point", "point": wire, "current": current})
+
     async def _bo3_fetch_into_buffer(self, match_id: int) -> None:
         """
         Writer: attempt fetch up to 3 times with short delays; update buffer only.
@@ -468,7 +482,7 @@ class Runner:
                 segment_id=getattr(state, "segment_id", 0),
             )
             await self._store.append_point(hold_point, state, fail_derived)
-            await self._broadcaster.broadcast({"type": "point", "point": _history_point_to_wire(hold_point)})
+            await self._broadcast_point(hold_point)
             if status == "stale":
                 self._bo3_same_snapshot_polls += 1
             return True
@@ -605,7 +619,7 @@ class Runner:
             debug=dbg,
         )
         await self._store.append_point(point, new_state, derived)
-        await self._broadcaster.broadcast({"type": "point", "point": _history_point_to_wire(point)})
+        await self._broadcast_point(point)
         return True
 
     async def _tick_replay(self, config: Config) -> bool:
@@ -680,7 +694,7 @@ class Runner:
                     segment_id=seg,
                 )
                 await self._store.append_point(pt, loop_state, derived_obj)
-                await self._broadcaster.broadcast({"type": "point", "point": _history_point_to_wire(pt)})
+                await self._broadcast_point(pt)
                 self._replay_index = 0
             return True
 
@@ -798,7 +812,7 @@ class Runner:
             debug=dbg,
         )
         await self._store.append_point(point, new_state, derived)
-        await self._broadcaster.broadcast({"type": "point", "point": _history_point_to_wire(point)})
+        await self._broadcast_point(point)
         self._replay_index += 1
         return True
 
@@ -875,7 +889,7 @@ class Runner:
                         )
                         derived = Derived(p_hat=p_hat, bound_low=lo, bound_high=hi, rail_low=lo, rail_high=hi, kappa=0.0)
                         await self._store.append_point(point, state, derived)
-                        await self._broadcaster.broadcast({"type": "point", "point": _history_point_to_wire(point)})
+                        await self._broadcast_point(point)
             try:
                 await asyncio.sleep(sleep_interval)
             except asyncio.CancelledError:

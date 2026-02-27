@@ -46,6 +46,22 @@ class Config:
 
 
 @dataclass(frozen=True)
+class PlayerRow:
+    """Lightweight HUD player row snapshot, derived directly from BO3 player_states."""
+
+    name: Optional[str] = None
+    alive: Optional[bool] = None
+    hp: Optional[float] = None
+    armor: Optional[float] = None
+    helmet: Optional[bool] = None
+    cash: Optional[float] = None
+    loadout: Optional[float] = None
+    weapons: list[str] | None = None
+    has_bomb: Optional[bool] = None
+    has_kit: Optional[bool] = None
+
+
+@dataclass(frozen=True)
 class Frame:
     """Canonical live snapshot produced by normalize step."""
 
@@ -72,6 +88,11 @@ class Frame:
     round_time_s: float | None = None
     round_time_remaining_raw: float | int | None = None
     round_time_raw: float | int | None = None
+    # Flags for round_time_remaining normalization (ingest-time diagnostics)
+    round_time_remaining_was_ms: Optional[bool] = None
+    round_time_remaining_was_negative: Optional[bool] = None
+    round_time_remaining_was_out_of_range: Optional[bool] = None
+    round_time_remaining_was_missing: Optional[bool] = None
     map_index: int = 0
     series_score: tuple[int, int] = (0, 0)
     map_name: str = ""
@@ -83,6 +104,9 @@ class Frame:
     team_two_id: Optional[int] = None
     team_one_provider_id: Optional[str] = None
     team_two_provider_id: Optional[str] = None
+    # HUD player rows: Team A (left) and Team B (right). Snapshot-only; not persisted in history.
+    players_a: list[PlayerRow] = field(default_factory=list)
+    players_b: list[PlayerRow] = field(default_factory=list)
 
 
 # --- State (authoritative running state after reducer) ---
