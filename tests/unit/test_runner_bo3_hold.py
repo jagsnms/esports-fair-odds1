@@ -234,3 +234,52 @@ async def test_buffer_holds_on_fetch_failure_after_first_success() -> None:
 
 def test_buffer_holds_on_fetch_failure_after_first_success_sync() -> None:
     asyncio.run(test_buffer_holds_on_fetch_failure_after_first_success())
+
+
+async def test_broadcast_point_does_not_mutate_store_state() -> None:
+    """
+    _broadcast_point must not mutate the dict returned by store.get_current (players_a/players_b stay present).
+    """
+    store = MemoryStore(max_history=10)
+    config = Config(source="BO3", match_id=1, poll_interval_s=5.0)
+    # Seed state with a last_frame that has players_a/players_b
+    from engine.models import Frame, PlayerRow
+
+    frame = Frame(
+        timestamp=0.0,
+        teams=("A", "B"),
+        scores=(0, 0),
+        players_a=[PlayerRow(name="A1")],
+        players_b=[PlayerRow(name="B1")],
+    )
+    state = State(config=config, last_frame=frame, segment_id=0)
+    derived = Derived()
+    await store.set_current(state, derived)
+
+    broadcasts: list[dict] = []
+    broadcaster = MagicMock()
+    broadcaster.broadcast = AsyncMock(side_effect=lambda msg: broadcasts.append(msg))
+    runner = Runner(store=store, broadcaster=broadcaster)
+
+    # Call _broadcast_point directly with a dummy point
+    from engine.models import HistoryPoint
+    point = HistoryPoint(time=0.0, p_hat=0.5, bound_low=0.1, bound_high=0.9, rail_low=0.1, rail_high=0.9, market_mid=None, segment_id=0)
+    await runner._broadcast_point(point)
+
+    # Store state should still have players_a/players_b in last_frame
+    current_after = await store.get_current()
+    last_frame_after = ((current_after.get("state") or {}).get("last_frame") or {})
+    assert last_frame_after.get("players_a"), "players_a should still be present in store state"
+    assert last_frame_after.get("players_b"), "players_b should still be present in store state"
+
+    # Wire payload should have players stripped from last_frame in 'current'
+    point_msgs = [m for m in broadcasts if m.get("type") == "point"]
+    assert len(point_msgs) == 1
+    wire_cur = point_msgs[0].get("current") or {}
+    wire_last_frame = (wire_cur.get("state") or {}).get("last_frame") or {}
+    assert "players_a" not in wire_last_frame
+    assert "players_b" not in wire_last_frame
+
+
+def test_broadcast_point_does_not_mutate_store_state_sync() -> None:
+    asyncio.run(test_broadcast_point_does_not_mutate_store_state())
