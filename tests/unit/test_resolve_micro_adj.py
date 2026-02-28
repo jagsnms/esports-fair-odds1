@@ -95,8 +95,8 @@ def test_resolve_clamps_to_01() -> None:
     assert 0 <= p <= 1
 
 
-def test_midround_phase_not_in_progress_skipped() -> None:
-    """When round_phase is not IN_PROGRESS (e.g. BUY_TIME/FREEZETIME), V2 is skipped; p_hat_final = p_hat_old."""
+def test_midround_buy_time_frozen_midpoint() -> None:
+    """When round_phase is BUY_TIME, p_hat_final = rail midpoint (no loadout pegging)."""
     frame = _frame(
         alive_counts=(4, 2),
         hp_totals=(350.0, 250.0),
@@ -105,18 +105,20 @@ def test_midround_phase_not_in_progress_skipped() -> None:
     config = _config(prematch_map=0.5)
     state = _state()
     rails = (0.2, 0.8)
+    rail_low, rail_high = rails
     p, dbg = resolve_p_hat(frame, config, state, rails)
     assert dbg["midround_weight"] == 0.0
-    assert dbg["p_hat_old"] == dbg["p_hat_final"]
-    assert p == dbg["p_hat_old"]
+    expected_mid = 0.5 * (rail_low + rail_high)
+    assert dbg["p_hat_final"] == expected_mid
+    assert p == expected_mid
     mv2 = dbg.get("midround_v2") or {}
     assert mv2.get("skipped") is True
-    assert mv2.get("reason") == "phase_not_in_progress"
+    assert mv2.get("reason") == "buy_time_frozen_midpoint"
     assert mv2.get("round_phase") == "BUY_TIME"
 
 
-def test_midround_freezetime_skipped() -> None:
-    """FREEZETIME does not apply V2; sets skipped reason."""
+def test_midround_freezetime_frozen_midpoint() -> None:
+    """FREEZETIME: same as BUY_TIME, p_hat = rail midpoint."""
     frame = _frame(
         alive_counts=(5, 5),
         hp_totals=(400.0, 400.0),
@@ -125,10 +127,13 @@ def test_midround_freezetime_skipped() -> None:
     config = _config(prematch_map=0.5)
     state = _state()
     rails = (0.2, 0.8)
-    _, dbg = resolve_p_hat(frame, config, state, rails)
+    rail_low, rail_high = rails
+    p, dbg = resolve_p_hat(frame, config, state, rails)
+    expected_mid = 0.5 * (rail_low + rail_high)
+    assert p == expected_mid
     mv2 = dbg.get("midround_v2") or {}
     assert mv2.get("skipped") is True
-    assert mv2.get("reason") == "phase_not_in_progress"
+    assert mv2.get("reason") == "buy_time_frozen_midpoint"
     assert mv2.get("round_phase") == "FREEZETIME"
 
 
@@ -197,6 +202,45 @@ def test_midround_v2_p_hat_equals_p_mid_clamped_when_rails_wide() -> None:
     assert p == p_mid_clamped
 
 
+REQUIRED_EXPLAIN_KEYS = (
+    "phase",
+    "p_base_map",
+    "p_base_series",
+    "midround_weight",
+    "q_intra_total",
+    "q_terms",
+    "micro_adj",
+    "rails",
+    "final",
+)
+
+
+def test_resolve_debug_contains_explain_with_required_keys() -> None:
+    """HistoryPoint is built from resolve debug; debug must contain explain with required keys."""
+    frame = _frame(
+        alive_counts=(4, 2),
+        hp_totals=(300.0, 200.0),
+        loadout_totals=(8000.0, 4000.0),
+        bomb_phase_time_remaining={"round_phase": "IN_PROGRESS"},
+    )
+    config = _config(prematch_map=0.55)
+    state = _state()
+    rails = (0.2, 0.8)
+    _, dbg = resolve_p_hat(frame, config, state, rails)
+    assert "explain" in dbg, "resolve_p_hat debug_dict must include explain"
+    explain = dbg["explain"]
+    for key in REQUIRED_EXPLAIN_KEYS:
+        assert key in explain, f"explain must contain {key!r}"
+    assert "alive_adj" in explain["micro_adj"]
+    assert "hp_adj" in explain["micro_adj"]
+    assert "econ_adj" in explain["micro_adj"]
+    assert "rail_low" in explain["rails"]
+    assert "rail_high" in explain["rails"]
+    assert "corridor_width" in explain["rails"]
+    assert "p_hat_final" in explain["final"]
+    assert "clamp_reason" in explain["final"]
+
+
 class TestResolveMicroAdj(unittest.TestCase):
     """Run the same tests via unittest."""
 
@@ -215,11 +259,11 @@ class TestResolveMicroAdj(unittest.TestCase):
     def test_resolve_clamps_to_01(self) -> None:
         test_resolve_clamps_to_01()
 
-    def test_midround_phase_not_in_progress_skipped(self) -> None:
-        test_midround_phase_not_in_progress_skipped()
+    def test_midround_buy_time_frozen_midpoint(self) -> None:
+        test_midround_buy_time_frozen_midpoint()
 
-    def test_midround_freezetime_skipped(self) -> None:
-        test_midround_freezetime_skipped()
+    def test_midround_freezetime_frozen_midpoint(self) -> None:
+        test_midround_freezetime_frozen_midpoint()
 
     def test_midround_in_progress_stays_within_rails(self) -> None:
         test_midround_in_progress_stays_within_rails()
@@ -229,6 +273,9 @@ class TestResolveMicroAdj(unittest.TestCase):
 
     def test_midround_v2_p_hat_equals_p_mid_clamped_when_rails_wide(self) -> None:
         test_midround_v2_p_hat_equals_p_mid_clamped_when_rails_wide()
+
+    def test_resolve_debug_contains_explain_with_required_keys(self) -> None:
+        test_resolve_debug_contains_explain_with_required_keys()
 
 
 if __name__ == "__main__":

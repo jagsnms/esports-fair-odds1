@@ -58,6 +58,10 @@ def _history_point_to_wire(p: HistoryPoint) -> dict[str, Any]:
         out.setdefault("map_high", p.rail_high)
     if hasattr(p, "segment_id"):
         out["seg"] = p.segment_id
+    if getattr(p, "explain", None) is not None:
+        out["explain"] = p.explain
+    if getattr(p, "event", None) is not None:
+        out["event"] = p.event
     return out
 
 

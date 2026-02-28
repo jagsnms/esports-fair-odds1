@@ -180,3 +180,5 @@ class HistoryPoint:
     rail_high: float = 1.0
     market_mid: float | None = None
     segment_id: int = 0
+    explain: dict | None = None  # per-tick decomposition for calibration/ML (phase, rails, q_terms, micro_adj, etc.)
+    event: dict | None = None  # outcome label: round_result | segment_result (round_number, winner_team_id, winner_is_team_a, etc.)

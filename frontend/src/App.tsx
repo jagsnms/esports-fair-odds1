@@ -123,6 +123,8 @@ function App() {
   const pausedRef = useRef(false)
   const pendingPointsRef = useRef<Point[]>([])
   const currentSegRef = useRef<number>(0)
+  /** When true (default), chart shows full match across all segments; when false, current segment only. */
+  const showFullMatchRef = useRef(true)
 
   // BO3 list: refresh every 10s while panel is open and list has been loaded
   useEffect(() => {
@@ -370,7 +372,7 @@ function App() {
 
         const [cur, historyRaw] = await Promise.all([curResp.json(), histResp.json()])
         const history = Array.isArray(historyRaw) ? (historyRaw as Point[]) : []
-        const filtered = filterHistoryToSeg(history, newSeg)
+        const filtered = showFullMatchRef.current ? history : filterHistoryToSeg(history, newSeg)
 
         const segValues = history
           .map((p) => p.seg)
@@ -413,9 +415,9 @@ function App() {
           const seg = (msg.current as { state?: { segment_id?: number; last_frame?: LastFrame } })?.state?.segment_id ?? 0
           currentSegRef.current = seg
           const hist = Array.isArray(msg.history) ? (msg.history as Point[]) : []
-          const lastSegmentOnly = filterHistoryToSeg(hist, seg)
-          setSnapshotHistory(lastSegmentOnly)
-          if (pSeriesRef.current && lastSegmentOnly.length > 0) setDataFromHistory(lastSegmentOnly)
+          const visibleHistory = showFullMatchRef.current ? hist : filterHistoryToSeg(hist, seg)
+          setSnapshotHistory(visibleHistory)
+          if (pSeriesRef.current && visibleHistory.length > 0) setDataFromHistory(visibleHistory)
           const lf = (msg.current as { state?: { last_frame?: LastFrame } } | undefined)?.state?.last_frame ?? null
           setHudFrame(lf)
         } else if (msg.type === 'frame' && msg.frame) {

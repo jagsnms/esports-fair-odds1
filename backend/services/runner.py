@@ -55,6 +55,10 @@ def _history_point_to_wire(p: HistoryPoint) -> dict:
         out["rail_high"] = p.rail_high
     if hasattr(p, "segment_id"):
         out["seg"] = p.segment_id
+    if getattr(p, "explain", None) is not None:
+        out["explain"] = p.explain
+    if getattr(p, "event", None) is not None:
+        out["event"] = p.event
     return out
 
 
@@ -244,6 +248,12 @@ class Runner:
         self._bo3_buf_last_error: str | None = None
         self._bo3_buf_consecutive_failures: int = 0
         self._bo3_buf_match_id: int | None = None  # clear buffer when match_id changes
+        # Outcome label events: avoid duplicate round_result / segment_result emits
+        self._bo3_last_seen_round_number: int | None = None
+        self._bo3_last_seen_round_winner_team_id: int | None = None
+        self._bo3_last_seen_segment_id_for_result: int | None = None
+        self._bo3_last_seen_map_winner_team_id: int | None = None
+        self._bo3_last_seen_scores: tuple[int, int] | None = None  # (team_one_score, team_two_score) for inferring winner when winning_team_id==0
 
     def get_replay_progress(self) -> dict[str, int] | None:
         """Return {index, total} when replay is active and list is loaded."""
@@ -345,6 +355,11 @@ class Runner:
             self._bo3_buf_last_error = None
             self._bo3_buf_consecutive_failures = 0
             self._bo3_buf_match_id = mid
+            self._bo3_last_seen_round_number = None
+            self._bo3_last_seen_round_winner_team_id = None
+            self._bo3_last_seen_segment_id_for_result = None
+            self._bo3_last_seen_map_winner_team_id = None
+            self._bo3_last_seen_scores = None
         try:
             from engine.ingest.bo3_client import get_snapshot
         except ImportError:
@@ -566,6 +581,18 @@ class Runner:
                 "map_high": rail_high,
             }
             dbg.update(bounds_debug)
+            cw = rail_high - rail_low if rail_high >= rail_low else 0.0
+            dbg["explain"] = {
+                "phase": "inter_map_break",
+                "p_base_map": None,
+                "p_base_series": None,
+                "midround_weight": 0.0,
+                "q_intra_total": None,
+                "q_terms": {},
+                "micro_adj": {"alive_adj": 0.0, "hp_adj": 0.0, "econ_adj": 0.0},
+                "rails": {"rail_low": rail_low, "rail_high": rail_high, "corridor_width": cw},
+                "final": {"p_hat_final": p_hat, "clamp_reason": "inter_map_break"},
+            }
         else:
             bounds = (bound_low, bound_high)
             rails_result = compute_rails(frame, config, new_state, bounds)
@@ -626,6 +653,142 @@ class Runner:
             self._last_breach_type = breach_type
         if breach_type is None:
             self._last_breach_type = None
+        # Outcome label events (round_result, segment_result) from raw snapshot — emit before main point, no duplicate spam
+        if isinstance(snap, dict):
+            t1 = snap.get("team_one") or {}
+            t2 = snap.get("team_two") or {}
+            team_one_id = int(t1.get("id", 0) or 0)
+            team_two_id = int(t2.get("id", 0) or 0)
+            team_a_id = team_one_id if team_a_is_team_one else team_two_id
+            rtr = snap.get("round_time_remaining")
+            try:
+                rtr = int(rtr) if rtr is not None else None
+            except (TypeError, ValueError):
+                rtr = None
+            rp = snap.get("round_phase") or snap.get("phase")
+            phase_upper = str(rp).strip().upper() if rp is not None else ""
+            winning_team_id = snap.get("winning_team_id")
+            try:
+                winning_team_id = int(winning_team_id) if winning_team_id is not None else 0
+            except (TypeError, ValueError):
+                winning_team_id = 0
+            round_number = snap.get("round_number")
+            try:
+                round_number = int(round_number) if round_number is not None else None
+            except (TypeError, ValueError):
+                round_number = None
+            # Current round scores (team_one, team_two) for inferring winner when winning_team_id==0
+            score1 = int(t1.get("score", 0) or 0)
+            score2 = int(t2.get("score", 0) or 0)
+            # Resolve winner: explicit from API or infer from score delta when FINISHED and winning_team_id==0
+            resolved_winner_team_id: int | None = None
+            if phase_upper == "FINISHED" and round_number is not None:
+                if winning_team_id != 0:
+                    resolved_winner_team_id = winning_team_id
+                else:
+                    last_scores = self._bo3_last_seen_scores
+                    if last_scores is not None:
+                        if score1 > last_scores[0]:
+                            resolved_winner_team_id = team_one_id
+                        elif score2 > last_scores[1]:
+                            resolved_winner_team_id = team_two_id
+                    # else: no evidence, do not emit
+            elif rtr is not None and rtr == 0 and winning_team_id != 0 and round_number is not None:
+                resolved_winner_team_id = winning_team_id
+            round_just_finished = round_number is not None and resolved_winner_team_id is not None
+            if round_just_finished and resolved_winner_team_id is not None and (
+                self._bo3_last_seen_round_number != round_number
+                or self._bo3_last_seen_round_winner_team_id != resolved_winner_team_id
+            ):
+                round_event = {
+                    "event_type": "round_result",
+                    "round_number": round_number,
+                    "round_winner_team_id": resolved_winner_team_id,
+                    "round_winner_is_team_a": bool(team_a_id and resolved_winner_team_id == team_a_id),
+                }
+                round_point = HistoryPoint(
+                    time=t,
+                    p_hat=p_hat,
+                    bound_low=bound_low,
+                    bound_high=bound_high,
+                    rail_low=rail_low,
+                    rail_high=rail_high,
+                    market_mid=market_mid,
+                    segment_id=new_state.segment_id,
+                    explain=None,
+                    event=round_event,
+                )
+                derived_evt = Derived(
+                    p_hat=p_hat,
+                    bound_low=bound_low,
+                    bound_high=bound_high,
+                    rail_low=rail_low,
+                    rail_high=rail_high,
+                    kappa=0.0,
+                    debug={**dbg, "event": round_event},
+                )
+                await self._store.append_point(round_point, new_state, derived_evt)
+                await self._broadcast_point(round_point)
+                self._bo3_last_seen_round_number = round_number
+                self._bo3_last_seen_round_winner_team_id = resolved_winner_team_id
+            # Update last_seen_scores every tick so next FINISHED can infer winner when winning_team_id==0
+            self._bo3_last_seen_scores = (score1, score2)
+            mf = snap.get("match_fixture") or {}
+            map_winner_team_id = mf.get("match_winner_team_id")
+            try:
+                map_winner_team_id = int(map_winner_team_id) if map_winner_team_id is not None else 0
+            except (TypeError, ValueError):
+                map_winner_team_id = 0
+            game_ended = bool(snap.get("game_ended", False))
+            seg_id = getattr(new_state, "segment_id", 0)
+            game_number = snap.get("game_number", 1)
+            try:
+                map_index = max(0, int(game_number) - 1)
+            except (TypeError, ValueError):
+                map_index = 0
+            segment_ended = game_ended or map_winner_team_id != 0
+            if segment_ended and (
+                self._bo3_last_seen_segment_id_for_result != seg_id
+                or self._bo3_last_seen_map_winner_team_id != map_winner_team_id
+            ):
+                scores = getattr(new_state.last_frame, "scores", (0, 0)) if new_state.last_frame else (0, 0)
+                # Frame scores are already (team A, team B) from bo3_normalize
+                final_rounds_a = int(scores[0]) if scores and len(scores) > 0 else 0
+                final_rounds_b = int(scores[1]) if scores and len(scores) > 1 else 0
+                segment_event = {
+                    "event_type": "segment_result",
+                    "segment_id": seg_id,
+                    "map_index": map_index,
+                    "map_winner_team_id": map_winner_team_id,
+                    "map_winner_is_team_a": bool(team_a_id and map_winner_team_id == team_a_id),
+                    "final_rounds_a": final_rounds_a,
+                    "final_rounds_b": final_rounds_b,
+                }
+                segment_point = HistoryPoint(
+                    time=t,
+                    p_hat=p_hat,
+                    bound_low=bound_low,
+                    bound_high=bound_high,
+                    rail_low=rail_low,
+                    rail_high=rail_high,
+                    market_mid=market_mid,
+                    segment_id=seg_id,
+                    explain=None,
+                    event=segment_event,
+                )
+                derived_seg = Derived(
+                    p_hat=p_hat,
+                    bound_low=bound_low,
+                    bound_high=bound_high,
+                    rail_low=rail_low,
+                    rail_high=rail_high,
+                    kappa=0.0,
+                    debug={**dbg, "event": segment_event},
+                )
+                await self._store.append_point(segment_point, new_state, derived_seg)
+                await self._broadcast_point(segment_point)
+                self._bo3_last_seen_segment_id_for_result = seg_id
+                self._bo3_last_seen_map_winner_team_id = map_winner_team_id
         # BO3 liveness diagnostics (success path)
         self._bo3_success_counter += 1
         self._bo3_last_success_epoch = time.time()
@@ -648,6 +811,7 @@ class Runner:
             rail_high=rail_high,
             market_mid=market_mid,
             segment_id=new_state.segment_id,
+            explain=dbg.get("explain"),
         )
         derived = Derived(
             p_hat=p_hat,
@@ -788,6 +952,18 @@ class Runner:
                 "map_high": rail_high,
             }
             dbg.update(bounds_debug)
+            cw = rail_high - rail_low if rail_high >= rail_low else 0.0
+            dbg["explain"] = {
+                "phase": "inter_map_break",
+                "p_base_map": None,
+                "p_base_series": None,
+                "midround_weight": 0.0,
+                "q_intra_total": None,
+                "q_terms": {},
+                "micro_adj": {"alive_adj": 0.0, "hp_adj": 0.0, "econ_adj": 0.0},
+                "rails": {"rail_low": rail_low, "rail_high": rail_high, "corridor_width": cw},
+                "final": {"p_hat_final": p_hat, "clamp_reason": "inter_map_break"},
+            }
         else:
             bounds = (bound_low, bound_high)
             rails_result = compute_rails(frame, config, new_state, bounds)
@@ -856,6 +1032,7 @@ class Runner:
             rail_high=rail_high,
             market_mid=market_mid,
             segment_id=new_state.segment_id,
+            explain=dbg.get("explain"),
         )
         derived = Derived(
             p_hat=p_hat,
