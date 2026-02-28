@@ -338,3 +338,123 @@ def test_map_change_does_not_reset_trail_state_while_episode_active() -> None:
     assert mgr._trail_state["LONG_A"]["confirm_count_price"] == 1
     assert mgr._trail_state["LONG_A"]["candidate_price_emitted"] is True
     assert mgr._trail_state["LONG_A"]["candidate_gap_emitted"] is False
+
+
+def test_episode_end_and_outcome_not_lost_when_trailing_reversal_evaluated_same_tick() -> None:
+    """Map-start (or match end) emits episode_end and episode_outcome into events; trailing_reversal branch
+    must not drop them by returning only trail_events. Return events + trail_events so both are present.
+    """
+    # Start an episode in immediate mode so _active is set
+    os.environ["TRADE_EPISODE_ENTRY_MODE"] = "immediate"
+    mgr = TradeEpisodeManager()
+    mgr.on_tick(
+        t=1000.0,
+        p_hat=0.5,
+        bound_low=0.4,
+        bound_high=0.6,
+        rail_low=0.4,
+        rail_high=0.6,
+        bid_yes=0.4,
+        ask_yes=0.6,
+        round_phase="IN_PROGRESS",
+        game_number=1,
+        segment_id=0,
+        round_number=1,
+        explain={"final": {"p_hat_final": 0.5}},
+        game_ended=False,
+    )
+    assert mgr._active is not None
+    # Next tick: map change (MAP_START) + trailing_reversal mode so we evaluate _try_trailing_reversal.
+    # We must have bid/ask so we reach the trailing branch and return events + trail_events.
+    os.environ["TRADE_EPISODE_ENTRY_MODE"] = "trailing_reversal"
+    ev = mgr.on_tick(
+        t=1005.0,
+        p_hat=0.5,
+        bound_low=0.4,
+        bound_high=0.6,
+        rail_low=0.4,
+        rail_high=0.6,
+        bid_yes=0.5,
+        ask_yes=0.55,
+        round_phase="IN_PROGRESS",
+        game_number=2,
+        segment_id=1,
+        round_number=1,
+        explain={"final": {"p_hat_final": 0.5}},
+        game_ended=False,
+    )
+    end_ev = next((e for e in ev if e.get("event_type") == "episode_end"), None)
+    outcome_ev = next((e for e in ev if e.get("event_type") == "episode_outcome"), None)
+    assert end_ev is not None, "episode_end must not be lost when trailing_reversal runs same tick"
+    assert outcome_ev is not None, "episode_outcome must not be lost when trailing_reversal runs same tick"
+    assert end_ev.get("end_reason") == "MAP_START"
+
+
+def test_map_start_fires_on_first_in_progress_tick_after_buy_time_in_new_map() -> None:
+    """Map-start end can be missed if _last_seen_map_id is updated on BUY_TIME of new map.
+    Only update _last_seen_map_id when phase is IN_PROGRESS so the first IN_PROGRESS tick
+    of the new map still triggers MAP_START.
+    """
+    os.environ["TRADE_EPISODE_ENTRY_MODE"] = "immediate"
+    mgr = TradeEpisodeManager()
+    # Map 1, IN_PROGRESS: start episode and set _last_seen_map_id = 1
+    mgr.on_tick(
+        t=1000.0,
+        p_hat=0.5,
+        bound_low=0.4,
+        bound_high=0.6,
+        rail_low=0.4,
+        rail_high=0.6,
+        bid_yes=0.4,
+        ask_yes=0.6,
+        round_phase="IN_PROGRESS",
+        game_number=1,
+        segment_id=0,
+        round_number=12,
+        explain={"final": {"p_hat_final": 0.5}},
+        game_ended=False,
+    )
+    assert mgr._active is not None
+    assert mgr._last_seen_map_id == 1
+    # Map 2, BUY_TIME: do not update _last_seen_map_id; no episode end yet
+    ev_buy = mgr.on_tick(
+        t=1001.0,
+        p_hat=0.5,
+        bound_low=0.4,
+        bound_high=0.6,
+        rail_low=0.4,
+        rail_high=0.6,
+        bid_yes=0.45,
+        ask_yes=0.55,
+        round_phase="BUY_TIME",
+        game_number=2,
+        segment_id=1,
+        round_number=1,
+        explain={"final": {"p_hat_final": 0.5}},
+        game_ended=False,
+    )
+    assert mgr._last_seen_map_id == 1  # unchanged (only update on IN_PROGRESS)
+    end_buy = next((e for e in ev_buy if e.get("event_type") == "episode_end"), None)
+    assert end_buy is None  # MAP_START not fired on BUY_TIME
+    assert mgr._active is not None
+    # Map 2, IN_PROGRESS: first IN_PROGRESS of new map -> MAP_START
+    ev_progress = mgr.on_tick(
+        t=1002.0,
+        p_hat=0.5,
+        bound_low=0.4,
+        bound_high=0.6,
+        rail_low=0.4,
+        rail_high=0.6,
+        bid_yes=0.45,
+        ask_yes=0.55,
+        round_phase="IN_PROGRESS",
+        game_number=2,
+        segment_id=1,
+        round_number=1,
+        explain={"final": {"p_hat_final": 0.5}},
+        game_ended=False,
+    )
+    end_progress = next((e for e in ev_progress if e.get("event_type") == "episode_end"), None)
+    assert end_progress is not None
+    assert end_progress.get("end_reason") == "MAP_START"
+    assert mgr._active is None

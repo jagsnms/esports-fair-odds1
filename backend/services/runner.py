@@ -11,11 +11,13 @@ import math
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from engine.models import Config, Derived, Frame, HistoryPoint, State
 
+from backend.services.trade_episodes import TradeEpisodeManager
 from backend.store.memory_store import _history_point_to_wire
 
 logger = logging.getLogger(__name__)
@@ -356,7 +358,6 @@ class Runner:
         # Raw BO3 snapshot recording dedupe: last signature per match to skip duplicate lines
         self._bo3_raw_last_sig_by_match: dict[int, tuple[Any, ...]] = {}
         # ML-ready series-line-dislocation episode logger (paper only; emits setup_trigger, episode_start/end/outcome)
-        from backend.services.trade_episodes import TradeEpisodeManager
         self._trade_episode_manager = TradeEpisodeManager()
 
     def _reset_outcome_trackers(self) -> None:
@@ -445,17 +446,28 @@ class Runner:
             self._task.cancel()
 
     async def _broadcast_point(self, point: HistoryPoint) -> None:
-        """Broadcast chart-only point message (no current/frame payload attached)."""
+        """Broadcast chart point message and current frame so HUD can update."""
         wire = _history_point_to_wire(point)
         await self._broadcaster.broadcast({"type": "point", "point": wire})
+        await self._broadcast_frame()
 
     async def _broadcast_frame(self) -> None:
         """Broadcast HUD-only frame message with the latest last_frame (including players)."""
-        current = await self._store.get_current()
-        state_obj = current.get("state") or {}
-        last_frame = state_obj.get("last_frame")
+        state = await self._store.get_state()
+        last_frame = getattr(state, "last_frame", None)
+        if last_frame is None:
+            return
         if isinstance(last_frame, dict):
-            await self._broadcaster.broadcast({"type": "frame", "frame": last_frame})
+            frame_dict = last_frame
+        elif hasattr(last_frame, "__dataclass_fields__"):
+            try:
+                frame_dict = asdict(last_frame)
+            except (TypeError, ValueError):
+                frame_dict = {}
+        else:
+            frame_dict = {}
+        if frame_dict:
+            await self._broadcaster.broadcast({"type": "frame", "frame": frame_dict})
 
     async def _bo3_fetch_into_buffer(self, match_id: int) -> None:
         """
@@ -475,6 +487,7 @@ class Runner:
             self._bo3_buf_consecutive_failures = 0
             self._bo3_buf_match_id = mid
             self._reset_outcome_trackers()
+            self._trade_episode_manager = TradeEpisodeManager()
             self._bo3_raw_last_sig_by_match.clear()
         try:
             from engine.ingest.bo3_client import get_snapshot
@@ -904,7 +917,6 @@ class Runner:
             )
             await self._store.append_point(hold_point, state, fail_derived)
             await self._broadcast_point(hold_point)
-            await self._broadcast_frame()
             if status == "stale":
                 self._bo3_same_snapshot_polls += 1
             return True
@@ -1155,7 +1167,6 @@ class Runner:
         )
         await self._store.append_point(point, new_state, derived)
         await self._broadcast_point(point)
-        await self._broadcast_frame()
         return True
 
     async def _tick_replay_point_passthrough(self, payload: dict[str, Any], config: Config) -> bool:
@@ -1203,7 +1214,6 @@ class Runner:
         )
         await self._store.append_point(point, state, derived)
         await self._broadcast_point(point)
-        await self._broadcast_frame()
         self._replay_index += 1
         return True
 
@@ -1241,6 +1251,7 @@ class Runner:
             else:
                 self._replay_format = None
             self._reset_outcome_trackers()
+            self._trade_episode_manager = TradeEpisodeManager()
 
         if not self._replay_payloads:
             return True  # no entries; sleep and keep trying
@@ -1295,7 +1306,6 @@ class Runner:
                 )
                 await self._store.append_point(pt, loop_state, derived_obj)
                 await self._broadcast_point(pt)
-                await self._broadcast_frame()
                 self._replay_index = 0
             return True
 
@@ -1484,8 +1494,11 @@ class Runner:
             debug=dbg,
         )
         await self._store.append_point(point, new_state, derived)
+        if new_state.last_frame is not None:
+            await self._broadcaster.broadcast(
+                {"type": "frame", "frame": asdict(new_state.last_frame)}
+            )
         await self._broadcast_point(point)
-        await self._broadcast_frame()
         self._replay_index += 1
         return True
 
@@ -1565,7 +1578,6 @@ class Runner:
                         derived = Derived(p_hat=p_hat, bound_low=lo, bound_high=hi, rail_low=lo, rail_high=hi, kappa=0.0)
                         await self._store.append_point(point, state, derived)
                         await self._broadcast_point(point)
-                        await self._broadcast_frame()
             try:
                 await asyncio.sleep(sleep_interval)
             except asyncio.CancelledError:

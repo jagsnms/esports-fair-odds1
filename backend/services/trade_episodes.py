@@ -677,7 +677,10 @@ class TradeEpisodeManager:
                 })
                 self._active = None
 
-        self._last_seen_map_id = map_id
+        # Only advance last-seen map when IN_PROGRESS so first IN_PROGRESS of a new map
+        # still triggers MAP_START even if the new map was first seen in BUY_TIME/FREEZETIME.
+        if phase_upper == "IN_PROGRESS":
+            self._last_seen_map_id = map_id
         self._last_seen_round_phase = phase_upper
 
         # Update active episode metrics if in progress (we have bid/ask below)
@@ -786,7 +789,7 @@ class TradeEpisodeManager:
                 round_number=round_number,
                 explain=explain,
             )
-            return trail_events  # do not fall through to immediate entry
+            return events + trail_events  # preserve episode_end/outcome from same tick
 
         # Immediate entry: check triggers (dedupe: same dir debounce + max per map)
         # SHORT_A (LONG_NO): ask_no >= (1 - S_A_line) + DELTA_ENTRY

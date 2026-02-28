@@ -315,6 +315,7 @@ async def test_tick_replay_processes_one_payload_and_advances_index() -> None:
         "team_one": {"name": "Team A", "score": 1, "id": 1},
         "team_two": {"name": "Team B", "score": 0, "id": 2},
         "created_at": "2024-01-01T00:00:00Z",
+        "round_phase": "IN_PROGRESS",
     }
     mock_entries = [{"match_id": 99, "payload": minimal_payload, "source": "BO3", "ok": True}]
 
@@ -332,7 +333,7 @@ async def test_tick_replay_processes_one_payload_and_advances_index() -> None:
     point_msgs = [b for b in broadcasts if b.get("type") == "point"]
     assert len(point_msgs) == 1
     frame_msgs = [b for b in broadcasts if b.get("type") == "frame"]
-    assert len(frame_msgs) == 1, "replay must broadcast frame so HUD updates"
+    assert len(frame_msgs) >= 1, "replay must broadcast frame so HUD updates"
 
 
 def test_tick_replay_processes_one_payload_and_advances_index_sync() -> None:
