@@ -1,15 +1,25 @@
 """
 Thread-safe in-memory store for State, Derived, and history (ring buffer).
+Optional persistent JSONL recording of HistoryPoints via env HISTORY_RECORD_ENABLED / HISTORY_RECORD_JSONL_PATH.
 """
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
+import os
 from collections import deque
 from dataclasses import asdict
 from typing import Any
 
 from engine.config import merge_config
 from engine.models import Config, Derived, Frame, HistoryPoint, State
+
+# Persistent history recording (env): default on, path default logs/history_points.jsonl
+_HISTORY_RECORD_ENABLED = os.environ.get("HISTORY_RECORD_ENABLED", "true").strip().lower() in ("1", "true", "yes")
+_HISTORY_RECORD_JSONL_PATH = os.environ.get("HISTORY_RECORD_JSONL_PATH", "logs/history_points.jsonl").strip() or "logs/history_points.jsonl"
+
+_logger = logging.getLogger(__name__)
 
 
 def _state_derived_to_dict(state: State, derived: Derived) -> dict[str, Any]:
@@ -30,26 +40,19 @@ def _state_derived_to_dict(state: State, derived: Derived) -> dict[str, Any]:
 
 
 def _history_point_to_wire(p: HistoryPoint) -> dict[str, Any]:
-    """Wire format (backward compatible):
-    - t: unix seconds
-    - p: p_hat
-    - lo/hi: legacy series corridor (bound_low/high)
-    - rail_low/rail_high: legacy map corridor
-    - series_low/series_high: series corridor aliases (== lo/hi)
-    - map_low/map_high: map corridor aliases (== rail_low/rail_high)
-    - m: market_mid
-    - seg: segment_id
+    """Canonical wire format for WS point, GET /api/v1/state/history, and JSONL recording.
+    Includes: t, p, lo, hi, m, seg, rail_low/rail_high, series_low/series_high, map_low/map_high,
+    and when present: explain, event (round_result/segment_result).
     """
-    out = {
+    out: dict[str, Any] = {
         "t": p.time,
         "p": p.p_hat,
         "lo": p.bound_low,
         "hi": p.bound_high,
         "m": p.market_mid,
+        "series_low": p.bound_low,
+        "series_high": p.bound_high,
     }
-    # New semantic aliases for corridors
-    out["series_low"] = p.bound_low
-    out["series_high"] = p.bound_high
     if hasattr(p, "rail_low"):
         out["rail_low"] = p.rail_low
         out.setdefault("map_low", p.rail_low)
@@ -58,10 +61,13 @@ def _history_point_to_wire(p: HistoryPoint) -> dict[str, Any]:
         out.setdefault("map_high", p.rail_high)
     if hasattr(p, "segment_id"):
         out["seg"] = p.segment_id
-    if getattr(p, "explain", None) is not None:
-        out["explain"] = p.explain
-    if getattr(p, "event", None) is not None:
-        out["event"] = p.event
+    # Full payload: include explain and event when present (same as WS / GET history)
+    expl = getattr(p, "explain", None)
+    if expl is not None:
+        out["explain"] = expl
+    ev = getattr(p, "event", None)
+    if ev is not None:
+        out["event"] = ev
     return out
 
 
@@ -74,6 +80,7 @@ class MemoryStore:
         self._derived = Derived()
         self._history: deque[HistoryPoint] = deque(maxlen=max_history)
         self._breach_events: deque[dict[str, Any]] = deque(maxlen=max_breach_events)
+        self._points_without_explain_count: int = 0
 
     async def get_current(self) -> dict[str, Any]:
         """Serialize current State + Derived."""
@@ -92,11 +99,30 @@ class MemoryStore:
         state: State,
         derived: Derived,
     ) -> None:
-        """Append one history point and update current state/derived."""
+        """Append one history point and update current state/derived. If enabled, append wire payload to JSONL."""
         async with self._lock:
+            has_explain = getattr(point, "explain", None) is not None
+            has_event = getattr(point, "event", None) is not None
+            if not has_explain and not has_event:
+                self._points_without_explain_count += 1
+                _logger.warning(
+                    "point appended without explain or event (count=%d); thin-wire points poison calibration",
+                    self._points_without_explain_count,
+                )
             self._history.append(point)
             self._state = state
             self._derived = derived
+            if _HISTORY_RECORD_ENABLED and _HISTORY_RECORD_JSONL_PATH:
+                # Full wire payload (same as WS and GET /api/v1/state/history), including explain and event
+                wire = _history_point_to_wire(point)
+                try:
+                    dirpath = os.path.dirname(_HISTORY_RECORD_JSONL_PATH)
+                    if dirpath:
+                        os.makedirs(dirpath, exist_ok=True)
+                    with open(_HISTORY_RECORD_JSONL_PATH, "a", encoding="utf-8") as f:
+                        f.write(json.dumps(wire, ensure_ascii=False) + "\n")
+                except OSError:
+                    pass
 
     async def set_current(self, state: State, derived: Derived) -> None:
         """Set current state and derived without appending to history."""

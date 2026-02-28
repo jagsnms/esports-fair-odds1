@@ -286,3 +286,173 @@ async def test_broadcast_point_does_not_mutate_store_state() -> None:
 
 def test_broadcast_point_does_not_mutate_store_state_sync() -> None:
     asyncio.run(test_broadcast_point_does_not_mutate_store_state())
+
+
+async def test_tick_replay_processes_one_payload_and_advances_index() -> None:
+    """
+    _tick_replay must process exactly one replay payload per tick through the full pipeline
+    (normalize -> reduce -> bounds -> rails -> resolve -> append_point -> broadcast)
+    and increment replay_index. No early return before payload processing.
+    """
+    store = MemoryStore(max_history=100)
+    config = Config(
+        source="REPLAY",
+        replay_path="logs/bo3_pulls.jsonl",
+        match_id=None,
+        poll_interval_s=5.0,
+        replay_loop=True,
+    )
+    state = State(config=config, segment_id=0)
+    derived = Derived(p_hat=0.5, bound_low=0.01, bound_high=0.99, rail_low=0.01, rail_high=0.99, kappa=0.0)
+    await store.set_current(state, derived)
+
+    broadcasts: list[dict] = []
+    broadcaster = MagicMock()
+    broadcaster.broadcast = AsyncMock(side_effect=lambda msg: broadcasts.append(msg))
+    runner = Runner(store=store, broadcaster=broadcaster)
+
+    minimal_payload = {
+        "team_one": {"name": "Team A", "score": 1, "id": 1},
+        "team_two": {"name": "Team B", "score": 0, "id": 2},
+        "created_at": "2024-01-01T00:00:00Z",
+    }
+    mock_entries = [{"match_id": 99, "payload": minimal_payload, "source": "BO3", "ok": True}]
+
+    with patch(
+        "engine.replay.bo3_jsonl.load_bo3_jsonl_entries",
+        return_value=mock_entries,
+    ):
+        did_replay = await runner._tick_replay(config)
+
+    assert did_replay is True
+    assert runner._replay_index == 1, "one tick must consume one payload and increment index"
+    history = await store.get_history(limit=10)
+    assert len(history) == 1, "replay tick must append one history point via pipeline"
+    assert history[0].get("p") is not None
+    point_msgs = [b for b in broadcasts if b.get("type") == "point"]
+    assert len(point_msgs) == 1
+    frame_msgs = [b for b in broadcasts if b.get("type") == "frame"]
+    assert len(frame_msgs) == 1, "replay must broadcast frame so HUD updates"
+
+
+def test_tick_replay_processes_one_payload_and_advances_index_sync() -> None:
+    asyncio.run(test_tick_replay_processes_one_payload_and_advances_index())
+
+
+async def test_tick_replay_end_of_replay_loop_resets_index() -> None:
+    """When replay_loop is True and index >= len(payloads), runner resets index to 0 and bumps segment."""
+    store = MemoryStore(max_history=100)
+    config = Config(
+        source="REPLAY",
+        replay_path="logs/bo3_pulls.jsonl",
+        match_id=None,
+        poll_interval_s=5.0,
+        replay_loop=True,
+    )
+    state = State(config=config, segment_id=0)
+    derived = Derived(p_hat=0.5, bound_low=0.01, bound_high=0.99, rail_low=0.01, rail_high=0.99, kappa=0.0)
+    await store.set_current(state, derived)
+
+    broadcaster = MagicMock()
+    broadcaster.broadcast = AsyncMock(return_value=None)
+    runner = Runner(store=store, broadcaster=broadcaster)
+    minimal_payload = {
+        "team_one": {"name": "A", "score": 0, "id": 1},
+        "team_two": {"name": "B", "score": 0, "id": 2},
+        "created_at": "ts",
+    }
+    runner._replay_payloads = [minimal_payload]
+    runner._replay_index = 1
+    runner._replay_path = "logs/bo3_pulls.jsonl"
+    runner._replay_match_id = None
+
+    did_replay = await runner._tick_replay(config)
+
+    assert did_replay is True
+    assert runner._replay_index == 0, "end-of-replay with loop must reset index to 0"
+    history = await store.get_history(limit=10)
+    assert len(history) == 1, "boundary point appended at loop"
+
+
+def test_tick_replay_end_of_replay_loop_resets_index_sync() -> None:
+    asyncio.run(test_tick_replay_end_of_replay_loop_resets_index())
+
+
+async def test_tick_replay_end_of_replay_no_loop_does_not_crash() -> None:
+    """When replay_loop is False and index >= len(payloads), runner does not crash; keeps last state."""
+    store = MemoryStore(max_history=100)
+    config = Config(
+        source="REPLAY",
+        replay_path="logs/bo3_pulls.jsonl",
+        match_id=None,
+        poll_interval_s=5.0,
+        replay_loop=False,
+    )
+    state = State(config=config, segment_id=0)
+    derived = Derived(p_hat=0.5, bound_low=0.01, bound_high=0.99, rail_low=0.01, rail_high=0.99, kappa=0.0)
+    await store.set_current(state, derived)
+
+    broadcaster = MagicMock()
+    broadcaster.broadcast = AsyncMock(return_value=None)
+    runner = Runner(store=store, broadcaster=broadcaster)
+    runner._replay_payloads = [{"team_one": {"id": 1}, "team_two": {"id": 2}}]
+    runner._replay_index = 1
+    runner._replay_path = "logs/bo3_pulls.jsonl"
+    runner._replay_match_id = None
+
+    did_replay = await runner._tick_replay(config)
+
+    assert did_replay is True
+    assert runner._replay_index == 1, "no loop: index stays at end, no reset"
+    history = await store.get_history(limit=10)
+    assert len(history) == 0, "no boundary point when loop is False"
+
+
+def test_tick_replay_end_of_replay_no_loop_does_not_crash_sync() -> None:
+    asyncio.run(test_tick_replay_end_of_replay_no_loop_does_not_crash())
+
+
+async def test_tick_replay_emits_round_result_event_when_present() -> None:
+    """Replay should emit round_result HistoryPoint events when payload indicates a finished round."""
+    store = MemoryStore(max_history=100)
+    config = Config(
+        source="REPLAY",
+        replay_path="logs/bo3_pulls.jsonl",
+        match_id=999,
+        poll_interval_s=5.0,
+        replay_loop=True,
+        team_a_is_team_one=True,
+    )
+    state = State(config=config, segment_id=0)
+    derived = Derived(p_hat=0.5, bound_low=0.01, bound_high=0.99, rail_low=0.01, rail_high=0.99, kappa=0.0)
+    await store.set_current(state, derived)
+
+    broadcasts: list[dict] = []
+    broadcaster = MagicMock()
+    broadcaster.broadcast = AsyncMock(side_effect=lambda msg: broadcasts.append(msg))
+    runner = Runner(store=store, broadcaster=broadcaster)
+
+    # This payload should trigger a round_result emit (FINISHED + round_number + winning_team_id).
+    payload = {
+        "team_one": {"name": "A", "id": 101, "score": 1},
+        "team_two": {"name": "B", "id": 202, "score": 0},
+        "round_phase": "FINISHED",
+        "round_number": 1,
+        "winning_team_id": 101,
+        "created_at": "ts",
+    }
+    runner._replay_payloads = [payload]
+    runner._replay_index = 0
+    runner._replay_path = "logs/bo3_pulls.jsonl"
+    runner._replay_match_id = 999
+
+    did_replay = await runner._tick_replay(config)
+
+    assert did_replay is True
+    hist = await store.get_history(limit=10)
+    # We should have at least one event point (and the main point) in history now.
+    assert any((p.get("event") or {}).get("event_type") == "round_result" for p in hist), "round_result event should be emitted in replay"
+
+
+def test_tick_replay_emits_round_result_event_when_present_sync() -> None:
+    asyncio.run(test_tick_replay_emits_round_result_event_when_present())

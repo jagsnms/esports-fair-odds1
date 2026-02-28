@@ -85,3 +85,26 @@ def iter_payloads(
         payload = e.get("payload")
         if isinstance(payload, dict):
             yield (mid, payload)
+
+
+def load_generic_jsonl(path: str) -> list[dict]:
+    """
+    Load a JSONL file where each line is a single JSON object (e.g. history_points.jsonl).
+    Returns list of dicts; skips empty lines and non-dict lines.
+    """
+    out: list[dict] = []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(obj, dict):
+                    out.append(obj)
+    except (FileNotFoundError, OSError):
+        pass
+    return out

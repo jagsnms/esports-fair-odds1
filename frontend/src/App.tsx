@@ -11,6 +11,8 @@ const API_BASE = 'http://localhost:8000'
  * - lo/hi: legacy series corridor
  * - rail_low/rail_high: legacy map corridor
  * - m (market_mid or null), seg (segment_id)
+ * - event?: episode event (setup_trigger, episode_start, episode_end, episode_outcome)
+ * - explain?: per-tick decomposition
  */
 type Point = {
   t: number
@@ -25,6 +27,18 @@ type Point = {
   series_high?: number
   map_low?: number
   map_high?: number
+  event?: unknown
+  explain?: unknown
+}
+
+/** Marker for p_hat series (episode entry / resolution). */
+type EpisodeMarker = {
+  time: number
+  position: 'aboveBar' | 'belowBar'
+  shape: 'arrowUp' | 'arrowDown' | 'circle'
+  color: string
+  text: string
+  id?: string
 }
 
 /** BO3 live match from /api/v1/bo3/live_matches */
@@ -49,6 +63,50 @@ const filterHistoryToSeg = (history: Point[] | undefined, seg: number): Point[] 
   const latest = history.filter((p) => p.seg === latestSeg)
   if (latest.length > 0) return latest
   return history
+}
+
+/** Defensive: ensure a value is a valid Point (has t and p as numbers) so chart/state never crash. */
+function isValidPoint(pt: unknown): pt is Point {
+  return pt != null && typeof pt === 'object' && typeof (pt as Point).t === 'number' && typeof (pt as Point).p === 'number'
+}
+
+/** UTC time for lightweight-charts (epoch seconds as UTCTimestamp). */
+function utcTimestamp(t: number): import('lightweight-charts').UTCTimestamp {
+  return Math.floor(t) as import('lightweight-charts').UTCTimestamp
+}
+
+/** Build entry or resolution marker from event; returns marker to store and use in setMarkers. */
+function eventToMarker(
+  pt: Point,
+  ev: { event_type?: string; episode_id?: string; trade_id?: string; end_reason?: string; direction?: string },
+): EpisodeMarker | null {
+  const time = utcTimestamp(pt.t)
+  const id = ev.episode_id ?? ev.trade_id ?? `ep-${pt.t}`
+  if (ev.event_type === 'episode_start' || ev.event_type === 'trade_open') {
+    const direction = (ev.direction as string) ?? ''
+    const isLongYes = direction === 'LONG_A'
+    return {
+      time,
+      position: isLongYes ? 'belowBar' : 'aboveBar',
+      shape: isLongYes ? 'arrowUp' : 'arrowDown',
+      color: isLongYes ? '#22c55e' : '#ef4444',
+      text: 'E',
+      id: `entry-${id}`,
+    }
+  }
+  if (ev.event_type === 'episode_end') {
+    const reason = (ev.end_reason as string) ?? ''
+    const text = reason ? `X ${reason}` : 'X'
+    return {
+      time,
+      position: 'aboveBar',
+      shape: 'circle',
+      color: '#9ca3af',
+      text,
+      id: `res-${id}`,
+    }
+  }
+  return null
 }
 
 function App() {
@@ -125,6 +183,10 @@ function App() {
   const currentSegRef = useRef<number>(0)
   /** When true (default), chart shows full match across all segments; when false, current segment only. */
   const showFullMatchRef = useRef(true)
+  /** Episode markers (entry E + resolution X) for p_hat series. Rebuilt from episode map and set via setMarkers. */
+  const markersRef = useRef<EpisodeMarker[]>([])
+  /** By episode_id: { entry?, resolution? } so we can rebuild full marker list and persist across segment/history refresh. */
+  const episodeMarkersByIdRef = useRef<Map<string, { entry?: EpisodeMarker; resolution?: EpisodeMarker }>>(new Map())
 
   // BO3 list: refresh every 10s while panel is open and list has been loaded
   useEffect(() => {
@@ -162,7 +224,85 @@ function App() {
     return () => clearInterval(id)
   }, [])
 
+  /** Rebuild marker list from episode map and set on p_hat series. Call after adding/updating episode markers. */
+  const applyEpisodeMarkers = useCallback(() => {
+    const series = pSeriesRef.current
+    if (!series) return
+    const map = episodeMarkersByIdRef.current
+    const all: EpisodeMarker[] = []
+    map.forEach(({ entry, resolution }) => {
+      if (entry) all.push(entry)
+      if (resolution) all.push(resolution)
+    })
+    all.sort((a, b) => a.time - b.time)
+    markersRef.current = all
+    series.setMarkers(
+      all.map((m) => ({
+        time: m.time as import('lightweight-charts').UTCTimestamp,
+        position: m.position,
+        shape: m.shape,
+        color: m.color,
+        text: m.text,
+        id: m.id,
+      })),
+    )
+  }, [])
+
+  /** Handle a point that has event: update episode marker map and refresh series markers. */
+  const handleEventMarker = useCallback(
+    (point: Point) => {
+      const ev = point.event
+      if (ev == null || typeof ev !== 'object') return
+      const e = ev as { event_type?: string; episode_id?: string; trade_id?: string; end_reason?: string; direction?: string }
+      const id = e.episode_id ?? e.trade_id
+      if (id == null || typeof id !== 'string') return
+      const marker = eventToMarker(point, e)
+      if (!marker) return
+      const map = episodeMarkersByIdRef.current
+      let pair = map.get(id)
+      if (!pair) {
+        pair = {}
+        map.set(id, pair)
+      }
+      if (e.event_type === 'episode_start' || e.event_type === 'trade_open') {
+        pair.entry = marker
+      } else if (e.event_type === 'episode_end') {
+        pair.resolution = marker
+      }
+      applyEpisodeMarkers()
+    },
+    [applyEpisodeMarkers],
+  )
+
+  /** From a full history array, extract event points and build episode marker map; then apply to chart. */
+  const buildEpisodeMarkersFromHistory = useCallback(
+    (history: Point[]) => {
+      episodeMarkersByIdRef.current.clear()
+      for (const pt of history) {
+        if (pt.event == null || typeof pt.event !== 'object') continue
+        const ev = pt.event as { event_type?: string; episode_id?: string; trade_id?: string }
+        const id = ev.episode_id ?? ev.trade_id
+        if (id == null || typeof id !== 'string') continue
+        const marker = eventToMarker(pt, ev)
+        if (!marker) continue
+        let pair = episodeMarkersByIdRef.current.get(id)
+        if (!pair) {
+          pair = {}
+          episodeMarkersByIdRef.current.set(id, pair)
+        }
+        if (ev.event_type === 'episode_start' || ev.event_type === 'trade_open') {
+          pair.entry = marker
+        } else if (ev.event_type === 'episode_end') {
+          pair.resolution = marker
+        }
+      }
+      applyEpisodeMarkers()
+    },
+    [applyEpisodeMarkers],
+  )
+
   const applyPointToChart = useCallback((point: Point) => {
+    if (!isValidPoint(point)) return
     const time = point.t as any
     const seriesLo = point.series_low ?? point.lo
     const seriesHi = point.series_high ?? point.hi
@@ -180,44 +320,57 @@ function App() {
 
   const setDataFromHistory = useCallback((history: Point[]) => {
     if (!pSeriesRef.current || !loSeriesRef.current || !hiSeriesRef.current) return
-    if (history.length === 0) {
+    // Defensive: only use points with valid t and p to avoid chart crash or white screen
+    const valid: Point[] = Array.isArray(history) ? history.filter(isValidPoint) : []
+    if (valid.length === 0) {
       pSeriesRef.current.setData([])
       loSeriesRef.current.setData([])
       hiSeriesRef.current.setData([])
       railLoSeriesRef.current?.setData([])
       railHiSeriesRef.current?.setData([])
       marketSeriesRef.current?.setData([])
+      episodeMarkersByIdRef.current.clear()
+      pSeriesRef.current.setMarkers([])
       return
     }
+    // lightweight-charts requires data strictly ascending by time; dedupe by keeping last point per time
+    const sorted = [...valid].sort((a, b) => a.t - b.t)
+    const deduped: Point[] = []
+    for (let i = 0; i < sorted.length; i++) {
+      const pt = sorted[i]
+      if (deduped.length === 0 || pt.t > deduped[deduped.length - 1].t) deduped.push(pt)
+      else if (pt.t === deduped[deduped.length - 1].t) deduped[deduped.length - 1] = pt
+    }
     const utc = (t: number) => t as import('lightweight-charts').UTCTimestamp
-    const pData = history.map((pt) => ({ time: utc(pt.t), value: pt.p }))
-    const loData = history.map((pt) => ({
+    const pData = deduped.map((pt) => ({ time: utc(pt.t), value: pt.p }))
+    const loData = deduped.map((pt) => ({
       time: utc(pt.t),
       value: pt.series_low ?? pt.lo,
     }))
-    const hiData = history.map((pt) => ({
+    const hiData = deduped.map((pt) => ({
       time: utc(pt.t),
       value: pt.series_high ?? pt.hi,
     }))
-    const railLoData = history.map((pt) => {
+    const railLoData = deduped.map((pt) => {
       const seriesLo = pt.series_low ?? pt.lo
       const mapLo = pt.map_low ?? pt.rail_low ?? seriesLo
       return { time: utc(pt.t), value: mapLo }
     })
-    const railHiData = history.map((pt) => {
+    const railHiData = deduped.map((pt) => {
       const seriesHi = pt.series_high ?? pt.hi
       const mapHi = pt.map_high ?? pt.rail_high ?? seriesHi
       return { time: utc(pt.t), value: mapHi }
     })
-    const marketData = history.filter((pt) => pt.m != null).map((pt) => ({ time: utc(pt.t), value: pt.m as number }))
+    const marketData = deduped.filter((pt) => pt.m != null).map((pt) => ({ time: utc(pt.t), value: pt.m as number }))
     pSeriesRef.current.setData(pData)
     loSeriesRef.current.setData(loData)
     hiSeriesRef.current.setData(hiData)
     railLoSeriesRef.current?.setData(railLoData)
     railHiSeriesRef.current?.setData(railHiData)
     marketSeriesRef.current?.setData(marketData)
+    buildEpisodeMarkersFromHistory(deduped)
     chartInstanceRef.current?.timeScale().fitContent()
-  }, [])
+  }, [buildEpisodeMarkersFromHistory])
 
   // Flush pending points when chart becomes ready
   useEffect(() => {
@@ -414,17 +567,24 @@ function App() {
           setCurrent(msg.current ?? null)
           const seg = (msg.current as { state?: { segment_id?: number; last_frame?: LastFrame } })?.state?.segment_id ?? 0
           currentSegRef.current = seg
-          const hist = Array.isArray(msg.history) ? (msg.history as Point[]) : []
+          const rawHist = Array.isArray(msg.history) ? msg.history : []
+          const hist = rawHist.filter((pt): pt is Point => isValidPoint(pt))
           const visibleHistory = showFullMatchRef.current ? hist : filterHistoryToSeg(hist, seg)
           setSnapshotHistory(visibleHistory)
           if (pSeriesRef.current && visibleHistory.length > 0) setDataFromHistory(visibleHistory)
           const lf = (msg.current as { state?: { last_frame?: LastFrame } } | undefined)?.state?.last_frame ?? null
-          setHudFrame(lf)
+          setHudFrame(lf != null && typeof lf === 'object' ? lf : null)
         } else if (msg.type === 'frame' && msg.frame) {
-          setHudFrame(msg.frame as LastFrame)
+          setHudFrame(typeof msg.frame === 'object' && msg.frame != null ? (msg.frame as LastFrame) : null)
         } else if (msg.type === 'point' && msg.point) {
           const pt = msg.point as Point
-          setCurrent((prev) => ({ ...prev, state: prev?.state, derived: { ...prev?.derived, p_hat: pt.p } }))
+          if (!isValidPoint(pt)) return
+          if (pt.event != null) handleEventMarker(pt)
+          setCurrent((prev) => ({
+            ...(prev != null && typeof prev === 'object' ? prev : {}),
+            state: prev != null && typeof prev === 'object' ? (prev as { state?: unknown }).state : undefined,
+            derived: { ...(prev != null && typeof prev === 'object' && (prev as { derived?: object }).derived != null ? (prev as { derived: object }).derived : {}), p_hat: pt.p },
+          }))
           if (!pSeriesRef.current) {
             pendingPointsRef.current.push(pt)
             return
@@ -446,7 +606,7 @@ function App() {
       }
     }
     return () => ws.close()
-  }, [wsReconnectTrigger, applyPointToChart, refreshSegmentFromBackend, setDataFromHistory])
+  }, [wsReconnectTrigger, applyPointToChart, refreshSegmentFromBackend, setDataFromHistory, handleEventMarker])
 
   // Status label for BO3 list: snapshot available vs not
   const bo3MatchStatusLabel = (m: Bo3Match): string => {

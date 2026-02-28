@@ -5,15 +5,73 @@ Market: poll Kalshi when enabled, push to delay buffer, attach market_mid to poi
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import math
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from engine.models import Config, Derived, Frame, HistoryPoint, State
 
+from backend.store.memory_store import _history_point_to_wire
+
 logger = logging.getLogger(__name__)
+
+# Raw BO3 snapshot recording (FastAPI runner); replay input no longer depends on legacy poller bo3_pulls.jsonl
+_BO3_RAW_RECORD_ENABLED = os.environ.get("BO3_RAW_RECORD_ENABLED", "true").strip().lower() in ("1", "true", "yes")
+_BO3_RAW_RECORD_DIR = (os.environ.get("BO3_RAW_RECORD_DIR", "logs") or "logs").strip()
+_BO3_RAW_RECORD_PER_MATCH = os.environ.get("BO3_RAW_RECORD_PER_MATCH", "true").strip().lower() in ("1", "true", "yes")
+
+
+def _minimal_explain(
+    phase: str,
+    rail_low: float,
+    rail_high: float,
+    p_hat: float,
+    clamp_reason: str = "no_compute",
+) -> dict[str, Any]:
+    """Placeholder explain for non-compute paths so wire/history always has explain (no thin-wire-only points)."""
+    cw = rail_high - rail_low if rail_high >= rail_low else 0.0
+    return {
+        "phase": phase,
+        "p_base_map": None,
+        "p_base_series": None,
+        "midround_weight": 0.0,
+        "q_intra_total": None,
+        "q_terms": {},
+        "micro_adj": {"alive_adj": 0.0, "hp_adj": 0.0, "econ_adj": 0.0},
+        "rails": {"rail_low": rail_low, "rail_high": rail_high, "corridor_width": cw},
+        "final": {"p_hat_final": p_hat, "clamp_reason": clamp_reason},
+    }
+
+
+def _bo3_raw_record_signature(payload: dict, match_id: int) -> tuple[Any, ...] | None:
+    """Build dedupe signature from key fields. Returns None if payload invalid."""
+    if not isinstance(payload, dict):
+        return None
+    t1 = payload.get("team_one") if isinstance(payload.get("team_one"), dict) else {}
+    t2 = payload.get("team_two") if isinstance(payload.get("team_two"), dict) else {}
+    try:
+        s1 = int(t1.get("score", 0) or 0)
+        s2 = int(t2.get("score", 0) or 0)
+        ms1 = int(t1.get("match_score", 0) or 0)
+        ms2 = int(t2.get("match_score", 0) or 0)
+    except (TypeError, ValueError):
+        return None
+    gn = payload.get("game_number")
+    rn = payload.get("round_number")
+    phase = payload.get("round_phase") or payload.get("phase")
+    try:
+        gn = int(gn) if gn is not None else None
+        rn = int(rn) if rn is not None else None
+    except (TypeError, ValueError):
+        gn = None
+        rn = None
+    return (match_id, gn, rn, phase, s1, s2, ms1, ms2)
+
 
 if TYPE_CHECKING:
     from backend.services.broadcaster import Broadcaster
@@ -47,19 +105,50 @@ def _last_derived_values(cur: dict[str, Any]) -> tuple[float, float, float, floa
     )
 
 
-def _history_point_to_wire(p: HistoryPoint) -> dict:
-    out = {"t": p.time, "p": p.p_hat, "lo": p.bound_low, "hi": p.bound_high, "m": p.market_mid}
-    if hasattr(p, "rail_low"):
-        out["rail_low"] = p.rail_low
-    if hasattr(p, "rail_high"):
-        out["rail_high"] = p.rail_high
-    if hasattr(p, "segment_id"):
-        out["seg"] = p.segment_id
-    if getattr(p, "explain", None) is not None:
-        out["explain"] = p.explain
-    if getattr(p, "event", None) is not None:
-        out["event"] = p.event
-    return out
+def _is_raw_bo3_snapshot(payload: Any) -> bool:
+    """True if payload looks like a raw BO3 snapshot (team_one/team_two, match_fixture/round_phase etc.)."""
+    if not isinstance(payload, dict):
+        return False
+    t1 = payload.get("team_one")
+    t2 = payload.get("team_two")
+    return (
+        isinstance(t1, dict)
+        or isinstance(t2, dict)
+    ) and (
+        "match_fixture" in payload
+        or "round_phase" in payload
+        or "phase" in payload
+    )
+
+
+def _infer_round_winner_by_score_delta(
+    prev_s1: int | None,
+    prev_s2: int | None,
+    s1: int,
+    s2: int,
+    team_one_id: int,
+    team_two_id: int,
+) -> int:
+    """Infer round winner from score delta (winning_team_id is often 0 in BO3 payloads). Returns team id or 0."""
+    if prev_s1 is not None and s1 > prev_s1:
+        return team_one_id
+    if prev_s2 is not None and s2 > prev_s2:
+        return team_two_id
+    return 0
+
+
+def _is_point_like_payload(payload: Any) -> bool:
+    """True if payload looks like an already-processed point (t, p, lo, hi, rail_low/rail_high, seg; lacks raw keys)."""
+    if not isinstance(payload, dict):
+        return False
+    has_point_keys = (
+        "t" in payload
+        and "p" in payload
+        and ("lo" in payload or "series_low" in payload)
+        and ("hi" in payload or "series_high" in payload)
+    )
+    lacks_raw = not _is_raw_bo3_snapshot(payload)
+    return bool(has_point_keys and lacks_raw)
 
 
 def _bo3_extract_snapshot_ts(snap: dict[str, Any] | None) -> Any:
@@ -224,6 +313,8 @@ class Runner:
         self._replay_index: int = 0
         self._replay_path: str | None = None
         self._replay_match_id: int | None = None
+        self._replay_format: str | None = None  # "raw" | "point" from first payload
+        self._replay_skipped_point_like_count: int = 0  # warning counter when in raw mode
         self._dummy_snapshot_sent = False
         # Market delay buffer + poll throttle
         from backend.services.market_buffer import MarketDelayBuffer
@@ -249,11 +340,39 @@ class Runner:
         self._bo3_buf_consecutive_failures: int = 0
         self._bo3_buf_match_id: int | None = None  # clear buffer when match_id changes
         # Outcome label events: avoid duplicate round_result / segment_result emits
-        self._bo3_last_seen_round_number: int | None = None
-        self._bo3_last_seen_round_winner_team_id: int | None = None
+        self._bo3_last_seen_round_number: int | None = None  # updated every tick
+        self._bo3_last_emitted_round_number: int | None = None
+        self._bo3_last_emitted_round_winner_team_id: int | None = None
         self._bo3_last_seen_segment_id_for_result: int | None = None
         self._bo3_last_seen_map_winner_team_id: int | None = None
         self._bo3_last_seen_scores: tuple[int, int] | None = None  # (team_one_score, team_two_score) for inferring winner when winning_team_id==0
+        self._bo3_last_seen_score_team_one: int | None = None
+        self._bo3_last_seen_score_team_two: int | None = None
+        self._bo3_last_seen_game_number: int | None = None  # for segment_result: emit only on map transition
+        self._bo3_last_seen_match_score_team_one: int | None = None
+        self._bo3_last_seen_match_score_team_two: int | None = None
+        # Per-game match_score for credible segment_result emission (map end = +1 to one team only)
+        self._bo3_last_seen_match_score_by_game: dict[int, tuple[int | None, int | None]] = {}
+        # Raw BO3 snapshot recording dedupe: last signature per match to skip duplicate lines
+        self._bo3_raw_last_sig_by_match: dict[int, tuple[Any, ...]] = {}
+        # ML-ready series-line-dislocation episode logger (paper only; emits setup_trigger, episode_start/end/outcome)
+        from backend.services.trade_episodes import TradeEpisodeManager
+        self._trade_episode_manager = TradeEpisodeManager()
+
+    def _reset_outcome_trackers(self) -> None:
+        """Reset dedupe trackers for outcome event emission."""
+        self._bo3_last_seen_round_number = None
+        self._bo3_last_emitted_round_number = None
+        self._bo3_last_emitted_round_winner_team_id = None
+        self._bo3_last_seen_segment_id_for_result = None
+        self._bo3_last_seen_map_winner_team_id = None
+        self._bo3_last_seen_scores = None
+        self._bo3_last_seen_score_team_one = None
+        self._bo3_last_seen_score_team_two = None
+        self._bo3_last_seen_game_number = None
+        self._bo3_last_seen_match_score_team_one = None
+        self._bo3_last_seen_match_score_team_two = None
+        self._bo3_last_seen_match_score_by_game = {}
 
     def get_replay_progress(self) -> dict[str, int] | None:
         """Return {index, total} when replay is active and list is loaded."""
@@ -355,11 +474,8 @@ class Runner:
             self._bo3_buf_last_error = None
             self._bo3_buf_consecutive_failures = 0
             self._bo3_buf_match_id = mid
-            self._bo3_last_seen_round_number = None
-            self._bo3_last_seen_round_winner_team_id = None
-            self._bo3_last_seen_segment_id_for_result = None
-            self._bo3_last_seen_map_winner_team_id = None
-            self._bo3_last_seen_scores = None
+            self._reset_outcome_trackers()
+            self._bo3_raw_last_sig_by_match.clear()
         try:
             from engine.ingest.bo3_client import get_snapshot
         except ImportError:
@@ -385,6 +501,210 @@ class Runner:
                 await asyncio.sleep(delay)
         self._bo3_buf_last_error = last_err
         self._bo3_buf_consecutive_failures += 1
+
+    async def _maybe_emit_outcome_events_from_bo3_payload(
+        self,
+        *,
+        raw: dict[str, Any],
+        config: Config,
+        new_state: State,
+        t: float,
+        p_hat: float,
+        bound_low: float,
+        bound_high: float,
+        rail_low: float,
+        rail_high: float,
+        market_mid: float | None,
+        dbg: dict[str, Any],
+        team_a_is_team_one: bool,
+        match_id_used: int | None,
+    ) -> None:
+        """
+        Emit outcome label events from a BO3 payload: round_result and segment_result.
+        Appends+broadcasts event HistoryPoints before the main point. Dedupes via runner trackers.
+        """
+        if not isinstance(raw, dict):
+            return
+        t1 = raw.get("team_one") or {}
+        t2 = raw.get("team_two") or {}
+        team_one_id = int(t1.get("id", 0) or 0)
+        team_two_id = int(t2.get("id", 0) or 0)
+        team_a_id = team_one_id if team_a_is_team_one else team_two_id
+        rtr = raw.get("round_time_remaining")
+        try:
+            rtr = int(rtr) if rtr is not None else None
+        except (TypeError, ValueError):
+            rtr = None
+        rp = raw.get("round_phase") or raw.get("phase")
+        phase_upper = str(rp).strip().upper() if rp is not None else ""
+        winning_team_id = raw.get("winning_team_id")
+        try:
+            winning_team_id = int(winning_team_id) if winning_team_id is not None else 0
+        except (TypeError, ValueError):
+            winning_team_id = 0
+        rn = raw.get("round_number")
+        try:
+            rn = int(rn) if rn is not None else None
+        except (TypeError, ValueError):
+            rn = None
+        s1 = int(t1.get("score", 0) or 0)
+        s2 = int(t2.get("score", 0) or 0)
+        last_s1 = self._bo3_last_seen_score_team_one
+        last_s2 = self._bo3_last_seen_score_team_two
+
+        async def maybe_emit_round_result(round_to_label: int, winner_team_id: int) -> None:
+            if winner_team_id == 0:
+                return
+            if (
+                self._bo3_last_emitted_round_number == round_to_label
+                and self._bo3_last_emitted_round_winner_team_id == winner_team_id
+            ):
+                return
+            round_event = {
+                "event_type": "round_result",
+                "round_number": round_to_label,
+                "round_winner_team_id": winner_team_id,
+                "round_winner_is_team_a": bool(team_a_id and winner_team_id == team_a_id),
+            }
+            round_point = HistoryPoint(
+                time=t,
+                p_hat=p_hat,
+                bound_low=bound_low,
+                bound_high=bound_high,
+                rail_low=rail_low,
+                rail_high=rail_high,
+                market_mid=market_mid,
+                segment_id=new_state.segment_id,
+                explain=None,
+                event=round_event,
+            )
+            derived_evt = Derived(
+                p_hat=p_hat,
+                bound_low=bound_low,
+                bound_high=bound_high,
+                rail_low=rail_low,
+                rail_high=rail_high,
+                kappa=0.0,
+                debug={**dbg, "event": round_event, "match_id_used": match_id_used},
+            )
+            await self._store.append_point(round_point, new_state, derived_evt)
+            await self._broadcast_point(round_point)
+            self._bo3_last_emitted_round_number = round_to_label
+            self._bo3_last_emitted_round_winner_team_id = winner_team_id
+
+        # Infer winner by score delta (winning_team_id is always 0 in our BO3 replay payloads)
+        winner_from_delta = _infer_round_winner_by_score_delta(
+            last_s1, last_s2, s1, s2, team_one_id, team_two_id
+        )
+
+        # A) phase == "FINISHED": label the round that just finished (rn)
+        if phase_upper == "FINISHED" and rn is not None:
+            winner = winning_team_id if winning_team_id != 0 else winner_from_delta
+            await maybe_emit_round_result(rn, winner)
+
+        # B) rn advanced: previous round ended when round number increased
+        last_rn = self._bo3_last_seen_round_number
+        if last_rn is not None and rn is not None and rn > last_rn:
+            prev_round = last_rn
+            winner = winning_team_id if winning_team_id != 0 else winner_from_delta
+            await maybe_emit_round_result(prev_round, winner)
+
+        # Update last-seen round and scores every tick
+        self._bo3_last_seen_round_number = rn
+        self._bo3_last_seen_score_team_one = s1
+        self._bo3_last_seen_score_team_two = s2
+        self._bo3_last_seen_scores = (s1, s2)
+
+        # --- segment_result: emit on credible match_score increment only (+1 for one team, 0 for other) ---
+        mf = raw.get("match_fixture") or {}
+        game_number_raw = raw.get("game_number")
+        if game_number_raw is None:
+            pass
+        else:
+            try:
+                game_number = int(game_number_raw)
+            except (TypeError, ValueError):
+                game_number = 1
+            map_index = game_number - 1
+
+            # match_score from team_one/team_two with match_fixture fallback
+            ms1_raw = t1.get("match_score")
+            ms2_raw = t2.get("match_score")
+            if ms1_raw is None:
+                ms1_raw = mf.get("team_one_score")
+            if ms2_raw is None:
+                ms2_raw = mf.get("team_two_score")
+            try:
+                ms1 = int(ms1_raw) if ms1_raw is not None else 0
+            except (TypeError, ValueError):
+                ms1 = 0
+            try:
+                ms2 = int(ms2_raw) if ms2_raw is not None else 0
+            except (TypeError, ValueError):
+                ms2 = 0
+
+            prev = self._bo3_last_seen_match_score_by_game.get(game_number)
+            if prev is not None:
+                prev_ms1, prev_ms2 = prev[0], prev[1]
+                d1 = ms1 - (prev_ms1 if prev_ms1 is not None else 0)
+                d2 = ms2 - (prev_ms2 if prev_ms2 is not None else 0)
+                # Credible map end: exactly one team gained one map (no decreases/resets)
+                credible = (d1 == 1 and d2 == 0) or (d1 == 0 and d2 == 1)
+                if credible:
+                    winner_team_id = team_one_id if d1 == 1 else team_two_id
+                    finished_map_index = map_index
+                    # Dedupe on (finished_map_index, winner_team_id)
+                    if (
+                        self._bo3_last_seen_segment_id_for_result != finished_map_index
+                        or self._bo3_last_seen_map_winner_team_id != winner_team_id
+                    ):
+                        scores = (
+                            getattr(new_state.last_frame, "scores", (0, 0))
+                            if new_state.last_frame
+                            else (0, 0)
+                        )
+                        final_rounds_a = int(scores[0]) if scores and len(scores) > 0 else 0
+                        final_rounds_b = int(scores[1]) if scores and len(scores) > 1 else 0
+                        segment_event = {
+                            "event_type": "segment_result",
+                            "segment_id": finished_map_index,
+                            "map_index": finished_map_index,
+                            "map_winner_team_id": winner_team_id,
+                            "map_winner_is_team_a": bool(team_a_id and winner_team_id == team_a_id),
+                            "final_rounds_a": final_rounds_a,
+                            "final_rounds_b": final_rounds_b,
+                        }
+                        segment_point = HistoryPoint(
+                            time=t,
+                            p_hat=p_hat,
+                            bound_low=bound_low,
+                            bound_high=bound_high,
+                            rail_low=rail_low,
+                            rail_high=rail_high,
+                            market_mid=market_mid,
+                            segment_id=finished_map_index,
+                            explain=None,
+                            event=segment_event,
+                        )
+                        derived_seg = Derived(
+                            p_hat=p_hat,
+                            bound_low=bound_low,
+                            bound_high=bound_high,
+                            rail_low=rail_low,
+                            rail_high=rail_high,
+                            kappa=0.0,
+                            debug={**dbg, "event": segment_event, "match_id_used": match_id_used},
+                        )
+                        await self._store.append_point(segment_point, new_state, derived_seg)
+                        await self._broadcast_point(segment_point)
+                        self._bo3_last_seen_segment_id_for_result = finished_map_index
+                        self._bo3_last_seen_map_winner_team_id = winner_team_id
+
+            # Always update stored match_score for this game (overwrite on resets/decreases)
+            self._bo3_last_seen_match_score_by_game[game_number] = (ms1, ms2)
+            self._bo3_last_seen_game_number = game_number
+            self._bo3_last_seen_match_score_team_one = ms1
+            self._bo3_last_seen_match_score_team_two = ms2
 
     def _bo3_buffer_debug(self, now: float) -> dict[str, Any]:
         """Build buffer observability dict for derived.debug."""
@@ -420,6 +740,56 @@ class Runner:
         if age <= BO3_BUFFER_GOOD_AGE_SEC:
             return ("GOOD", None, None)
         return ("STALE", f"buffer age {int(age)}s", age)
+
+    def _maybe_record_raw_bo3_snapshot(
+        self,
+        payload: dict[str, Any],
+        match_id: int,
+        team_a_is_team_one: bool | None,
+    ) -> None:
+        """
+        If raw BO3 recording is enabled, validate payload, dedupe by signature, and append one line
+        to logs/bo3_raw_match_<match_id>.jsonl (or logs/bo3_raw.jsonl if per-match disabled).
+        Does not change engine computations; recording only.
+        """
+        if not _BO3_RAW_RECORD_ENABLED:
+            return
+        if not isinstance(payload, dict):
+            return
+        t1 = payload.get("team_one")
+        t2 = payload.get("team_two")
+        if not isinstance(t1, dict) or not isinstance(t2, dict):
+            return
+        # Optional: game_number and round_number present; no strict requirement
+        sig = _bo3_raw_record_signature(payload, match_id)
+        if sig is None:
+            return
+        last_sig = self._bo3_raw_last_sig_by_match.get(match_id)
+        if last_sig is not None and last_sig == sig:
+            return
+        self._bo3_raw_last_sig_by_match[match_id] = sig
+
+        rec = {
+            "schema": "bo3_raw_snapshot_v1",
+            "ts_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
+            "match_id": match_id,
+            "team_a_is_team_one": team_a_is_team_one,
+            "payload": payload,
+            "source": "BO3",
+            "ok": True,
+        }
+        dirpath = _BO3_RAW_RECORD_DIR
+        if _BO3_RAW_RECORD_PER_MATCH:
+            filename = f"bo3_raw_match_{match_id}.jsonl"
+        else:
+            filename = "bo3_raw.jsonl"
+        filepath = os.path.join(dirpath, filename)
+        try:
+            os.makedirs(dirpath, exist_ok=True)
+            with open(filepath, "a", encoding="utf-8") as f:
+                f.write(json.dumps(rec, ensure_ascii=False, default=str) + "\n")
+        except OSError as e:
+            logger.warning("BO3 raw record write failed %s: %s", filepath, e)
 
     async def _tick_bo3(self, config: Config) -> bool:
         """If source=BO3 and match_id set: fetch snapshot, normalize, append_point, broadcast. Return True if did BO3."""
@@ -469,6 +839,7 @@ class Runner:
             return True
         if isinstance(snap, dict):
             self._bo3_last_raw_snapshot = snap
+            self._maybe_record_raw_bo3_snapshot(snap, mid, team_a_is_team_one)
         frame = bo3_snapshot_to_frame(snap, team_a_is_team_one=team_a_is_team_one)
         status, feed_error, snapshot_ts, is_fresh = _bo3_snapshot_status(
             snap, frame,
@@ -512,6 +883,14 @@ class Runner:
                 debug=new_debug,
             )
             market_mid, _ = self._get_market_for_point(config)
+            explain_phase = "stale_snapshot" if status == "stale" else ("paused" if status == "invalid_clock" else "no_compute")
+            hold_explain = _minimal_explain(
+                explain_phase,
+                fail_derived.rail_low,
+                fail_derived.rail_high,
+                fail_derived.p_hat,
+                clamp_reason="no_compute",
+            )
             hold_point = HistoryPoint(
                 time=now,
                 p_hat=fail_derived.p_hat,
@@ -521,6 +900,7 @@ class Runner:
                 rail_high=fail_derived.rail_high,
                 market_mid=market_mid,
                 segment_id=getattr(state, "segment_id", 0),
+                explain=hold_explain,
             )
             await self._store.append_point(hold_point, state, fail_derived)
             await self._broadcast_point(hold_point)
@@ -655,140 +1035,82 @@ class Runner:
             self._last_breach_type = None
         # Outcome label events (round_result, segment_result) from raw snapshot — emit before main point, no duplicate spam
         if isinstance(snap, dict):
-            t1 = snap.get("team_one") or {}
-            t2 = snap.get("team_two") or {}
-            team_one_id = int(t1.get("id", 0) or 0)
-            team_two_id = int(t2.get("id", 0) or 0)
-            team_a_id = team_one_id if team_a_is_team_one else team_two_id
-            rtr = snap.get("round_time_remaining")
+            await self._maybe_emit_outcome_events_from_bo3_payload(
+                raw=snap,
+                config=config,
+                new_state=new_state,
+                t=t,
+                p_hat=p_hat,
+                bound_low=bound_low,
+                bound_high=bound_high,
+                rail_low=rail_low,
+                rail_high=rail_high,
+                market_mid=market_mid,
+                dbg=dbg,
+                team_a_is_team_one=team_a_is_team_one,
+                match_id_used=mid,
+            )
+        # ML-ready series-line-dislocation episode logger: emit setup_trigger, episode_start/end/outcome into history
+        bid_yes = market_dbg.get("market_bid")
+        ask_yes = market_dbg.get("market_ask")
+        round_phase_ep: str | None = None
+        if hasattr(frame, "bomb_phase_time_remaining") and isinstance(frame.bomb_phase_time_remaining, dict):
+            round_phase_ep = frame.bomb_phase_time_remaining.get("round_phase")
+        if round_phase_ep is None and isinstance(snap, dict):
+            round_phase_ep = snap.get("round_phase") or snap.get("phase")
+        game_number_ep = None
+        round_number_ep = None
+        if isinstance(snap, dict):
             try:
-                rtr = int(rtr) if rtr is not None else None
+                if snap.get("game_number") is not None:
+                    game_number_ep = int(snap["game_number"])
             except (TypeError, ValueError):
-                rtr = None
-            rp = snap.get("round_phase") or snap.get("phase")
-            phase_upper = str(rp).strip().upper() if rp is not None else ""
-            winning_team_id = snap.get("winning_team_id")
+                pass
             try:
-                winning_team_id = int(winning_team_id) if winning_team_id is not None else 0
+                if snap.get("round_number") is not None:
+                    round_number_ep = int(snap["round_number"])
             except (TypeError, ValueError):
-                winning_team_id = 0
-            round_number = snap.get("round_number")
-            try:
-                round_number = int(round_number) if round_number is not None else None
-            except (TypeError, ValueError):
-                round_number = None
-            # Current round scores (team_one, team_two) for inferring winner when winning_team_id==0
-            score1 = int(t1.get("score", 0) or 0)
-            score2 = int(t2.get("score", 0) or 0)
-            # Resolve winner: explicit from API or infer from score delta when FINISHED and winning_team_id==0
-            resolved_winner_team_id: int | None = None
-            if phase_upper == "FINISHED" and round_number is not None:
-                if winning_team_id != 0:
-                    resolved_winner_team_id = winning_team_id
-                else:
-                    last_scores = self._bo3_last_seen_scores
-                    if last_scores is not None:
-                        if score1 > last_scores[0]:
-                            resolved_winner_team_id = team_one_id
-                        elif score2 > last_scores[1]:
-                            resolved_winner_team_id = team_two_id
-                    # else: no evidence, do not emit
-            elif rtr is not None and rtr == 0 and winning_team_id != 0 and round_number is not None:
-                resolved_winner_team_id = winning_team_id
-            round_just_finished = round_number is not None and resolved_winner_team_id is not None
-            if round_just_finished and resolved_winner_team_id is not None and (
-                self._bo3_last_seen_round_number != round_number
-                or self._bo3_last_seen_round_winner_team_id != resolved_winner_team_id
-            ):
-                round_event = {
-                    "event_type": "round_result",
-                    "round_number": round_number,
-                    "round_winner_team_id": resolved_winner_team_id,
-                    "round_winner_is_team_a": bool(team_a_id and resolved_winner_team_id == team_a_id),
-                }
-                round_point = HistoryPoint(
-                    time=t,
-                    p_hat=p_hat,
-                    bound_low=bound_low,
-                    bound_high=bound_high,
-                    rail_low=rail_low,
-                    rail_high=rail_high,
-                    market_mid=market_mid,
-                    segment_id=new_state.segment_id,
-                    explain=None,
-                    event=round_event,
-                )
-                derived_evt = Derived(
-                    p_hat=p_hat,
-                    bound_low=bound_low,
-                    bound_high=bound_high,
-                    rail_low=rail_low,
-                    rail_high=rail_high,
-                    kappa=0.0,
-                    debug={**dbg, "event": round_event},
-                )
-                await self._store.append_point(round_point, new_state, derived_evt)
-                await self._broadcast_point(round_point)
-                self._bo3_last_seen_round_number = round_number
-                self._bo3_last_seen_round_winner_team_id = resolved_winner_team_id
-            # Update last_seen_scores every tick so next FINISHED can infer winner when winning_team_id==0
-            self._bo3_last_seen_scores = (score1, score2)
-            mf = snap.get("match_fixture") or {}
-            map_winner_team_id = mf.get("match_winner_team_id")
-            try:
-                map_winner_team_id = int(map_winner_team_id) if map_winner_team_id is not None else 0
-            except (TypeError, ValueError):
-                map_winner_team_id = 0
-            game_ended = bool(snap.get("game_ended", False))
-            seg_id = getattr(new_state, "segment_id", 0)
-            game_number = snap.get("game_number", 1)
-            try:
-                map_index = max(0, int(game_number) - 1)
-            except (TypeError, ValueError):
-                map_index = 0
-            segment_ended = game_ended or map_winner_team_id != 0
-            if segment_ended and (
-                self._bo3_last_seen_segment_id_for_result != seg_id
-                or self._bo3_last_seen_map_winner_team_id != map_winner_team_id
-            ):
-                scores = getattr(new_state.last_frame, "scores", (0, 0)) if new_state.last_frame else (0, 0)
-                # Frame scores are already (team A, team B) from bo3_normalize
-                final_rounds_a = int(scores[0]) if scores and len(scores) > 0 else 0
-                final_rounds_b = int(scores[1]) if scores and len(scores) > 1 else 0
-                segment_event = {
-                    "event_type": "segment_result",
-                    "segment_id": seg_id,
-                    "map_index": map_index,
-                    "map_winner_team_id": map_winner_team_id,
-                    "map_winner_is_team_a": bool(team_a_id and map_winner_team_id == team_a_id),
-                    "final_rounds_a": final_rounds_a,
-                    "final_rounds_b": final_rounds_b,
-                }
-                segment_point = HistoryPoint(
-                    time=t,
-                    p_hat=p_hat,
-                    bound_low=bound_low,
-                    bound_high=bound_high,
-                    rail_low=rail_low,
-                    rail_high=rail_high,
-                    market_mid=market_mid,
-                    segment_id=seg_id,
-                    explain=None,
-                    event=segment_event,
-                )
-                derived_seg = Derived(
-                    p_hat=p_hat,
-                    bound_low=bound_low,
-                    bound_high=bound_high,
-                    rail_low=rail_low,
-                    rail_high=rail_high,
-                    kappa=0.0,
-                    debug={**dbg, "event": segment_event},
-                )
-                await self._store.append_point(segment_point, new_state, derived_seg)
-                await self._broadcast_point(segment_point)
-                self._bo3_last_seen_segment_id_for_result = seg_id
-                self._bo3_last_seen_map_winner_team_id = map_winner_team_id
+                pass
+        mf_ep = (snap.get("match_fixture") or {}) if isinstance(snap, dict) else {}
+        game_ended_ep = bool(snap.get("game_ended") or mf_ep.get("game_ended")) if isinstance(snap, dict) else False
+        episode_events = self._trade_episode_manager.on_tick(
+            t=t,
+            p_hat=p_hat,
+            bound_low=bound_low,
+            bound_high=bound_high,
+            rail_low=rail_low,
+            rail_high=rail_high,
+            bid_yes=float(bid_yes) if bid_yes is not None else None,
+            ask_yes=float(ask_yes) if ask_yes is not None else None,
+            round_phase=round_phase_ep,
+            game_number=game_number_ep,
+            segment_id=new_state.segment_id,
+            round_number=round_number_ep,
+            explain=dbg.get("explain"),
+            game_ended=game_ended_ep,
+        )
+        for evt in episode_events:
+            ep_explain = _minimal_explain(
+                "episode_event",
+                rail_low,
+                rail_high,
+                p_hat,
+                clamp_reason="setup_logger",
+            )
+            ep_point = HistoryPoint(
+                time=t,
+                p_hat=p_hat,
+                bound_low=bound_low,
+                bound_high=bound_high,
+                rail_low=rail_low,
+                rail_high=rail_high,
+                market_mid=market_mid,
+                segment_id=new_state.segment_id,
+                explain=ep_explain,
+                event=evt,
+            )
+            await self._store.append_point(ep_point, new_state, Derived(p_hat=p_hat, bound_low=bound_low, bound_high=bound_high, rail_low=rail_low, rail_high=rail_high, kappa=0.0, debug={**dbg, "event": evt}))
+            await self._broadcast_point(ep_point)
         # BO3 liveness diagnostics (success path)
         self._bo3_success_counter += 1
         self._bo3_last_success_epoch = time.time()
@@ -802,6 +1124,15 @@ class Runner:
         dbg["bo3_health"] = health
         dbg["bo3_health_reason"] = health_reason
         dbg["bo3_health_age_s"] = health_age_s
+        explain = dbg.get("explain")
+        if explain is None:
+            explain = _minimal_explain(
+                "live",
+                rail_low,
+                rail_high,
+                p_hat,
+                clamp_reason="no_explain_from_resolve",
+            )
         point = HistoryPoint(
             time=t,
             p_hat=p_hat,
@@ -811,7 +1142,7 @@ class Runner:
             rail_high=rail_high,
             market_mid=market_mid,
             segment_id=new_state.segment_id,
-            explain=dbg.get("explain"),
+            explain=explain,
         )
         derived = Derived(
             p_hat=p_hat,
@@ -825,6 +1156,55 @@ class Runner:
         await self._store.append_point(point, new_state, derived)
         await self._broadcast_point(point)
         await self._broadcast_frame()
+        return True
+
+    async def _tick_replay_point_passthrough(self, payload: dict[str, Any], config: Config) -> bool:
+        """Point replay: append wire point as-is, no normalize/resolve; backfill explain if missing."""
+        t = float(payload.get("t", 0) or 0)
+        p = float(payload.get("p", 0.5) or 0.5)
+        lo = float(payload.get("lo") or payload.get("series_low", 0) or 0)
+        hi = float(payload.get("hi") or payload.get("series_high", 1) or 1)
+        rail_low = float(payload.get("rail_low") or payload.get("map_low", lo) or lo)
+        rail_high = float(payload.get("rail_high") or payload.get("map_high", hi) or hi)
+        seg = int(payload.get("seg", 0) or 0)
+        m = payload.get("m")
+        market_mid = float(m) if m is not None and m != "" else None
+        explain = payload.get("explain")
+        if explain is None or not isinstance(explain, dict):
+            explain = {
+                "phase": "replay_passthrough",
+                "q_terms": {},
+                "micro_adj": {"alive_adj": 0, "hp_adj": 0, "econ_adj": 0},
+                "rails": {"rail_low": rail_low, "rail_high": rail_high, "corridor_width": rail_high - rail_low},
+                "final": {"p_hat_final": p, "clamp_reason": "passthrough"},
+            }
+        event = payload.get("event") if isinstance(payload.get("event"), dict) else None
+        point = HistoryPoint(
+            time=t,
+            p_hat=p,
+            bound_low=lo,
+            bound_high=hi,
+            rail_low=rail_low,
+            rail_high=rail_high,
+            market_mid=market_mid,
+            segment_id=seg,
+            explain=explain,
+            event=event,
+        )
+        state = await self._store.get_state()
+        derived = Derived(
+            p_hat=p,
+            bound_low=lo,
+            bound_high=hi,
+            rail_low=rail_low,
+            rail_high=rail_high,
+            kappa=0.0,
+            debug={"explain": explain},
+        )
+        await self._store.append_point(point, state, derived)
+        await self._broadcast_point(point)
+        await self._broadcast_frame()
+        self._replay_index += 1
         return True
 
     async def _tick_replay(self, config: Config) -> bool:
@@ -845,22 +1225,29 @@ class Runner:
         # Lazy-load and cache when path or match_id changes
         if path != self._replay_path or match_id != self._replay_match_id:
             try:
-                from engine.replay.bo3_jsonl import load_bo3_jsonl_entries, iter_payloads
+                from engine.replay.bo3_jsonl import load_bo3_jsonl_entries, iter_payloads, load_generic_jsonl
             except ImportError:
                 return False
             entries = load_bo3_jsonl_entries(path)
             self._replay_payloads = [p for _, p in iter_payloads(entries, match_id)]
+            if not self._replay_payloads:
+                self._replay_payloads = load_generic_jsonl(path)
             self._replay_index = 0
             self._replay_path = path
             self._replay_match_id = match_id
+            self._replay_skipped_point_like_count = 0
+            if self._replay_payloads:
+                self._replay_format = "raw" if _is_raw_bo3_snapshot(self._replay_payloads[0]) else "point"
+            else:
+                self._replay_format = None
+            self._reset_outcome_trackers()
 
         if not self._replay_payloads:
             return True  # no entries; sleep and keep trying
 
         if self._replay_index >= len(self._replay_payloads):
-            # End of replay
+            # End of replay: loop resets index and bumps segment; else keep last state on screen
             if replay_loop:
-                # Bump segment so frontend sees loop boundary; then reset index
                 state = await self._store.get_state()
                 seg = getattr(state, "segment_id", 0) + 1
                 from engine.models import State as StateModel
@@ -888,6 +1275,13 @@ class Runner:
                     kappa=kappa,
                     debug=d.get("debug", {}) if isinstance(d, dict) else {},
                 )
+                loop_explain = _minimal_explain(
+                    "replay_loop_boundary",
+                    derived_obj.rail_low,
+                    derived_obj.rail_high,
+                    derived_obj.p_hat,
+                    clamp_reason="replay_loop",
+                )
                 pt = HistoryPoint(
                     time=time.time(),
                     p_hat=derived_obj.p_hat,
@@ -897,16 +1291,36 @@ class Runner:
                     rail_high=derived_obj.rail_high,
                     market_mid=None,
                     segment_id=seg,
+                    explain=loop_explain,
                 )
-            await self._store.append_point(pt, loop_state, derived_obj)
-            await self._broadcast_point(pt)
-            await self._broadcast_frame()
-            self._replay_index = 0
-        return True
+                await self._store.append_point(pt, loop_state, derived_obj)
+                await self._broadcast_point(pt)
+                await self._broadcast_frame()
+                self._replay_index = 0
+            return True
 
         payload = self._replay_payloads[self._replay_index]
+
+        # Set replay format from first payload (raw vs point)
+        if self._replay_format is None:
+            self._replay_format = "raw" if _is_raw_bo3_snapshot(payload) else "point"
+
+        # Raw snapshot replay: skip any point-like lines (mixed input)
+        if self._replay_format == "raw" and _is_point_like_payload(payload):
+            self._replay_skipped_point_like_count += 1
+            logger.warning(
+                "replay raw mode: skipping point-like line (mixed format)",
+                extra={"index": self._replay_index, "skipped_total": self._replay_skipped_point_like_count},
+            )
+            self._replay_index += 1
+            return True
+
+        # Point replay: passthrough, no normalize/resolve; backfill explain if missing
+        if self._replay_format == "point":
+            return await self._tick_replay_point_passthrough(payload, config)
+
+        # Raw snapshot replay: full pipeline
         team_a_is_team_one = getattr(config, "team_a_is_team_one", True)
-        # JSONL entry may have team_a_is_team_one
         try:
             from engine.normalize.bo3_normalize import bo3_snapshot_to_frame
         except ImportError:
@@ -1005,7 +1419,7 @@ class Runner:
             series_score = getattr(new_state, "last_series_score", None) or (0, 0)
             breach_evt = {
                 "ts_epoch": t,
-                "match_id": match_id,
+                "match_id": self._replay_match_id,
                 "seg": getattr(new_state, "segment_id", 0),
                 "scores": list(scores),
                 "series_score": list(series_score),
@@ -1023,6 +1437,32 @@ class Runner:
             self._last_breach_type = breach_type
         if breach_type is None:
             self._last_breach_type = None
+        # Outcome label events (round_result, segment_result) from replay payload — same logic as live
+        if isinstance(payload, dict):
+            await self._maybe_emit_outcome_events_from_bo3_payload(
+                raw=payload,
+                config=config,
+                new_state=new_state,
+                t=t,
+                p_hat=p_hat,
+                bound_low=bound_low,
+                bound_high=bound_high,
+                rail_low=rail_low,
+                rail_high=rail_high,
+                market_mid=market_mid,
+                dbg=dbg,
+                team_a_is_team_one=team_a_is_team_one,
+                match_id_used=self._replay_match_id,
+            )
+        replay_explain = dbg.get("explain")
+        if replay_explain is None:
+            replay_explain = _minimal_explain(
+                "replay",
+                rail_low,
+                rail_high,
+                p_hat,
+                clamp_reason="no_explain_from_resolve",
+            )
         point = HistoryPoint(
             time=t,
             p_hat=p_hat,
@@ -1032,7 +1472,7 @@ class Runner:
             rail_high=rail_high,
             market_mid=market_mid,
             segment_id=new_state.segment_id,
-            explain=dbg.get("explain"),
+            explain=replay_explain,
         )
         derived = Derived(
             p_hat=p_hat,
@@ -1104,6 +1544,7 @@ class Runner:
                         hi = min(1.0, p_hat + 0.1)
                         market_mid = p_hat - 0.02 * math.sin(t * 0.15)
                         market_mid = max(0.0, min(1.0, market_mid)) if market_mid is not None else None
+                        idle_explain = _minimal_explain("idle", lo, hi, p_hat, clamp_reason="no_source")
                         point = HistoryPoint(
                             time=t,
                             p_hat=p_hat,
@@ -1113,6 +1554,7 @@ class Runner:
                             rail_high=hi,
                             market_mid=market_mid,
                             segment_id=0,
+                            explain=idle_explain,
                         )
                         state = State(
                             config=config,
