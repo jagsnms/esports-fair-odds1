@@ -61,6 +61,12 @@ def _history_point_to_wire(p: HistoryPoint) -> dict[str, Any]:
         out.setdefault("map_high", p.rail_high)
     if hasattr(p, "segment_id"):
         out["seg"] = p.segment_id
+    if getattr(p, "map_index", None) is not None:
+        out["map_index"] = p.map_index
+    if getattr(p, "round_number", None) is not None:
+        out["round_number"] = p.round_number
+    if getattr(p, "game_number", None) is not None:
+        out["game_number"] = p.game_number
     # Full payload: include explain and event when present (same as WS / GET history)
     expl = getattr(p, "explain", None)
     if expl is not None:

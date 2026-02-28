@@ -1,6 +1,9 @@
 """
-Replay API: load JSONL replay, stop, status, list matches.
+Replay API: load JSONL replay, stop, status, list matches, list sources.
 """
+import os
+import re
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
@@ -10,6 +13,88 @@ from backend.deps import get_store
 from backend.store.memory_store import MemoryStore
 
 router = APIRouter(prefix="/replay", tags=["replay"])
+
+DEFAULT_REPLAY_PATH = "logs/bo3_pulls.jsonl"
+
+
+def _discover_replay_sources() -> dict[str, Any]:
+    """Scan logs/ for replay JSONL files. Only paths under logs/. Returns {default_path, sources}."""
+    cwd = Path(os.getcwd())
+    logs_dir = (cwd / "logs").resolve()
+    default_path = DEFAULT_REPLAY_PATH
+    sources: list[dict[str, Any]] = []
+
+    if not logs_dir.is_dir():
+        return {"default_path": default_path, "sources": []}
+
+    try:
+        logs_real = logs_dir.resolve()
+        if not str(logs_real).startswith(str(cwd.resolve())):
+            return {"default_path": default_path, "sources": []}
+    except (OSError, ValueError):
+        return {"default_path": default_path, "sources": []}
+
+    raw_match_re = re.compile(r"^bo3_raw_match_(\d+)\.jsonl$", re.IGNORECASE)
+    fixed: list[tuple[str, str, str]] = []  # (rel_path, label, kind)
+    raw_matches: list[tuple[str, str, float, int]] = []  # (rel_path, label, mtime, size)
+    history_points: list[tuple[str, str, float, int]] = []
+
+    for f in logs_dir.iterdir():
+        if not f.is_file() or f.suffix.lower() != ".jsonl":
+            continue
+        name = f.name
+        try:
+            stat = f.stat()
+            mtime = stat.st_mtime
+            size = stat.st_size
+        except OSError:
+            mtime = 0.0
+            size = 0
+        rel_str = "logs/" + name
+
+        if name == "bo3_pulls.jsonl":
+            fixed.append((rel_str, "BO3 pulls (legacy)", "raw"))
+        elif name == "bo3_raw.jsonl":
+            fixed.append((rel_str, "BO3 raw", "raw"))
+        elif raw_match_re.match(name):
+            mid = raw_match_re.match(name).group(1)
+            raw_matches.append((rel_str, f"BO3 raw match {mid}", mtime, size))
+        elif name == "history_points.jsonl":
+            history_points.append((rel_str, "History points", mtime, size))
+        elif name.startswith("history_points") and name.endswith(".jsonl") and name != "history_points.jsonl":
+            history_points.append((rel_str, name, mtime, size))
+
+    for rel_str, label, kind in fixed:
+        try:
+            p = (logs_dir / rel_str.split("/")[-1]).resolve()
+            stat = p.stat()
+            sources.append({
+                "label": label,
+                "path": rel_str,
+                "kind": kind,
+                "mtime": stat.st_mtime,
+                "size": stat.st_size,
+            })
+        except OSError:
+            sources.append({"label": label, "path": rel_str, "kind": kind, "mtime": 0, "size": 0})
+
+    raw_matches.sort(key=lambda x: -x[2])
+    for rel_str, label, _mtime, size in raw_matches:
+        sources.append({"label": label, "path": rel_str, "kind": "raw", "mtime": _mtime, "size": size})
+
+    for rel_str, label, _mtime, size in sorted(history_points, key=lambda x: -x[2]):
+        sources.append({"label": label, "path": rel_str, "kind": "point", "mtime": _mtime, "size": size})
+
+    return {"default_path": default_path, "sources": sources}
+
+
+@router.get("/sources")
+async def replay_sources() -> dict[str, Any]:
+    """
+    List available replay input files under logs/ (bo3_pulls.jsonl, bo3_raw_match_*.jsonl, history_points*.jsonl).
+    Returns default_path and sources with label, path, kind (raw|point), mtime, size for UI dropdown.
+    """
+    return _discover_replay_sources()
 
 
 def _team_name_from_side(payload: dict, side: str) -> str:
@@ -39,9 +124,16 @@ async def replay_matches(
             content={"detail": "Query parameter 'path' is required (e.g. path=logs/bo3_pulls.jsonl)"},
         )
     path = path.strip()
-    from engine.replay.bo3_jsonl import load_bo3_jsonl_entries, group_by_match
+    from engine.replay.bo3_jsonl import load_bo3_jsonl_entries, load_generic_jsonl, group_by_match
 
     entries = load_bo3_jsonl_entries(path)
+    if not entries:
+        # Fallback: bo3_raw_match_*.jsonl (schema bo3_raw_snapshot_v1) has match_id + payload per line
+        generic = load_generic_jsonl(path)
+        entries = [
+            e for e in generic
+            if isinstance(e.get("payload"), dict) and e.get("match_id") is not None
+        ]
     if not entries:
         return JSONResponse(
             status_code=400,

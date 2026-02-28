@@ -180,5 +180,8 @@ class HistoryPoint:
     rail_high: float = 1.0
     market_mid: float | None = None
     segment_id: int = 0
+    map_index: int | None = None  # 0-based map; for calibration join
+    round_number: int | None = None  # round within map; for calibration join
+    game_number: int | None = None  # 1-based game number if present
     explain: dict | None = None  # per-tick decomposition for calibration/ML (phase, rails, q_terms, micro_adj, etc.)
     event: dict | None = None  # outcome label: round_result | segment_result (round_number, winner_team_id, winner_is_team_a, etc.)

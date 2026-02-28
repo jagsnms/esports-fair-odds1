@@ -560,6 +560,15 @@ class Runner:
             rn = int(rn) if rn is not None else None
         except (TypeError, ValueError):
             rn = None
+        game_number_raw = raw.get("game_number")
+        game_number: int | None = None
+        map_index: int | None = None
+        if game_number_raw is not None:
+            try:
+                game_number = int(game_number_raw)
+                map_index = game_number - 1
+            except (TypeError, ValueError):
+                pass
         s1 = int(t1.get("score", 0) or 0)
         s2 = int(t2.get("score", 0) or 0)
         last_s1 = self._bo3_last_seen_score_team_one
@@ -575,6 +584,7 @@ class Runner:
                 return
             round_event = {
                 "event_type": "round_result",
+                "map_index": map_index,
                 "round_number": round_to_label,
                 "round_winner_team_id": winner_team_id,
                 "round_winner_is_team_a": bool(team_a_id and winner_team_id == team_a_id),
@@ -588,6 +598,9 @@ class Runner:
                 rail_high=rail_high,
                 market_mid=market_mid,
                 segment_id=new_state.segment_id,
+                map_index=map_index,
+                round_number=round_to_label,
+                game_number=game_number,
                 explain=None,
                 event=round_event,
             )
@@ -696,6 +709,9 @@ class Runner:
                             rail_high=rail_high,
                             market_mid=market_mid,
                             segment_id=finished_map_index,
+                            map_index=finished_map_index,
+                            round_number=None,
+                            game_number=game_number,
                             explain=None,
                             event=segment_event,
                         )
@@ -1109,6 +1125,7 @@ class Runner:
                 p_hat,
                 clamp_reason="setup_logger",
             )
+            map_index_ep = (game_number_ep - 1) if game_number_ep is not None else None
             ep_point = HistoryPoint(
                 time=t,
                 p_hat=p_hat,
@@ -1118,6 +1135,9 @@ class Runner:
                 rail_high=rail_high,
                 market_mid=market_mid,
                 segment_id=new_state.segment_id,
+                map_index=map_index_ep,
+                round_number=round_number_ep,
+                game_number=game_number_ep,
                 explain=ep_explain,
                 event=evt,
             )
@@ -1145,6 +1165,7 @@ class Runner:
                 p_hat,
                 clamp_reason="no_explain_from_resolve",
             )
+        map_index_bo3 = (game_number_ep - 1) if game_number_ep is not None else None
         point = HistoryPoint(
             time=t,
             p_hat=p_hat,
@@ -1154,6 +1175,9 @@ class Runner:
             rail_high=rail_high,
             market_mid=market_mid,
             segment_id=new_state.segment_id,
+            map_index=map_index_bo3,
+            round_number=round_number_ep,
+            game_number=game_number_ep,
             explain=explain,
         )
         derived = Derived(
@@ -1190,6 +1214,19 @@ class Runner:
                 "final": {"p_hat_final": p, "clamp_reason": "passthrough"},
             }
         event = payload.get("event") if isinstance(payload.get("event"), dict) else None
+        _mi, _rn, _gn = payload.get("map_index"), payload.get("round_number"), payload.get("game_number")
+        try:
+            map_index_pt = int(_mi) if _mi is not None else None
+        except (TypeError, ValueError):
+            map_index_pt = None
+        try:
+            round_number_pt = int(_rn) if _rn is not None else None
+        except (TypeError, ValueError):
+            round_number_pt = None
+        try:
+            game_number_pt = int(_gn) if _gn is not None else None
+        except (TypeError, ValueError):
+            game_number_pt = None
         point = HistoryPoint(
             time=t,
             p_hat=p,
@@ -1199,6 +1236,9 @@ class Runner:
             rail_high=rail_high,
             market_mid=market_mid,
             segment_id=seg,
+            map_index=map_index_pt,
+            round_number=round_number_pt,
+            game_number=game_number_pt,
             explain=explain,
             event=event,
         )
@@ -1473,6 +1513,20 @@ class Runner:
                 p_hat,
                 clamp_reason="no_explain_from_resolve",
             )
+        game_number_replay = None
+        round_number_replay = None
+        if isinstance(payload, dict):
+            try:
+                if payload.get("game_number") is not None:
+                    game_number_replay = int(payload["game_number"])
+            except (TypeError, ValueError):
+                pass
+            try:
+                if payload.get("round_number") is not None:
+                    round_number_replay = int(payload["round_number"])
+            except (TypeError, ValueError):
+                pass
+        map_index_replay = (game_number_replay - 1) if game_number_replay is not None else getattr(new_state, "map_index", None)
         point = HistoryPoint(
             time=t,
             p_hat=p_hat,
@@ -1482,6 +1536,9 @@ class Runner:
             rail_high=rail_high,
             market_mid=market_mid,
             segment_id=new_state.segment_id,
+            map_index=map_index_replay,
+            round_number=round_number_replay,
+            game_number=game_number_replay,
             explain=replay_explain,
         )
         derived = Derived(

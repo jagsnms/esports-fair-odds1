@@ -124,6 +124,9 @@ function App() {
   const [teamAIsTeamOne, setTeamAIsTeamOne] = useState(true)
   const [configError, setConfigError] = useState<string | null>(null)
 
+  const [replaySources, setReplaySources] = useState<
+    Array<{ label: string; path: string; kind: string; mtime: number; size: number }>
+  >([])
   const [replayPath, setReplayPath] = useState('logs/bo3_pulls.jsonl')
   const [replayMatchId, setReplayMatchId] = useState('')
   const [replaySpeed, setReplaySpeed] = useState(1)
@@ -203,6 +206,60 @@ function App() {
     const id = setInterval(refresh, 10_000)
     return () => clearInterval(id)
   }, [activePanel, bo3ListLoaded])
+
+  // Replay sources: fetch when opening replay panel; set default path from server
+  useEffect(() => {
+    if (activePanel !== 'replay') return
+    let cancelled = false
+    const load = async () => {
+      try {
+        const r = await fetch(`${API_BASE}/api/v1/replay/sources`)
+        if (!r.ok || cancelled) return
+        const data = (await r.json()) as { default_path?: string; sources?: Array<{ label: string; path: string; kind: string; mtime: number; size: number }> }
+        if (cancelled) return
+        setReplaySources(Array.isArray(data.sources) ? data.sources : [])
+        if (data.default_path) setReplayPath((prev) => (prev === 'logs/bo3_pulls.jsonl' ? data.default_path! : prev))
+      } catch {
+        if (!cancelled) setReplaySources([])
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [activePanel])
+
+  // Refresh match list when replay source (path) changes
+  useEffect(() => {
+    if (!replayPath.trim()) return
+    let cancelled = false
+    const load = async () => {
+      setReplayError(null)
+      try {
+        const r = await fetch(`${API_BASE}/api/v1/replay/matches?path=${encodeURIComponent(replayPath)}`)
+        if (cancelled) return
+        if (!r.ok) {
+          const body = await r.json().catch(() => ({}))
+          setReplayError((body as { detail?: string })?.detail ?? r.statusText)
+          setReplayMatches([])
+          return
+        }
+        const data = (await r.json()) as unknown
+        if (cancelled) return
+        if (Array.isArray(data)) {
+          setReplayMatches(data as Array<{ match_id: number; team1: string; team2: string; count: number }>)
+        } else {
+          const matches = (data as { matches?: unknown[] }).matches
+          setReplayMatches(Array.isArray(matches) ? (matches as Array<{ match_id: number; team1: string; team2: string; count: number }>) : [])
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setReplayError(e instanceof Error ? e.message : String(e))
+          setReplayMatches([])
+        }
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [replayPath])
 
   useEffect(() => {
     pausedRef.current = isPaused
@@ -960,40 +1017,26 @@ function App() {
       <h3 style={{ marginTop: 0 }}>Replay (JSONL)</h3>
       <p style={{ marginTop: 0 }}>
         <label>
-          Path:{' '}
-          <input type="text" value={replayPath} onChange={(e) => setReplayPath(e.target.value)} style={{ width: '100%' }} />
+          Source:{' '}
+          <select
+            value={replayPath}
+            onChange={(e) => setReplayPath(e.target.value)}
+            style={{ minWidth: 220, maxWidth: '100%' }}
+          >
+            {replaySources.length === 0 ? (
+              <option value={replayPath}>{replayPath || '—'}</option>
+            ) : (
+              replaySources.map((s) => (
+                <option key={s.path} value={s.path}>
+                  {s.label}
+                </option>
+              ))
+            )}
+          </select>
         </label>
-      </p>
-      <p style={{ marginTop: 0 }}>
-        <button
-          type="button"
-          onClick={async () => {
-            setReplayError(null)
-            try {
-              const r = await fetch(`${API_BASE}/api/v1/replay/matches?path=${encodeURIComponent(replayPath)}`)
-              if (!r.ok) {
-                const body = await r.json().catch(() => ({}))
-                setReplayError((body as { detail?: string })?.detail ?? r.statusText)
-                setReplayMatches([])
-                return
-              }
-              const data = (await r.json()) as { matches?: { id: string; label: string }[] }
-              // Your API in this branch returns a list of objects; keep same behavior as before if needed:
-              // Fallback: if array, set directly; if object, set data.matches.
-              if (Array.isArray(data as any)) {
-                setReplayMatches(data as any)
-              } else {
-                const matches = (data as any).matches
-                setReplayMatches(Array.isArray(matches) ? matches : [])
-              }
-            } catch (e) {
-              setReplayError(e instanceof Error ? e.message : String(e))
-              setReplayMatches([])
-            }
-          }}
-        >
-          Load replay matches
-        </button>
+        {replaySources.length === 0 && (
+          <span style={{ fontSize: 12, color: '#9ca3af', marginLeft: 8 }}>No logs/ files; using path above.</span>
+        )}
       </p>
       <p style={{ marginTop: 0 }}>
         <label>
