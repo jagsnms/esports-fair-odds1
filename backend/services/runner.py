@@ -1494,10 +1494,6 @@ class Runner:
             debug=dbg,
         )
         await self._store.append_point(point, new_state, derived)
-        if new_state.last_frame is not None:
-            await self._broadcaster.broadcast(
-                {"type": "frame", "frame": asdict(new_state.last_frame)}
-            )
         await self._broadcast_point(point)
         self._replay_index += 1
         return True

@@ -331,9 +331,9 @@ async def test_tick_replay_processes_one_payload_and_advances_index() -> None:
     assert len(history) == 1, "replay tick must append one history point via pipeline"
     assert history[0].get("p") is not None
     point_msgs = [b for b in broadcasts if b.get("type") == "point"]
-    assert len(point_msgs) == 1
     frame_msgs = [b for b in broadcasts if b.get("type") == "frame"]
-    assert len(frame_msgs) >= 1, "replay must broadcast frame so HUD updates"
+    assert len(point_msgs) == 1, "exactly one point per processed payload"
+    assert len(frame_msgs) == 1, "exactly one frame per processed payload (no duplicates)"
 
 
 def test_tick_replay_processes_one_payload_and_advances_index_sync() -> None:
