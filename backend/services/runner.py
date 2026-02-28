@@ -569,6 +569,11 @@ class Runner:
                 map_index = game_number - 1
             except (TypeError, ValueError):
                 pass
+        if game_number is None and self._bo3_last_seen_game_number is not None:
+            game_number = self._bo3_last_seen_game_number
+            map_index = game_number - 1
+        if game_number_raw is not None and game_number is not None:
+            self._bo3_last_seen_game_number = game_number
         s1 = int(t1.get("score", 0) or 0)
         s2 = int(t2.get("score", 0) or 0)
         last_s1 = self._bo3_last_seen_score_team_one
@@ -584,11 +589,14 @@ class Runner:
                 return
             round_event = {
                 "event_type": "round_result",
-                "map_index": map_index,
                 "round_number": round_to_label,
                 "round_winner_team_id": winner_team_id,
                 "round_winner_is_team_a": bool(team_a_id and winner_team_id == team_a_id),
             }
+            if map_index is not None:
+                round_event["map_index"] = map_index
+            if game_number is not None:
+                round_event["game_number"] = game_number
             round_point = HistoryPoint(
                 time=t,
                 p_hat=p_hat,

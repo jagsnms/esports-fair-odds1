@@ -457,3 +457,62 @@ async def test_tick_replay_emits_round_result_event_when_present() -> None:
 
 def test_tick_replay_emits_round_result_event_when_present_sync() -> None:
     asyncio.run(test_tick_replay_emits_round_result_event_when_present())
+
+
+async def test_round_result_fallback_map_index_from_last_seen_game_number() -> None:
+    """
+    When payload has round_phase=FINISHED, round_number, winning_team_id but NO game_number,
+    round_result event uses _bo3_last_seen_game_number so map_index/game_number are set for calibration join.
+    """
+    from engine.models import State
+
+    store = MemoryStore(max_history=100)
+    config = Config(source="BO3", match_id=999, poll_interval_s=5.0, team_a_is_team_one=True)
+    state = State(config=config, segment_id=0)
+    derived = Derived(p_hat=0.5, bound_low=0.01, bound_high=0.99, rail_low=0.01, rail_high=0.99, kappa=0.0)
+    await store.set_current(state, derived)
+
+    broadcaster = MagicMock()
+    broadcaster.broadcast = AsyncMock()
+    runner = Runner(store=store, broadcaster=broadcaster)
+    runner._bo3_last_seen_game_number = 2
+
+    raw = {
+        "team_one": {"id": 101, "score": 2},
+        "team_two": {"id": 202, "score": 1},
+        "round_phase": "FINISHED",
+        "round_number": 5,
+        "winning_team_id": 101,
+    }
+    new_state = State(config=config, segment_id=0)
+
+    await runner._maybe_emit_outcome_events_from_bo3_payload(
+        raw=raw,
+        config=config,
+        new_state=new_state,
+        t=1000.0,
+        p_hat=0.5,
+        bound_low=0.01,
+        bound_high=0.99,
+        rail_low=0.01,
+        rail_high=0.99,
+        market_mid=None,
+        dbg={},
+        team_a_is_team_one=True,
+        match_id_used=999,
+    )
+
+    hist = await store.get_history(limit=10)
+    round_points = [p for p in hist if (p.get("event") or {}).get("event_type") == "round_result"]
+    assert len(round_points) == 1, "exactly one round_result emitted"
+    point = round_points[0]
+    assert point.get("map_index") == 1, "map_index = game_number - 1 from fallback (game_number=2)"
+    assert point.get("round_number") == 5
+    assert point.get("game_number") == 2
+    ev = point.get("event") or {}
+    assert ev.get("map_index") == 1
+    assert ev.get("game_number") == 2
+
+
+def test_round_result_fallback_map_index_from_last_seen_game_number_sync() -> None:
+    asyncio.run(test_round_result_fallback_map_index_from_last_seen_game_number())

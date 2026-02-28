@@ -3,8 +3,8 @@ Map-level calibration from history_points.jsonl.
 
 Reads logs/history_points.jsonl, builds segment labels from segment_result events,
 extracts non-event ticks with explain + seg in labeled segments, and outputs:
-- out/map_calibration.json: summary counts, clamped rates, clamp attribution
-- out/map_term_<name>.csv: per-term 20-quantile bin tables (mean term, win rate, mean p_hat)
+- out/map_calibration.json: summary (incl. y_count, y_rate, mean_p_hat_y0/y1, mean_term_*_y0/y1), clamp attribution
+- out/map_term_<name>.csv: per-term bin tables (smart n_bins from n_unique), non-empty bins only
 
 No model changes. Run from repo root: python tools/map_level_calibration.py
 """
@@ -15,10 +15,12 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 
 INPUT_JSONL = "logs/history_points.jsonl"
 OUT_DIR = "out"
-N_BINS = 20
+N_BINS_MAX = 20
+N_BINS_MIN = 5
 
 # Only ticks with clamp_reason None or in COMPUTED_CLAMP_REASONS are used for calibration.
 IGNORE_REASONS = {"no_source", "no_compute", "inter_map_break", "replay_loop", "passthrough"}
@@ -162,7 +164,7 @@ def main() -> None:
         "clamped_rate": round(clamped_rate, 6),
     }
 
-    # 4) Per-term bin tables (20 quantile bins) from used_rows only
+    # 4) Per-term bin tables (smart n_bins: min(20, max(5, n_unique)), non-empty bins only)
     all_term_names: list[str] = []
     seen: set[str] = set()
     for r in used_rows:
@@ -188,40 +190,42 @@ def main() -> None:
             bin_tables[term_name] = []
             continue
         arr = np.nan_to_num(arr, nan=0.0)
-        quantiles = np.percentile(arr, np.linspace(0, 100, N_BINS + 1))
-        bin_lo = quantiles[:-1]
-        bin_hi = quantiles[1:]
+        n_unique = int(np.unique(arr).size)
+        n_bins = min(N_BINS_MAX, max(N_BINS_MIN, n_unique))
+        try:
+            bin_labels = pd.qcut(arr, q=n_bins, duplicates="drop")
+        except Exception:
+            bin_labels = pd.qcut(arr, q=1)
+        bin_indices = np.asarray(bin_labels.codes)
+        bin_indices = np.clip(bin_indices, 0, None)
+        n_bins_used = len(bin_labels.categories)
         table = []
-        for i in range(N_BINS):
-            if i < N_BINS - 1:
-                mask = (arr >= bin_lo[i]) & (arr < bin_hi[i])
-            else:
-                mask = arr >= bin_lo[i]
+        for b in range(n_bins_used):
+            mask = bin_indices == b
             count = int(np.sum(mask))
             if count == 0:
-                table.append({
-                    "bin_lo": float(bin_lo[i]),
-                    "bin_hi": float(bin_hi[i]),
-                    "mean_term": float(bin_lo[i]),
-                    "win_rate": 0.0,
-                    "mean_p_hat": 0.5,
-                    "count": 0,
-                })
                 continue
-            mean_term = float(np.mean(arr[mask]))
             indices = np.where(mask)[0]
-            ys = np.array([used_rows[j]["y"] for j in indices])
-            mean_p_hats = np.array([used_rows[j]["p_hat"] for j in indices])
+            bin_vals = arr[mask]
+            bin_lo = float(np.min(bin_vals))
+            bin_hi = float(np.max(bin_vals))
+            mean_term = float(np.mean(bin_vals))
+            ys = np.array([used_rows[int(j)]["y"] for j in indices])
+            mean_p_hats = np.array([used_rows[int(j)]["p_hat"] for j in indices])
             win_rate = float(np.mean(ys))
             mean_p_hat = float(np.mean(mean_p_hats))
             table.append({
-                "bin_lo": float(bin_lo[i]),
-                "bin_hi": float(bin_hi[i]),
+                "bin_lo": bin_lo,
+                "bin_hi": bin_hi,
                 "mean_term": mean_term,
                 "win_rate": win_rate,
                 "mean_p_hat": mean_p_hat,
                 "count": count,
             })
+        n_written = len(table)
+        for i, row in enumerate(table):
+            row["bin_index"] = i
+            row["n_bins_used"] = n_written
         bin_tables[term_name] = table
 
     # 5) Clamp attribution: dominant abs component among q_terms + micro_adj by clamp side (used_rows only)
@@ -241,6 +245,36 @@ def main() -> None:
     }
     summary["clamp_attribution"] = clamp_attribution
 
+    # Label balance and p_hat separation (over used ticks)
+    y_counts = Counter(r["y"] for r in used_rows)
+    summary["y_count"] = {str(k): v for k, v in sorted(y_counts.items())}
+    n_used = len(used_rows)
+    summary["y_rate"] = round(y_counts.get(1, 0) / n_used, 6) if n_used else 0.0
+    if n_used:
+        p_hats_y0 = [r["p_hat"] for r in used_rows if r["y"] == 0]
+        p_hats_y1 = [r["p_hat"] for r in used_rows if r["y"] == 1]
+        summary["mean_p_hat_y0"] = round(sum(p_hats_y0) / len(p_hats_y0), 6) if p_hats_y0 else None
+        summary["mean_p_hat_y1"] = round(sum(p_hats_y1) / len(p_hats_y1), 6) if p_hats_y1 else None
+    else:
+        summary["mean_p_hat_y0"] = None
+        summary["mean_p_hat_y1"] = None
+    for term_name in all_term_names:
+        vals_y0 = []
+        vals_y1 = []
+        for r in used_rows:
+            v = (r.get("q_terms") or {}).get(term_name)
+            if v is None:
+                v = (r.get("micro_adj") or {}).get(term_name)
+            v = _safe_float(v)
+            if r["y"] == 0:
+                vals_y0.append(v)
+            else:
+                vals_y1.append(v)
+        summary[f"mean_term_{term_name}_y0"] = round(sum(vals_y0) / len(vals_y0), 6) if vals_y0 else None
+        summary[f"mean_term_{term_name}_y1"] = round(sum(vals_y1) / len(vals_y1), 6) if vals_y1 else None
+    if len(y_counts) < 2:
+        summary["warning"] = "Labels are constant; calibration curves not meaningful yet."
+
     # 6) Write out/map_calibration.json
     out_cal = {
         "summary": summary,
@@ -251,15 +285,15 @@ def main() -> None:
         json.dump(out_cal, f, indent=2)
     print(f"Wrote {cal_path}")
 
-    # 7) Write out/map_term_<name>.csv
+    # 7) Write out/map_term_<name>.csv (non-empty bins only; bin_index, n_bins_used)
     for term_name in bin_tables:
         table = bin_tables[term_name]
         safe_name = "".join(c if c.isalnum() or c in "._-" else "_" for c in term_name)
         csv_path = out_path / f"map_term_{safe_name}.csv"
         with open(csv_path, "w", encoding="utf-8") as f:
-            f.write("bin_lo,bin_hi,mean_term,win_rate,mean_p_hat,count\n")
+            f.write("bin_index,n_bins_used,bin_lo,bin_hi,mean_term,win_rate,mean_p_hat,count\n")
             for row in table:
-                f.write(f"{row['bin_lo']},{row['bin_hi']},{row['mean_term']},{row['win_rate']},{row['mean_p_hat']},{row['count']}\n")
+                f.write(f"{row['bin_index']},{row['n_bins_used']},{row['bin_lo']},{row['bin_hi']},{row['mean_term']},{row['win_rate']},{row['mean_p_hat']},{row['count']}\n")
         print(f"Wrote {csv_path}")
 
     print("Done.")
