@@ -110,35 +110,19 @@ def _team_name_from_side(payload: dict, side: str) -> str:
     return ""
 
 
-@router.get("/matches")
-async def replay_matches(
-    path: str = Query(..., description="JSONL file path (e.g. logs/bo3_pulls.jsonl)"),
-) -> Any:
-    """
-    List matches in the JSONL: match_id, team1, team2, count.
-    Sorted by count desc, then match_id asc. 400 if path missing or file not found.
-    """
-    if not path or not path.strip():
-        return JSONResponse(
-            status_code=400,
-            content={"detail": "Query parameter 'path' is required (e.g. path=logs/bo3_pulls.jsonl)"},
-        )
-    path = path.strip()
+def _matches_for_path(path: str) -> list[dict[str, Any]]:
+    """Load matches from a single JSONL path. Returns list of {match_id, team1, team2, count}."""
     from engine.replay.bo3_jsonl import load_bo3_jsonl_entries, load_generic_jsonl, group_by_match
 
     entries = load_bo3_jsonl_entries(path)
     if not entries:
-        # Fallback: bo3_raw_match_*.jsonl (schema bo3_raw_snapshot_v1) has match_id + payload per line
         generic = load_generic_jsonl(path)
         entries = [
             e for e in generic
             if isinstance(e.get("payload"), dict) and e.get("match_id") is not None
         ]
     if not entries:
-        return JSONResponse(
-            status_code=400,
-            content={"detail": f"Path not found or no valid BO3 entries: {path!r}"},
-        )
+        return []
     by_match = group_by_match(entries)
     result: list[dict[str, Any]] = []
     for match_id, match_entries in by_match.items():
@@ -157,6 +141,55 @@ async def replay_matches(
             "team2": team2 or "—",
             "count": len(match_entries),
         })
+    return result
+
+
+@router.get("/matches")
+async def replay_matches(
+    path: str = Query(None, description="JSONL file path (e.g. logs/bo3_pulls.jsonl). Omit if all_sources=1."),
+    all_sources: int = Query(0, description="If 1, return matches from every discovered replay file (path ignored)."),
+) -> Any:
+    """
+    List matches: match_id, team1, team2, count. If all_sources=1, merge from all logs/*.jsonl replay files
+    and include path per match so the client can load that file. Otherwise require path and return matches from that file.
+    Sorted by count desc, then match_id asc. 400 if path missing when all_sources=0.
+    """
+    if all_sources == 1:
+        # Discover all replay sources and merge matches; each match keeps the path with highest count
+        discovered = _discover_replay_sources()
+        sources = discovered.get("sources") or []
+        merged: dict[int, dict[str, Any]] = {}  # match_id -> { match_id, team1, team2, count, path }
+        cwd = Path(os.getcwd())
+        for s in sources:
+            rel_path = s.get("path") or ""
+            if not rel_path or not rel_path.endswith(".jsonl"):
+                continue
+            # Resolve path: backend often runs with cwd = repo root
+            abs_path = str((cwd / rel_path).resolve()) if not Path(rel_path).is_absolute() else rel_path
+            for row in _matches_for_path(abs_path):
+                mid = row["match_id"]
+                if mid not in merged or row["count"] > merged[mid]["count"]:
+                    merged[mid] = {**row, "path": rel_path}
+        result = list(merged.values())
+        result.sort(key=lambda x: (-x["count"], x["match_id"]))
+        return result
+
+    if not path or not path.strip():
+        return JSONResponse(
+            status_code=400,
+            content={"detail": "Query parameter 'path' is required (e.g. path=logs/bo3_pulls.jsonl)"},
+        )
+    path = path.strip()
+    cwd = Path(os.getcwd())
+    abs_path = str((cwd / path).resolve()) if not Path(path).is_absolute() else path
+    result = _matches_for_path(abs_path)
+    if not result:
+        return JSONResponse(
+            status_code=400,
+            content={"detail": f"Path not found or no valid BO3 entries: {path!r}"},
+        )
+    for row in result:
+        row["path"] = path
     result.sort(key=lambda x: (-x["count"], x["match_id"]))
     return result
 
@@ -175,8 +208,8 @@ async def replay_load(
     speed = body.get("speed")
     loop = body.get("loop")
     partial: dict[str, Any] = {"source": "REPLAY"}
-    if path is not None:
-        partial["replay_path"] = str(path)
+    if path is not None and str(path).strip():
+        partial["replay_path"] = str(path).strip()
     if match_id is not None:
         partial["match_id"] = match_id
     if speed is not None:
@@ -186,6 +219,9 @@ async def replay_load(
             pass
     if loop is not None:
         partial["replay_loop"] = bool(loop)
+    profile = body.get("midround_v2_weight_profile")
+    if isinstance(profile, str) and profile.strip().lower() in ("current", "learned_v1", "learned_v2", "learned_fit"):
+        partial["midround_v2_weight_profile"] = profile.strip().lower()
     await store.update_config(partial)
     return await store.get_current()
 

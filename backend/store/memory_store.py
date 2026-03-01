@@ -1,6 +1,11 @@
 """
 Thread-safe in-memory store for State, Derived, and history (ring buffer).
 Optional persistent JSONL recording of HistoryPoints via env HISTORY_RECORD_ENABLED / HISTORY_RECORD_JSONL_PATH.
+
+Score-space diagnostics (separate file): schema score_diag_v2 (v1 deprecated); NOT backward-compatible with old files;
+kept separate intentionally so existing history_points.jsonl and calibration data remain comparable.
+Pre-asymptote raw score, term contribs, residual_contrib (exact reconstruction), term_raw/term_coef for learning true weights.
+Uses same mechanism as history: HISTORY_SCORE_RECORD_ENABLED (default true) and HISTORY_SCORE_RECORD_JSONL_PATH.
 """
 from __future__ import annotations
 
@@ -18,6 +23,12 @@ from engine.models import Config, Derived, Frame, HistoryPoint, State
 # Persistent history recording (env): default on, path default logs/history_points.jsonl
 _HISTORY_RECORD_ENABLED = os.environ.get("HISTORY_RECORD_ENABLED", "true").strip().lower() in ("1", "true", "yes")
 _HISTORY_RECORD_JSONL_PATH = os.environ.get("HISTORY_RECORD_JSONL_PATH", "logs/history_points.jsonl").strip() or "logs/history_points.jsonl"
+
+# Score-space diagnostics (same mechanism as history): default on, path default logs/history_score_points.jsonl
+_HISTORY_SCORE_RECORD_ENABLED = os.environ.get("HISTORY_SCORE_RECORD_ENABLED", "true").strip().lower() in ("1", "true", "yes")
+_HISTORY_SCORE_RECORD_JSONL_PATH = (
+    os.environ.get("HISTORY_SCORE_RECORD_JSONL_PATH") or os.environ.get("HISTORY_SCORE_RECORD_PATH") or "logs/history_score_points.jsonl"
+).strip() or "logs/history_score_points.jsonl"
 
 _logger = logging.getLogger(__name__)
 
@@ -74,7 +85,85 @@ def _history_point_to_wire(p: HistoryPoint) -> dict[str, Any]:
     ev = getattr(p, "event", None)
     if ev is not None:
         out["event"] = ev
+    for key in ("team_one_id", "team_two_id", "team_one_provider_id", "team_two_provider_id", "team_a_is_team_one", "a_side"):
+        val = getattr(p, key, None)
+        if val is not None:
+            out[key] = val
     return out
+
+
+def _append_jsonl(path: str, obj: dict[str, Any]) -> None:
+    """Append one JSON object as a single line to path. Creates parent dir if needed. Swallows OSError."""
+    try:
+        dirpath = os.path.dirname(path)
+        if dirpath:
+            os.makedirs(dirpath, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(obj, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
+def _make_score_diag_record(point: HistoryPoint) -> dict[str, Any] | None:
+    """Build one score-space diagnostic record for history_score_points.jsonl, or None if skip.
+    Schema score_diag_v2: adds residual_contrib (exact reconstruction), contrib_sum, term_raw, term_coef.
+    Only emits for compute ticks with explain/final present, phase != idle, and score_raw present.
+    """
+    explain = getattr(point, "explain", None)
+    if not isinstance(explain, dict):
+        return None
+    final = explain.get("final")
+    if not isinstance(final, dict):
+        return None
+    phase = explain.get("phase")
+    if phase == "idle":
+        return None
+    score_raw = explain.get("score_raw")
+    if score_raw is None:
+        return None
+    term_contribs = explain.get("term_contribs")
+    if not isinstance(term_contribs, dict):
+        term_contribs = {}
+    base_intercept = explain.get("base_intercept")
+    if base_intercept is None:
+        base_intercept = 0.0
+    contrib_sum = float(base_intercept) + sum(float(v) for v in term_contribs.values())
+    residual_contrib = float(score_raw) - contrib_sum
+    p_hat_final = final.get("p_hat_final")
+    if p_hat_final is None:
+        p_hat_final = getattr(point, "p_hat", 0.5)
+    record: dict[str, Any] = {
+        "schema": "score_diag_v2",
+        "ts_ms": int(round(getattr(point, "time", 0.0) * 1000)),
+        "t": getattr(point, "time", 0.0),
+        "game_number": getattr(point, "game_number", None),
+        "map_index": getattr(point, "map_index", None),
+        "round_number": getattr(point, "round_number", None),
+        "phase": phase,
+        "clamp_reason": final.get("clamp_reason"),
+        "p_hat_final": float(p_hat_final),
+        "rail_low": getattr(point, "rail_low", None),
+        "rail_high": getattr(point, "rail_high", None),
+        "series_low": getattr(point, "bound_low", None),
+        "series_high": getattr(point, "bound_high", None),
+        "score_raw": float(score_raw),
+        "p_unshaped": explain.get("p_unshaped"),
+        "term_contribs": {k: float(v) for k, v in term_contribs.items()},
+        "base_intercept": float(base_intercept),
+        "contrib_sum": contrib_sum,
+        "residual_contrib": residual_contrib,
+    }
+    term_raw = explain.get("term_raw")
+    term_coef = explain.get("term_coef")
+    if isinstance(term_raw, dict) and isinstance(term_coef, dict):
+        record["term_raw"] = {k: float(v) for k, v in term_raw.items() if isinstance(v, (int, float))}
+        record["term_coef"] = {k: float(v) for k, v in term_coef.items() if isinstance(v, (int, float))}
+    # Team identity for label-alignment audit (when present on point)
+    for key in ("team_one_id", "team_two_id", "team_one_provider_id", "team_two_provider_id", "a_side", "team_a_is_team_one"):
+        val = getattr(point, key, None)
+        if val is not None:
+            record[key] = val
+    return record
 
 
 class MemoryStore:
@@ -87,6 +176,16 @@ class MemoryStore:
         self._history: deque[HistoryPoint] = deque(maxlen=max_history)
         self._breach_events: deque[dict[str, Any]] = deque(maxlen=max_breach_events)
         self._points_without_explain_count: int = 0
+        self._score_diag_skipped_count: int = 0  # compute ticks skipped (e.g. score_raw missing)
+        # Touch score diag file on startup when enabled (same idea as history; file exists before first tick)
+        if _HISTORY_SCORE_RECORD_ENABLED and _HISTORY_SCORE_RECORD_JSONL_PATH:
+            try:
+                dirpath = os.path.dirname(_HISTORY_SCORE_RECORD_JSONL_PATH)
+                if dirpath:
+                    os.makedirs(dirpath, exist_ok=True)
+                open(_HISTORY_SCORE_RECORD_JSONL_PATH, "a", encoding="utf-8").close()
+            except OSError:
+                pass
 
     async def get_current(self) -> dict[str, Any]:
         """Serialize current State + Derived."""
@@ -129,6 +228,15 @@ class MemoryStore:
                         f.write(json.dumps(wire, ensure_ascii=False) + "\n")
                 except OSError:
                     pass
+            # Score-space diagnostics (separate file; same mechanism as history)
+            if _HISTORY_SCORE_RECORD_ENABLED and _HISTORY_SCORE_RECORD_JSONL_PATH:
+                rec = _make_score_diag_record(point)
+                if rec is not None:
+                    _append_jsonl(_HISTORY_SCORE_RECORD_JSONL_PATH, rec)
+                else:
+                    expl = getattr(point, "explain", None)
+                    if isinstance(expl, dict) and isinstance(expl.get("final"), dict) and expl.get("phase") != "idle":
+                        self._score_diag_skipped_count += 1
 
     async def set_current(self, state: State, derived: Derived) -> None:
         """Set current state and derived without appending to history."""

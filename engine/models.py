@@ -40,6 +40,8 @@ class Config:
     market_delay_sec: int = 120
     market_poll_sec: int = 5
     market_side: Optional[str] = None  # e.g. "A" or "B" or team key
+    # Midround V2 term weights: "current" | "learned_v1" | "learned_v2" | "learned_fit" (fitted suggested_coef)
+    midround_v2_weight_profile: str = "current"
 
 
 # --- Frame (normalized live snapshot from feed) ---
@@ -185,3 +187,10 @@ class HistoryPoint:
     game_number: int | None = None  # 1-based game number if present
     explain: dict | None = None  # per-tick decomposition for calibration/ML (phase, rails, q_terms, micro_adj, etc.)
     event: dict | None = None  # outcome label: round_result | segment_result (round_number, winner_team_id, winner_is_team_a, etc.)
+    # Team identity for score_diag_v2 / witness CSV (canonical: Team A == team_one when team_a_is_team_one True)
+    team_one_id: int | None = None
+    team_two_id: int | None = None
+    team_one_provider_id: str | None = None
+    team_two_provider_id: str | None = None
+    team_a_is_team_one: bool | None = None
+    a_side: str | None = None

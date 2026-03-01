@@ -35,7 +35,10 @@ def _build_explain(
     rail_high: float,
     p_hat_final: float,
 ) -> dict[str, Any]:
-    """Build per-tick explain dict for HistoryPoint (logging / calibration / ML)."""
+    """Build per-tick explain dict for HistoryPoint (logging / calibration / ML).
+    When midround_v2_result has raw_score_pre_urgency, adds score-space diagnostics for
+    history_score_points.jsonl: score_raw, term_contribs, base_intercept, p_unshaped.
+    """
     q_intra_total = midround_v2_result.get("q_intra")
     if q_intra_total is None:
         q_intra_total = q_intra_debug.get("q_intra_round_win_a")
@@ -51,7 +54,7 @@ def _build_explain(
         clamp_reason = "rail_low"
     elif p_hat_final >= rail_high:
         clamp_reason = "rail_high"
-    return {
+    out: dict[str, Any] = {
         "phase": phase,
         "p_base_map": p_base_map,
         "p_base_series": p_base_series,
@@ -62,6 +65,28 @@ def _build_explain(
         "rails": {"rail_low": rail_low, "rail_high": rail_high, "corridor_width": corridor_width},
         "final": {"p_hat_final": p_hat_final, "clamp_reason": clamp_reason},
     }
+    # Score-space diagnostics (pre-asymptote): raw score and additive term contribs for history_score_points.jsonl
+    raw_pre = midround_v2_result.get("raw_score_pre_urgency")
+    if raw_pre is not None:
+        term_contribs = {
+            k: midround_v2_result.get(k, 0.0)
+            for k in ("term_alive", "term_hp", "term_loadout", "term_bomb", "term_cash")
+        }
+        out["score_raw"] = float(raw_pre)
+        out["term_contribs"] = {k: float(v) for k, v in term_contribs.items()}
+        out["base_intercept"] = 0.0
+        q_intra = midround_v2_result.get("q_intra")
+        out["p_unshaped"] = float(q_intra) if q_intra is not None else None
+        # Pre-weight raw signals and coefficients for learning true weights (score_diag_v2)
+        term_raw = midround_v2_result.get("term_raw")
+        term_coef = midround_v2_result.get("term_coef")
+        if isinstance(term_raw, dict) and isinstance(term_coef, dict):
+            out["term_raw"] = {k: float(v) for k, v in term_raw.items() if isinstance(v, (int, float))}
+            out["term_coef"] = {k: float(v) for k, v in term_coef.items() if isinstance(v, (int, float))}
+        wp = midround_v2_result.get("weight_profile")
+        if isinstance(wp, str):
+            out["weight_profile"] = wp
+    return out
 
 
 def resolve_p_hat(
@@ -75,7 +100,11 @@ def resolve_p_hat(
     Else p_hat_final = p_hat_old and debug midround_v2 has skipped=True, reason=phase_not_in_progress.
     Returns (p_hat, debug_dict).
     """
-    rail_low, rail_high = rails
+    # Ensure corridor is ordered so mixture is monotonic: p_hat increases with q_intra (p_unshaped).
+    # If rails were (hi, lo), mixture would invert; normalize so rail_low <= rail_high.
+    _r0, _r1 = float(rails[0]), float(rails[1])
+    rail_low = min(_r0, _r1)
+    rail_high = max(_r0, _r1)
     prematch = getattr(config, "prematch_map", None)
     if prematch is not None and isinstance(prematch, (int, float)):
         base = max(0.0, min(1.0, float(prematch)))
@@ -148,6 +177,7 @@ def resolve_p_hat(
             frozen_a=rail_high,
             frozen_b=rail_low,
             features=features,
+            config=config,
         )
         midround_v2_result = result
         p_mid_clamped = result["p_mid_clamped"]

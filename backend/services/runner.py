@@ -50,6 +50,57 @@ def _minimal_explain(
     }
 
 
+def _team_identity_for_point(frame: Frame | None, config: Config) -> dict[str, Any]:
+    """Build team identity kwargs for HistoryPoint (score_diag_v2 / witness CSV). Canonical: Team A == team_one when team_a_is_team_one True."""
+    out: dict[str, Any] = {}
+    if config is not None:
+        ta = getattr(config, "team_a_is_team_one", None)
+        if ta is not None:
+            out["team_a_is_team_one"] = bool(ta)
+    if frame is None:
+        return out
+    t1_id = getattr(frame, "team_one_id", None)
+    t2_id = getattr(frame, "team_two_id", None)
+    if t1_id is not None:
+        out["team_one_id"] = int(t1_id)
+    if t2_id is not None:
+        out["team_two_id"] = int(t2_id)
+    for key in ("team_one_provider_id", "team_two_provider_id", "a_side"):
+        val = getattr(frame, key, None)
+        if val is not None:
+            out[key] = str(val)
+    return out
+
+
+def _team_identity_from_cache(entry: dict[str, Any] | None) -> dict[str, Any]:
+    """Build HistoryPoint team identity kwargs from a canonical per-map cache entry."""
+    if not entry:
+        return {}
+    out: dict[str, Any] = {}
+    for key in ("team_one_id", "team_two_id", "team_one_provider_id", "team_two_provider_id", "team_a_is_team_one", "a_side"):
+        val = entry.get(key)
+        if val is None:
+            continue
+        if key == "team_a_is_team_one":
+            out[key] = bool(val)
+        elif key in ("team_one_id", "team_two_id"):
+            try:
+                out[key] = int(val)
+            except (TypeError, ValueError):
+                pass
+        else:
+            out[key] = str(val)
+    return out
+
+
+def _normalize_side_raw(side: Any) -> str | None:
+    """Normalize side to T or CT for cache."""
+    if side is None:
+        return None
+    s = str(side).strip().upper()
+    return s if s in ("T", "CT") else None
+
+
 def _bo3_raw_record_signature(payload: dict, match_id: int) -> tuple[Any, ...] | None:
     """Build dedupe signature from key fields. Returns None if payload invalid."""
     if not isinstance(payload, dict):
@@ -357,6 +408,8 @@ class Runner:
         self._bo3_last_seen_match_score_by_game: dict[int, tuple[int | None, int | None]] = {}
         # Raw BO3 snapshot recording dedupe: last signature per match to skip duplicate lines
         self._bo3_raw_last_sig_by_match: dict[int, tuple[Any, ...]] = {}
+        # Canonical Team A identity per (game_number, map_index) so round_result labels and score ticks use same definition
+        self._map_identity_cache: dict[tuple[int, int], dict[str, Any]] = {}
         # ML-ready series-line-dislocation episode logger (paper only; emits setup_trigger, episode_start/end/outcome)
         self._trade_episode_manager = TradeEpisodeManager()
 
@@ -374,6 +427,98 @@ class Runner:
         self._bo3_last_seen_match_score_team_one = None
         self._bo3_last_seen_match_score_team_two = None
         self._bo3_last_seen_match_score_by_game = {}
+        self._map_identity_cache.clear()
+
+    def _ensure_map_identity_from_raw(
+        self,
+        raw: dict[str, Any],
+        config: Config,
+        game_number: int | None,
+        map_index: int | None,
+    ) -> dict[str, Any] | None:
+        """Populate canonical identity for (game_number, map_index) from raw payload; return cache entry or None."""
+        if game_number is None or map_index is None:
+            return None
+        key = (int(game_number), int(map_index))
+        if key in self._map_identity_cache:
+            return self._map_identity_cache[key]
+        t1 = raw.get("team_one") or {}
+        t2 = raw.get("team_two") or {}
+        try:
+            team_one_id = int(t1.get("id", 0) or 0)
+        except (TypeError, ValueError):
+            team_one_id = 0
+        try:
+            team_two_id = int(t2.get("id", 0) or 0)
+        except (TypeError, ValueError):
+            team_two_id = 0
+        pid1 = t1.get("provider_id")
+        team_one_provider_id = (str(pid1).strip() or None) if pid1 is not None else None
+        pid2 = t2.get("provider_id")
+        team_two_provider_id = (str(pid2).strip() or None) if pid2 is not None else None
+        team_a_is_team_one = bool(getattr(config, "team_a_is_team_one", True))
+        a_side = _normalize_side_raw(t1.get("side") if team_a_is_team_one else t2.get("side"))
+        entry: dict[str, Any] = {
+            "team_one_id": team_one_id,
+            "team_two_id": team_two_id,
+            "team_one_provider_id": team_one_provider_id,
+            "team_two_provider_id": team_two_provider_id,
+            "team_a_is_team_one": team_a_is_team_one,
+            "a_side": a_side,
+        }
+        self._map_identity_cache[key] = entry
+        return entry
+
+    def _ensure_map_identity_from_frame(
+        self,
+        frame: Frame | None,
+        config: Config,
+        game_number: int | None,
+        map_index: int | None,
+    ) -> dict[str, Any] | None:
+        """Populate canonical identity for (game_number, map_index) from frame; return cache entry or None."""
+        if game_number is None or map_index is None:
+            return None
+        key = (int(game_number), int(map_index))
+        if key in self._map_identity_cache:
+            return self._map_identity_cache[key]
+        if frame is None:
+            return None
+        team_one_id = getattr(frame, "team_one_id", None)
+        team_two_id = getattr(frame, "team_two_id", None)
+        if team_one_id is not None:
+            try:
+                team_one_id = int(team_one_id)
+            except (TypeError, ValueError):
+                team_one_id = 0
+        else:
+            team_one_id = 0
+        if team_two_id is not None:
+            try:
+                team_two_id = int(team_two_id)
+            except (TypeError, ValueError):
+                team_two_id = 0
+        else:
+            team_two_id = 0
+        team_one_provider_id = getattr(frame, "team_one_provider_id", None)
+        if team_one_provider_id is not None:
+            team_one_provider_id = str(team_one_provider_id).strip() or None
+        team_two_provider_id = getattr(frame, "team_two_provider_id", None)
+        if team_two_provider_id is not None:
+            team_two_provider_id = str(team_two_provider_id).strip() or None
+        team_a_is_team_one = bool(getattr(config, "team_a_is_team_one", True))
+        a_side_raw = getattr(frame, "a_side", None)
+        a_side = _normalize_side_raw(a_side_raw) if a_side_raw is not None else None
+        entry = {
+            "team_one_id": team_one_id,
+            "team_two_id": team_two_id,
+            "team_one_provider_id": team_one_provider_id,
+            "team_two_provider_id": team_two_provider_id,
+            "team_a_is_team_one": team_a_is_team_one,
+            "a_side": a_side,
+        }
+        self._map_identity_cache[key] = entry
+        return entry
 
     def get_replay_progress(self) -> dict[str, int] | None:
         """Return {index, total} when replay is active and list is loaded."""
@@ -540,9 +685,6 @@ class Runner:
             return
         t1 = raw.get("team_one") or {}
         t2 = raw.get("team_two") or {}
-        team_one_id = int(t1.get("id", 0) or 0)
-        team_two_id = int(t2.get("id", 0) or 0)
-        team_a_id = team_one_id if team_a_is_team_one else team_two_id
         rtr = raw.get("round_time_remaining")
         try:
             rtr = int(rtr) if rtr is not None else None
@@ -574,6 +716,18 @@ class Runner:
             map_index = game_number - 1
         if game_number_raw is not None and game_number is not None:
             self._bo3_last_seen_game_number = game_number
+        # Canonical Team A per (game_number, map_index): same definition for labels and score ticks
+        map_identity_entry = self._ensure_map_identity_from_raw(raw, config, game_number, map_index)
+        team_one_id = int(t1.get("id", 0) or 0)
+        team_two_id = int(t2.get("id", 0) or 0)
+        if map_identity_entry:
+            team_a_id = (
+                map_identity_entry["team_one_id"]
+                if map_identity_entry["team_a_is_team_one"]
+                else map_identity_entry["team_two_id"]
+            )
+        else:
+            team_a_id = team_one_id if team_a_is_team_one else team_two_id
         s1 = int(t1.get("score", 0) or 0)
         s2 = int(t2.get("score", 0) or 0)
         last_s1 = self._bo3_last_seen_score_team_one
@@ -587,16 +741,22 @@ class Runner:
                 and self._bo3_last_emitted_round_winner_team_id == winner_team_id
             ):
                 return
+            round_winner_is_team_a = bool(team_a_id and winner_team_id == team_a_id)
             round_event = {
                 "event_type": "round_result",
                 "round_number": round_to_label,
                 "round_winner_team_id": winner_team_id,
-                "round_winner_is_team_a": bool(team_a_id and winner_team_id == team_a_id),
+                "round_winner_is_team_a": round_winner_is_team_a,
             }
             if map_index is not None:
                 round_event["map_index"] = map_index
             if game_number is not None:
                 round_event["game_number"] = game_number
+            identity_kw = (
+                _team_identity_from_cache(map_identity_entry)
+                if map_identity_entry
+                else _team_identity_for_point(getattr(new_state, "last_frame", None), config)
+            )
             round_point = HistoryPoint(
                 time=t,
                 p_hat=p_hat,
@@ -611,6 +771,7 @@ class Runner:
                 game_number=game_number,
                 explain=None,
                 event=round_event,
+                **identity_kw,
             )
             derived_evt = Derived(
                 p_hat=p_hat,
@@ -708,6 +869,11 @@ class Runner:
                             "final_rounds_a": final_rounds_a,
                             "final_rounds_b": final_rounds_b,
                         }
+                        seg_identity = (
+                            _team_identity_from_cache(map_identity_entry)
+                            if map_identity_entry
+                            else _team_identity_for_point(getattr(new_state, "last_frame", None), config)
+                        )
                         segment_point = HistoryPoint(
                             time=t,
                             p_hat=p_hat,
@@ -722,6 +888,7 @@ class Runner:
                             game_number=game_number,
                             explain=None,
                             event=segment_event,
+                            **seg_identity,
                         )
                         derived_seg = Derived(
                             p_hat=p_hat,
@@ -1148,6 +1315,7 @@ class Runner:
                 game_number=game_number_ep,
                 explain=ep_explain,
                 event=evt,
+                **_team_identity_for_point(getattr(new_state, "last_frame", None), config),
             )
             await self._store.append_point(ep_point, new_state, Derived(p_hat=p_hat, bound_low=bound_low, bound_high=bound_high, rail_low=rail_low, rail_high=rail_high, kappa=0.0, debug={**dbg, "event": evt}))
             await self._broadcast_point(ep_point)
@@ -1174,6 +1342,12 @@ class Runner:
                 clamp_reason="no_explain_from_resolve",
             )
         map_index_bo3 = (game_number_ep - 1) if game_number_ep is not None else None
+        map_identity_bo3 = self._ensure_map_identity_from_frame(frame, config, game_number_ep, map_index_bo3)
+        bo3_identity_kw = (
+            _team_identity_from_cache(map_identity_bo3)
+            if map_identity_bo3
+            else _team_identity_for_point(frame, config)
+        )
         point = HistoryPoint(
             time=t,
             p_hat=p_hat,
@@ -1187,6 +1361,7 @@ class Runner:
             round_number=round_number_ep,
             game_number=game_number_ep,
             explain=explain,
+            **bo3_identity_kw,
         )
         derived = Derived(
             p_hat=p_hat,
@@ -1235,6 +1410,7 @@ class Runner:
             game_number_pt = int(_gn) if _gn is not None else None
         except (TypeError, ValueError):
             game_number_pt = None
+        state = await self._store.get_state()
         point = HistoryPoint(
             time=t,
             p_hat=p,
@@ -1249,8 +1425,8 @@ class Runner:
             game_number=game_number_pt,
             explain=explain,
             event=event,
+            **_team_identity_for_point(getattr(state, "last_frame", None), config),
         )
-        state = await self._store.get_state()
         derived = Derived(
             p_hat=p,
             bound_low=lo,
@@ -1535,6 +1711,12 @@ class Runner:
             except (TypeError, ValueError):
                 pass
         map_index_replay = (game_number_replay - 1) if game_number_replay is not None else getattr(new_state, "map_index", None)
+        map_identity_replay = self._ensure_map_identity_from_frame(frame, config, game_number_replay, map_index_replay)
+        replay_identity_kw = (
+            _team_identity_from_cache(map_identity_replay)
+            if map_identity_replay
+            else _team_identity_for_point(frame, config)
+        )
         point = HistoryPoint(
             time=t,
             p_hat=p_hat,
@@ -1548,6 +1730,7 @@ class Runner:
             round_number=round_number_replay,
             game_number=game_number_replay,
             explain=replay_explain,
+            **replay_identity_kw,
         )
         derived = Derived(
             p_hat=p_hat,

@@ -3,10 +3,12 @@ Unit tests for CS2 midround V2 mixture oracle (midround_v2_cs2).
 """
 from __future__ import annotations
 
+import os
 import unittest
 
 from engine.compute.midround_v2_cs2 import (
     HP_FRAC_WEIGHT,
+    WEIGHTS_LEARNED_FIT,
     apply_cs2_midround_adjustment_v2_mixture,
     compute_cs2_midround_features,
 )
@@ -250,6 +252,67 @@ class TestMidroundV2Cs2(unittest.TestCase):
 
     def test_symmetric_2v2_near_equal_hp_q_intra_near_half(self) -> None:
         test_symmetric_2v2_near_equal_hp_q_intra_near_half()
+
+    def test_weight_profile_learned_v1_and_current(self) -> None:
+        test_weight_profile_learned_v1_and_current()
+
+
+def test_weight_profile_learned_v1_and_current() -> None:
+    """With MIDROUND_V2_WEIGHT_PROFILE=learned_v1, term_coef uses learned_v1 weights; with current, uses current."""
+    features = _features(alive_diff=1, hp_a=400, hp_b=300, load_a=5000, load_b=5000)
+    saved = os.environ.get("MIDROUND_V2_WEIGHT_PROFILE")
+
+    try:
+        os.environ["MIDROUND_V2_WEIGHT_PROFILE"] = "learned_v1"
+        result = apply_cs2_midround_adjustment_v2_mixture(
+            frozen_a=0.7, frozen_b=0.3, features=features
+        )
+        assert result.get("weight_profile") == "learned_v1"
+        tc = result.get("term_coef", {})
+        assert tc.get("loadout") == 0.003
+        assert tc.get("alive") == 0.06
+        assert tc.get("hp") == 0.07
+        assert tc.get("bomb") == 0.10
+        assert tc.get("cash") == 0.0
+
+        os.environ["MIDROUND_V2_WEIGHT_PROFILE"] = "learned_v2"
+        result_v2 = apply_cs2_midround_adjustment_v2_mixture(
+            frozen_a=0.7, frozen_b=0.3, features=features
+        )
+        assert result_v2.get("weight_profile") == "learned_v2"
+        tc_v2 = result_v2.get("term_coef", {})
+        assert tc_v2.get("alive") == 0.08
+        assert tc_v2.get("hp") == 0.12
+        assert tc_v2.get("loadout") == 0.002
+        assert tc_v2.get("bomb") == 0.10
+        assert tc_v2.get("cash") == 0.0
+
+        os.environ["MIDROUND_V2_WEIGHT_PROFILE"] = "learned_fit"
+        result_fit = apply_cs2_midround_adjustment_v2_mixture(
+            frozen_a=0.7, frozen_b=0.3, features=features
+        )
+        assert result_fit.get("weight_profile") == "learned_fit"
+        tc_fit = result_fit.get("term_coef", {})
+        for key in ("alive", "hp", "loadout", "bomb", "cash"):
+            assert tc_fit.get(key) == WEIGHTS_LEARNED_FIT[key], (
+                f"learned_fit term_coef[{key}]={tc_fit.get(key)} != WEIGHTS_LEARNED_FIT[{key}]={WEIGHTS_LEARNED_FIT[key]}"
+            )
+
+        os.environ["MIDROUND_V2_WEIGHT_PROFILE"] = "current"
+        result2 = apply_cs2_midround_adjustment_v2_mixture(
+            frozen_a=0.7, frozen_b=0.3, features=features
+        )
+        assert result2.get("weight_profile") == "current"
+        tc2 = result2.get("term_coef", {})
+        assert tc2.get("loadout") == 0.012
+        assert tc2.get("alive") == 0.035
+        assert tc2.get("hp") == 0.04
+        assert tc2.get("bomb") == 0.06
+    finally:
+        if saved is not None:
+            os.environ["MIDROUND_V2_WEIGHT_PROFILE"] = saved
+        else:
+            os.environ.pop("MIDROUND_V2_WEIGHT_PROFILE", None)
 
 
 if __name__ == "__main__":

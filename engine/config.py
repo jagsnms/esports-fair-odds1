@@ -34,6 +34,7 @@ DEFAULTS: dict[str, Any] = {
     "market_delay_sec": 120,
     "market_poll_sec": 5,
     "market_side": None,
+    "midround_v2_weight_profile": "current",
 }
 
 
@@ -67,6 +68,12 @@ def merge_config(current: Config, partial: dict[str, Any]) -> Config:
             updates["source"] = "BO3"
     if "match_id" in updates:
         updates["match_id"] = _coerce_match_id(updates["match_id"])
+    if "midround_v2_weight_profile" in updates:
+        v = updates["midround_v2_weight_profile"]
+        if isinstance(v, str) and v.strip().lower() in ("learned_v1", "learned_v2", "learned_fit"):
+            updates["midround_v2_weight_profile"] = v.strip().lower()
+        else:
+            updates["midround_v2_weight_profile"] = "current"
     d = {
         "source": getattr(current, "source"),
         "match_id": getattr(current, "match_id"),
@@ -90,6 +97,7 @@ def merge_config(current: Config, partial: dict[str, Any]) -> Config:
         "market_delay_sec": getattr(current, "market_delay_sec", 120),
         "market_poll_sec": getattr(current, "market_poll_sec", 5),
         "market_side": getattr(current, "market_side", None),
+        "midround_v2_weight_profile": getattr(current, "midround_v2_weight_profile", "current"),
     }
     d.update(updates)
     # Enforce minimum 5s BO3 poll interval

@@ -1,5 +1,6 @@
 """
 Async BO3 client using cs2api. No asyncio.run; caller is already async.
+Public matches API (candidates) fetched via aiohttp; current + upcoming merged and deduped.
 """
 from __future__ import annotations
 
@@ -9,6 +10,94 @@ try:
     from cs2api import CS2
 except ImportError:
     CS2 = None  # type: ignore
+
+BO3_MATCHES_URL = "https://api.bo3.gg/api/v1/matches"
+BO3_MATCHES_HEADERS = {
+    "accept": "application/json, text/plain, */*",
+    "origin": "https://bo3.gg",
+    "referer": "https://bo3.gg/",
+    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+}
+BO3_MATCHES_PARAMS_BASE = {
+    "scope": "widget-matches",
+    "page[offset]": 0,
+    "page[limit]": 100,
+    "sort": "tier_rank,-start_date",
+    "filter[matches.discipline_id][eq]": 1,
+    "with": "teams,tournament,games,streams",
+}
+
+
+def _normalize_match_candidate(m: dict[str, Any]) -> dict[str, Any] | None:
+    """Extract id, team1_name, team2_name, bo_type, tier, start_date, parsed_status, live_coverage."""
+    mid = m.get("id") or m.get("match_id") or m.get("matchId")
+    if mid is None:
+        return None
+    bet = m.get("bet_updates") or {}
+    t1 = bet.get("team_1") if isinstance(bet, dict) else {}
+    t2 = bet.get("team_2") if isinstance(bet, dict) else {}
+    t1 = t1 if isinstance(t1, dict) else {}
+    t2 = t2 if isinstance(t2, dict) else {}
+    name1 = (t1.get("name") if isinstance(t1.get("name"), str) else None) or "Team 1"
+    name2 = (t2.get("name") if isinstance(t2.get("name"), str) else None) or "Team 2"
+    bo_type = m.get("bo_type", 3)
+    try:
+        bo_type = int(bo_type) if bo_type is not None else 3
+    except (TypeError, ValueError):
+        bo_type = 3
+    tier = m.get("tier")
+    start_date = m.get("start_date")
+    parsed_status = m.get("parsed_status")
+    live_coverage = m.get("live_coverage", False)
+    return {
+        "id": int(mid) if not isinstance(mid, int) else mid,
+        "team1_name": str(name1),
+        "team2_name": str(name2),
+        "bo_type": bo_type,
+        "tier": tier,
+        "start_date": start_date,
+        "parsed_status": str(parsed_status) if parsed_status is not None else None,
+        "live_coverage": bool(live_coverage),
+    }
+
+
+async def fetch_candidates() -> list[dict[str, Any]]:
+    """Fetch current + upcoming from BO3 public matches API; normalize and dedupe by id."""
+    try:
+        import aiohttp
+    except ImportError:
+        return []
+    seen: set[int] = set()
+    out: list[dict[str, Any]] = []
+    for status_bucket in ("current", "upcoming"):
+        params = {**BO3_MATCHES_PARAMS_BASE, "filter[matches.status][in]": status_bucket}
+        try:
+            async with aiohttp.ClientSession(headers=BO3_MATCHES_HEADERS) as session:
+                async with session.get(BO3_MATCHES_URL, params=params) as resp:
+                    resp.raise_for_status()
+                    data = await resp.json()
+        except Exception:
+            continue
+        if isinstance(data, list):
+            items = data
+        elif isinstance(data, dict):
+            items = data.get("results", data.get("matches", data.get("data", [])))
+            if not isinstance(items, list):
+                items = []
+        else:
+            items = []
+        for m in items:
+            if not isinstance(m, dict):
+                continue
+            norm = _normalize_match_candidate(m)
+            if norm is None:
+                continue
+            mid = norm["id"]
+            if mid in seen:
+                continue
+            seen.add(mid)
+            out.append(norm)
+    return out
 
 
 async def list_live_matches() -> list[dict[str, Any]]:
@@ -60,3 +149,51 @@ async def get_snapshot(match_id: int) -> dict[str, Any] | None:
     async with CS2() as cs2:
         snap = await cs2.get_live_match_snapshot(match_id)
     return snap if isinstance(snap, dict) else None
+
+
+async def probe_snapshot_readiness(match_id: int) -> dict[str, Any]:
+    """Probe snapshot endpoint for one match; return telemetry_ready, status_code, reason, last_probe_ts (best-effort)."""
+    from datetime import datetime, timezone
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    if CS2 is None:
+        return {
+            "match_id": match_id,
+            "telemetry_ready": False,
+            "status_code": 0,
+            "reason": "cs2api_not_available",
+            "last_probe_ts": ts,
+        }
+    try:
+        snap = await get_snapshot(match_id)
+        if isinstance(snap, dict) and (snap.get("team_one") or snap.get("team_two")):
+            return {
+                "match_id": match_id,
+                "telemetry_ready": True,
+                "status_code": 200,
+                "reason": "ok",
+                "last_probe_ts": ts,
+            }
+        return {
+            "match_id": match_id,
+            "telemetry_ready": False,
+            "status_code": 404,
+            "reason": "not_ready_404",
+            "last_probe_ts": ts,
+        }
+    except Exception as e:
+        msg = str(e).lower()
+        status_code = 502
+        reason = "upstream_error"
+        if "404" in msg or "not found" in msg:
+            status_code = 404
+            reason = "not_ready_404"
+        elif "429" in msg or "rate" in msg:
+            status_code = 429
+            reason = "rate_limited"
+        return {
+            "match_id": match_id,
+            "telemetry_ready": False,
+            "status_code": status_code,
+            "reason": reason,
+            "last_probe_ts": ts,
+        }

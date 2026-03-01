@@ -41,14 +41,25 @@ type EpisodeMarker = {
   id?: string
 }
 
-/** BO3 live match from /api/v1/bo3/live_matches */
+/** BO3 candidate from /api/v1/bo3/candidates (current + upcoming, not trusting BO3 live/current) */
 type Bo3Match = {
   id: number
   team1_name: string
   team2_name: string
   bo_type: number
+  tier?: unknown
+  start_date?: unknown
   live_coverage?: boolean
   parsed_status?: string | null
+}
+
+/** Readiness probe result from POST /api/v1/bo3/readiness */
+type Bo3Readiness = {
+  match_id: number
+  telemetry_ready: boolean
+  status_code: number
+  reason: string
+  last_probe_ts: string
 }
 
 const filterHistoryToSeg = (history: Point[] | undefined, seg: number): Point[] => {
@@ -120,6 +131,8 @@ function App() {
 
   const [liveMatches, setLiveMatches] = useState<Bo3Match[]>([])
   const [bo3ListLoaded, setBo3ListLoaded] = useState(false)
+  const [bo3Readiness, setBo3Readiness] = useState<Record<number, Bo3Readiness>>({})
+  const [bo3ShowAllCandidates, setBo3ShowAllCandidates] = useState(false)
   const [selectedMatchId, setSelectedMatchId] = useState<string>('')
   const [teamAIsTeamOne, setTeamAIsTeamOne] = useState(true)
   const [configError, setConfigError] = useState<string | null>(null)
@@ -133,7 +146,7 @@ function App() {
   const [replayLoop, setReplayLoop] = useState(true)
   const [replayError, setReplayError] = useState<string | null>(null)
   const [replayMatches, setReplayMatches] = useState<
-    Array<{ match_id: number; team1: string; team2: string; count: number }>
+    Array<{ match_id: number; team1: string; team2: string; count: number; path?: string }>
   >([])
 
   const [crosshairT, setCrosshairT] = useState<string | number | null>(null)
@@ -173,6 +186,9 @@ function App() {
   // LEFT TOOLBAR: one drawer panel at a time
   const [activePanel, setActivePanel] = useState<'bo3' | 'prematch' | 'market' | 'replay' | null>('bo3')
 
+  // Midround V2 weight profile (temporary A/B toggle); persisted in backend via POST /config
+  const [midroundV2WeightProfile, setMidroundV2WeightProfile] = useState<'current' | 'learned_v1' | 'learned_v2' | 'learned_fit'>('current')
+
   const chartRef = useRef<HTMLDivElement>(null)
   const chartInstanceRef = useRef<IChartApi | null>(null)
   const pSeriesRef = useRef<ISeriesApi<'Line'> | null>(null)
@@ -190,15 +206,24 @@ function App() {
   const markersRef = useRef<EpisodeMarker[]>([])
   /** By episode_id: { entry?, resolution? } so we can rebuild full marker list and persist across segment/history refresh. */
   const episodeMarkersByIdRef = useRef<Map<string, { entry?: EpisodeMarker; resolution?: EpisodeMarker }>>(new Map())
+  const liveMatchesRef = useRef<Bo3Match[]>([])
+  liveMatchesRef.current = liveMatches
 
-  // BO3 list: refresh every 10s while panel is open and list has been loaded
+  // Sync midround V2 weight profile from server state when available (e.g. after fetch/WS)
+  useEffect(() => {
+    const config = (current?.state as { config?: { midround_v2_weight_profile?: string } } | undefined)?.config
+    const profile = config?.midround_v2_weight_profile
+    if (profile === 'current' || profile === 'learned_v1' || profile === 'learned_v2' || profile === 'learned_fit') setMidroundV2WeightProfile(profile)
+  }, [current?.state])
+
+  // BO3 candidates: refresh every 10s while panel is open and list has been loaded (non-fatal: keep previous on error)
   useEffect(() => {
     if (activePanel !== 'bo3' || !bo3ListLoaded) return
     const refresh = async () => {
       try {
-        const r = await fetch(`${API_BASE}/api/v1/bo3/live_matches`)
+        const r = await fetch(`${API_BASE}/api/v1/bo3/candidates`)
         const data = await r.json()
-        setLiveMatches(Array.isArray(data) ? data : [])
+        if (Array.isArray(data)) setLiveMatches(data)
       } catch {
         // keep previous list on error
       }
@@ -206,6 +231,35 @@ function App() {
     const id = setInterval(refresh, 10_000)
     return () => clearInterval(id)
   }, [activePanel, bo3ListLoaded])
+
+  // BO3 readiness: poll every 10s for currently listed candidate ids (merge into state; non-fatal)
+  useEffect(() => {
+    if (activePanel !== 'bo3' || !bo3ListLoaded || liveMatches.length === 0) return
+    const poll = async () => {
+      const ids = liveMatchesRef.current.map((m) => m.id)
+      if (ids.length === 0) return
+      try {
+        const r = await fetch(`${API_BASE}/api/v1/bo3/readiness`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ match_ids: ids }),
+        })
+        const data = (await r.json()) as Bo3Readiness[] | undefined
+        if (Array.isArray(data)) {
+          setBo3Readiness((prev) => {
+            const next = { ...prev }
+            for (const row of data) next[row.match_id] = row
+            return next
+          })
+        }
+      } catch {
+        // keep previous readiness on error
+      }
+    }
+    poll()
+    const id = setInterval(poll, 10_000)
+    return () => clearInterval(id)
+  }, [activePanel, bo3ListLoaded, liveMatches.length])
 
   // Replay sources: fetch when opening replay panel; set default path from server
   useEffect(() => {
@@ -227,14 +281,14 @@ function App() {
     return () => { cancelled = true }
   }, [activePanel])
 
-  // Refresh match list when replay source (path) changes
+  // Refresh match list when replay panel is open: fetch matches from ALL sources so every replay file is included
   useEffect(() => {
-    if (!replayPath.trim()) return
+    if (activePanel !== 'replay') return
     let cancelled = false
     const load = async () => {
       setReplayError(null)
       try {
-        const r = await fetch(`${API_BASE}/api/v1/replay/matches?path=${encodeURIComponent(replayPath)}`)
+        const r = await fetch(`${API_BASE}/api/v1/replay/matches?all_sources=1`)
         if (cancelled) return
         if (!r.ok) {
           const body = await r.json().catch(() => ({}))
@@ -245,10 +299,10 @@ function App() {
         const data = (await r.json()) as unknown
         if (cancelled) return
         if (Array.isArray(data)) {
-          setReplayMatches(data as Array<{ match_id: number; team1: string; team2: string; count: number }>)
+          setReplayMatches(data as Array<{ match_id: number; team1: string; team2: string; count: number; path?: string }>)
         } else {
           const matches = (data as { matches?: unknown[] }).matches
-          setReplayMatches(Array.isArray(matches) ? (matches as Array<{ match_id: number; team1: string; team2: string; count: number }>) : [])
+          setReplayMatches(Array.isArray(matches) ? (matches as Array<{ match_id: number; team1: string; team2: string; count: number; path?: string }>) : [])
         }
       } catch (e) {
         if (!cancelled) {
@@ -259,7 +313,7 @@ function App() {
     }
     load()
     return () => { cancelled = true }
-  }, [replayPath])
+  }, [activePanel])
 
   useEffect(() => {
     pausedRef.current = isPaused
@@ -665,12 +719,18 @@ function App() {
     return () => ws.close()
   }, [wsReconnectTrigger, applyPointToChart, refreshSegmentFromBackend, setDataFromHistory, handleEventMarker])
 
-  // Status label for BO3 list: snapshot available vs not
+  // Status label for BO3 list: telemetry proof from readiness probe
   const bo3MatchStatusLabel = (m: Bo3Match): string => {
-    if (m.live_coverage === true) return 'Live'
-    if (m.parsed_status) return m.parsed_status
-    return 'No snapshot'
+    const r = bo3Readiness[m.id]
+    if (r?.telemetry_ready) return 'Telemetry ✅'
+    if (r) return `No telemetry (${r.reason || r.status_code})`
+    return '…'
   }
+
+  // Filter: default show only telemetry_ready; toggle shows all candidates
+  const bo3DisplayMatches = bo3ShowAllCandidates
+    ? liveMatches
+    : liveMatches.filter((m) => bo3Readiness[m.id]?.telemetry_ready === true)
 
   // Drawer content (we reuse your existing sections unchanged, just moved)
   const Bo3Panel = (
@@ -681,29 +741,45 @@ function App() {
           type="button"
           onClick={async () => {
             try {
-              const r = await fetch(`${API_BASE}/api/v1/bo3/live_matches`)
+              const r = await fetch(`${API_BASE}/api/v1/bo3/candidates`)
               const data = await r.json()
               setLiveMatches(Array.isArray(data) ? data : [])
               setBo3ListLoaded(true)
             } catch {
-              setLiveMatches([])
+              // keep previous list on error
             }
           }}
         >
-          Load BO3 live matches
+          Load BO3 candidates
         </button>
         {bo3ListLoaded && (
           <span style={{ marginLeft: 8, fontSize: 11, color: '#9ca3af' }}>
-            Refreshes every 10s
+            Candidates + readiness every 10s
           </span>
         )}
       </p>
+      {liveMatches.length > 0 && (
+        <p style={{ marginTop: 4, marginBottom: 4 }}>
+          <label>
+            <input
+              type="checkbox"
+              checked={bo3ShowAllCandidates}
+              onChange={(e) => setBo3ShowAllCandidates(e.target.checked)}
+            />
+            {' '}
+            Show all candidates
+          </label>
+          <span style={{ marginLeft: 8, fontSize: 11, color: '#9ca3af' }}>
+            {bo3ShowAllCandidates ? 'Showing all' : 'Telemetry ✅ only'}
+          </span>
+        </p>
+      )}
       <p>
         <label>
           Match:{' '}
           <select value={selectedMatchId} onChange={(e) => setSelectedMatchId(e.target.value)} style={{ minWidth: 240 }}>
             <option value="">—</option>
-            {liveMatches.map((m) => (
+            {bo3DisplayMatches.map((m) => (
               <option key={m.id} value={String(m.id)}>
                 {m.team1_name} vs {m.team2_name} (bo{m.bo_type}) · {bo3MatchStatusLabel(m)}
               </option>
@@ -713,7 +789,7 @@ function App() {
       </p>
       {liveMatches.length > 0 && (
         <p style={{ fontSize: 11, color: '#6b7280', marginTop: -4, marginBottom: 8 }}>
-          Live = snapshot OK · No snapshot = 404 if you activate
+          Telemetry ✅ = snapshot ready; status from probe (not BO3 live/current)
         </p>
       )}
       <p>
@@ -1041,15 +1117,32 @@ function App() {
       <p style={{ marginTop: 0 }}>
         <label>
           Match:{' '}
-          <select value={replayMatchId} onChange={(e) => setReplayMatchId(e.target.value)} style={{ minWidth: 200 }}>
+          <select
+            value={replayMatchId}
+            onChange={(e) => {
+              const id = e.target.value
+              setReplayMatchId(id)
+              const m = replayMatches.find((x) => String(x.match_id) === id)
+              if (m?.path) setReplayPath(m.path)
+            }}
+            style={{ minWidth: 200 }}
+          >
             <option value="">—</option>
             {replayMatches.map((m) => (
               <option key={m.match_id} value={String(m.match_id)}>
-                {m.match_id} — {m.team1} vs {m.team2} ({m.count})
+                {m.match_id} — {m.team1} vs {m.team2} ({m.count} ticks)
               </option>
             ))}
           </select>
         </label>
+        {replayMatchId && (() => {
+          const m = replayMatches.find((x) => String(x.match_id) === replayMatchId)
+          return m ? (
+            <span style={{ marginLeft: 8, color: '#9ca3af', fontSize: 13 }}>
+              {m.team1} vs {m.team2} · {m.count} ticks
+            </span>
+          ) : null
+        })()}
       </p>
       <p style={{ marginTop: 0 }}>
         <label>
@@ -1063,17 +1156,21 @@ function App() {
       <p style={{ marginTop: 0 }}>
         <button
           type="button"
-          onClick={async () => {
+            onClick={async () => {
             setReplayError(null)
+            const selectedMatch = replayMatchId ? replayMatches.find((x) => String(x.match_id) === replayMatchId) : null
+            const pathToLoad = selectedMatch?.path ?? replayPath
+            const pathSent = pathToLoad || replayPath
             try {
               const r = await fetch(`${API_BASE}/api/v1/replay/load`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                  path: replayPath,
+                  path: pathSent,
                   match_id: replayMatchId ? Number(replayMatchId) : undefined,
                   speed: replaySpeed,
                   loop: replayLoop,
+                  midround_v2_weight_profile: midroundV2WeightProfile,
                 }),
               })
               if (!r.ok) {
@@ -1194,6 +1291,48 @@ function App() {
                 flexShrink: 0,
               }}
             >
+              {/* Temporary: Midround V2 weight profile A/B toggle */}
+              <div style={{ padding: '8px 0', borderBottom: '1px solid #374151' }}>
+                <label style={{ display: 'block', marginBottom: 4, fontSize: 12, color: '#9ca3af' }}>
+                  Midround V2 weight profile
+                </label>
+                <select
+                  value={midroundV2WeightProfile}
+                  onChange={async (e) => {
+                    const value = e.target.value as 'current' | 'learned_v1' | 'learned_v2' | 'learned_fit'
+                    setMidroundV2WeightProfile(value)
+                    setConfigError(null)
+                    try {
+                      const r = await fetch(`${API_BASE}/api/v1/config`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ midround_v2_weight_profile: value }),
+                      })
+                      if (!r.ok) {
+                        const body = await r.json().catch(() => ({}))
+                        setConfigError((body as { detail?: string })?.detail ?? r.statusText)
+                        return
+                      }
+                      setWsReconnectTrigger((prev) => prev + 1)
+                    } catch (err) {
+                      setConfigError(err instanceof Error ? err.message : String(err))
+                    }
+                  }}
+                  style={{ minWidth: 140, padding: '4px 8px', fontSize: 12 }}
+                  title="Temporary A/B toggle. learned_v1/v2 rebalance terms (loadout smaller, hp/alive/bomb higher)."
+                >
+                  <option value="current">current</option>
+                  <option value="learned_v1">learned_v1</option>
+                  <option value="learned_v2">learned_v2</option>
+                  <option value="learned_fit">learned_fit</option>
+                </select>
+                <p style={{ margin: '4px 0 0', fontSize: 11, color: '#6b7280' }}>
+                  Profile: <strong style={{ color: '#e5e7eb' }}>{midroundV2WeightProfile}</strong>
+                </p>
+                <p style={{ margin: '2px 0 0', fontSize: 10, color: '#4b5563' }}>
+                  Temporary; learned_v1 rebalances terms for A/B testing.
+                </p>
+              </div>
               {DrawerContent}
             </div>
           )}

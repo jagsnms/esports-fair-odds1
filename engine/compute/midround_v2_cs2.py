@@ -5,6 +5,7 @@ Ported from app35 _compute_cs2_midround_features and _apply_cs2_midround_adjustm
 from __future__ import annotations
 
 import math
+import os
 from typing import Any
 
 from engine.models import Frame
@@ -12,15 +13,62 @@ from engine.models import Frame
 # Oracle constants (app35 parity)
 MAX_ROUND_TIME_S = 120.0
 MIXTURE_TEMP = 0.8
+# Default weights (current hardcoded profile); see WEIGHTS_CURRENT / WEIGHTS_LEARNED_V1
 ALIVE_WEIGHT = 0.035  # per-player alive diff
-# HP team-vs-team: term_hp = HP_FRAC_WEIGHT * (hp_frac_a - 0.5); first-class midround driver (bounded)
-HP_FRAC_WEIGHT = 0.04
+HP_FRAC_WEIGHT = 0.04  # HP team-vs-team: term_hp = weight * (hp_frac_a - 0.5)
 BOMB_WEIGHT = 0.060
 LOADOUT_WEIGHT = 0.012  # per-1000
 ARMOR_WEIGHT = 0.008    # per-100 (optional)
 URGENCY_FLOOR = 0.15
 URGENCY_SCALE = 0.85
 EPS = 1e-6
+
+# Weight profiles for A/B testing (current, learned_v1, learned_v2 converged calibration)
+WEIGHTS_CURRENT = {
+    "alive": 0.035,
+    "hp": 0.04,
+    "loadout": 0.012,
+    "bomb": 0.06,
+    "cash": 0.0,
+}
+WEIGHTS_LEARNED_V1 = {
+    "alive": 0.06,
+    "hp": 0.07,
+    "loadout": 0.003,
+    "bomb": 0.10,
+    "cash": 0.0,
+}
+WEIGHTS_LEARNED_V2 = {
+    "alive": 0.08,
+    "hp": 0.12,
+    "loadout": 0.002,
+    "bomb": 0.10,
+    "cash": 0.0,
+}
+# Fitted suggested_coef from midround_fit_weights (replace with values from your chosen run)
+WEIGHTS_LEARNED_FIT = {
+    "alive": -6.80,
+    "hp": -11.41,
+    "loadout": -0.00392,
+    "bomb": -3.11,
+    "cash": 0.0,
+}
+
+_ALLOWED_PROFILES = ("current", "learned_v1", "learned_v2", "learned_fit")
+
+
+def _get_weight_profile(config: Any = None) -> str:
+    """Resolve active profile: config.midround_v2_weight_profile else env MIDROUND_V2_WEIGHT_PROFILE else 'current'."""
+    if config is not None and hasattr(config, "midround_v2_weight_profile"):
+        p = getattr(config, "midround_v2_weight_profile", None)
+        if isinstance(p, str) and p.strip():
+            p = p.strip().lower()
+            if p in _ALLOWED_PROFILES:
+                return p
+    raw = os.environ.get("MIDROUND_V2_WEIGHT_PROFILE", "current")
+    if isinstance(raw, str) and raw.strip().lower() in _ALLOWED_PROFILES:
+        return raw.strip().lower()
+    return "current"
 
 
 def _sigmoid(x: float, temp: float = 1.0) -> float:
@@ -171,12 +219,23 @@ def apply_cs2_midround_adjustment_v2_mixture(
     frozen_a: float,
     frozen_b: float,
     features: dict[str, Any],
+    config: Any = None,
 ) -> dict[str, Any]:
     """
     V2 mixture: q_intra from alive/hp/loadout/bomb (and optional armor); urgency from time.
     p_mid = frozen_b + q_intra*(frozen_a - frozen_b); clamp between endpoints.
     If missing key microstate (no alive/hp/loadout), return q_intra=0.5 and p_mid_clamped = midpoint.
+    Weights come from config.midround_v2_weight_profile or env MIDROUND_V2_WEIGHT_PROFILE ("current" | "learned_v1" | "learned_v2" | "learned_fit").
     """
+    profile = _get_weight_profile(config)
+    if profile == "learned_v1":
+        active = WEIGHTS_LEARNED_V1
+    elif profile == "learned_v2":
+        active = WEIGHTS_LEARNED_V2
+    elif profile == "learned_fit":
+        active = WEIGHTS_LEARNED_FIT
+    else:
+        active = WEIGHTS_CURRENT
     out: dict[str, Any] = {}
     alive_delta = float(features.get("alive_diff", 0))
     hp_delta = float(features.get("hp_diff_alive", 0))
@@ -217,6 +276,13 @@ def apply_cs2_midround_adjustment_v2_mixture(
 
     if not key_microstate_ok:
         mid = (frozen_a + frozen_b) / 2.0
+        term_coef_early = {
+            "alive": active["alive"],
+            "hp": active["hp"],
+            "loadout": active["loadout"],
+            "bomb": active["bomb"],
+            "cash": active["cash"],
+        }
         return {
             "q_intra": 0.5,
             "raw_score": 0.0,
@@ -250,25 +316,31 @@ def apply_cs2_midround_adjustment_v2_mixture(
             "used_armor": False,
             "reason": "missing_microstate",
             "temp": MIXTURE_TEMP,
+            "term_raw": {"alive": 0.0, "hp": 0.0, "loadout": 0.0, "bomb": 0.0, "cash": 0.0},
+            "term_coef": term_coef_early,
+            "weight_profile": profile,
         }
 
-    # Score components (oracle formula)
-    score_alive = (alive_delta / 5.0) * ALIVE_WEIGHT if has_alive else 0.0
-    # HP team-vs-team: bounded fraction term (first-class midround driver)
-    term_hp = HP_FRAC_WEIGHT * (hp_frac_a - 0.5)
+    # Score components (oracle formula; weights from active profile)
+    w_alive = active["alive"]
+    w_hp = active["hp"]
+    w_loadout = active["loadout"]
+    w_bomb = active["bomb"]
+    score_alive = (alive_delta / 5.0) * w_alive if has_alive else 0.0
+    term_hp = w_hp * (hp_frac_a - 0.5)
     load_sum = load_a + load_b
     if load_sum > 0:
-        score_loadout = (load_delta / load_sum) * 1000.0 * LOADOUT_WEIGHT if has_loadout else 0.0
+        score_loadout = (load_delta / load_sum) * 1000.0 * w_loadout if has_loadout else 0.0
     else:
-        score_loadout = (load_delta / 1000.0) * LOADOUT_WEIGHT if has_loadout else 0.0
+        score_loadout = (load_delta / 1000.0) * w_loadout if has_loadout else 0.0
     score_armor = 0.0
     if armor_delta is not None:
         score_armor = (armor_delta / 100.0) * ARMOR_WEIGHT
     if bomb:
         if a_side == "T":
-            score_bomb = BOMB_WEIGHT
+            score_bomb = w_bomb
         elif a_side == "CT":
-            score_bomb = -BOMB_WEIGHT
+            score_bomb = -w_bomb
         else:
             score_bomb = 0.0
     else:
@@ -284,6 +356,35 @@ def apply_cs2_midround_adjustment_v2_mixture(
     raw_score_post_urgency = raw_score_pre_urgency * urgency
     raw_score = raw_score_post_urgency
     q_intra = _sigmoid(raw_score, MIXTURE_TEMP)
+
+    # Pre-weight raw signals and coefficients for score_diag (learn true weights)
+    alive_raw = (alive_delta / 5.0) if has_alive else 0.0
+    hp_raw = (hp_frac_a - 0.5) if hp_frac_a is not None else 0.0
+    if load_sum > 0:
+        loadout_raw = (load_delta / load_sum) * 1000.0 if has_loadout else 0.0
+    else:
+        loadout_raw = (load_delta / 1000.0) if has_loadout else 0.0
+    if bomb and a_side == "T":
+        bomb_raw = 1.0
+    elif bomb and a_side == "CT":
+        bomb_raw = -1.0
+    else:
+        bomb_raw = 0.0
+    cash_raw = 0.0
+    term_raw = {
+        "alive": alive_raw,
+        "hp": hp_raw,
+        "loadout": loadout_raw,
+        "bomb": bomb_raw,
+        "cash": cash_raw,
+    }
+    term_coef = {
+        "alive": active["alive"],
+        "hp": active["hp"],
+        "loadout": active["loadout"],
+        "bomb": active["bomb"],
+        "cash": active["cash"],
+    }
 
     fa = float(frozen_a)
     fb = float(frozen_b)
@@ -328,4 +429,7 @@ def apply_cs2_midround_adjustment_v2_mixture(
     out["used_bomb_direction"] = bool(bomb and a_side in ("T", "CT"))
     out["used_armor"] = armor_delta is not None
     out["temp"] = MIXTURE_TEMP
+    out["term_raw"] = term_raw
+    out["term_coef"] = term_coef
+    out["weight_profile"] = profile
     return out
