@@ -181,3 +181,25 @@ async def get_debug_bo3_last_snapshot_players(
         return {"team": team_key, "n": n, "players": [], "note": "players not a list"}
     subset = players[:n]
     return {"team": team_key, "n": n, "total": len(players), "players": subset}
+
+
+@router.get("/telemetry")
+async def get_debug_telemetry() -> dict:
+    """
+    Return source-agnostic match context diagnostics (accepted/rejected counts,
+    last_accepted_key, last_reject_reason, per_source_health for BO3).
+    """
+    runner = get_runner()
+    return getattr(runner, "get_match_context_diag", lambda: {"match_id": None, "context": {}})()
+
+
+@router.get("/telemetry/sessions")
+async def get_debug_telemetry_sessions() -> dict:
+    """
+    Return multi-session hub diagnostics: now_ts and list of sessions with
+    session_key, source, id, last_update_ts, age_s, ctx, grid_schedule for GRID,
+    and grid_auto_track_* when grid_auto_track is enabled.
+    """
+    runner = get_runner()
+    config = await get_store().get_config()
+    return getattr(runner, "get_sessions_diag", lambda c=None: {"now_ts": time.time(), "sessions": []})(config)

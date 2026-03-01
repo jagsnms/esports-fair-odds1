@@ -14,6 +14,16 @@ from engine.models import Config
 DEFAULTS: dict[str, Any] = {
     "source": "BO3",
     "match_id": None,
+    "grid_series_id": None,
+    "bo3_match_ids": None,
+    "grid_series_ids": None,
+    "bo3_auto_track": False,
+    "bo3_auto_track_limit": 5,
+    "bo3_auto_track_refresh_s": 30.0,
+    "bo3_auto_track_probe_budget": 40,
+    "grid_auto_track": False,
+    "grid_auto_track_limit": 5,
+    "grid_auto_track_refresh_s": 60.0,
     "poll_interval_s": 5.0,
     "contract_scope": "",
     "series_fmt": "",
@@ -38,6 +48,37 @@ DEFAULTS: dict[str, Any] = {
 }
 
 
+def _coerce_int_list(value: Any) -> Optional[list[int]]:
+    """Coerce to list of int; single int/str -> [x]; None/empty -> None."""
+    if value is None:
+        return None
+    if isinstance(value, list):
+        out = []
+        for v in value:
+            if v is None:
+                continue
+            try:
+                out.append(int(v) if not isinstance(v, int) else v)
+            except (TypeError, ValueError):
+                continue
+        return out if out else None
+    try:
+        return [int(value)] if isinstance(value, str) and value.strip().isdigit() else [int(value)]
+    except (TypeError, ValueError):
+        return None
+
+
+def _coerce_str_list(value: Any) -> Optional[list[str]]:
+    """Coerce to list of non-empty str; single str -> [x]; None/empty -> None."""
+    if value is None:
+        return None
+    if isinstance(value, list):
+        out = [str(x).strip() for x in value if x is not None and str(x).strip()]
+        return out if out else None
+    s = str(value).strip()
+    return [s] if s else None
+
+
 def _coerce_match_id(value: Any) -> Optional[int]:
     """Coerce match_id: None/'' -> None; int -> int; string of digits -> int. Else raise ValueError."""
     if value is None or value == "":
@@ -57,6 +98,8 @@ def merge_config(current: Config, partial: dict[str, Any]) -> Config:
     """
     allowed = set(DEFAULTS)
     updates = {k: v for k, v in partial.items() if k in allowed}
+    if "grid_series_id" in updates and updates["grid_series_id"] is not None:
+        updates["grid_series_id"] = str(updates["grid_series_id"]).strip() or None
     if getattr(current, "prematch_locked", False):
         updates.pop("prematch_series", None)
         updates.pop("prematch_map", None)
@@ -68,6 +111,49 @@ def merge_config(current: Config, partial: dict[str, Any]) -> Config:
             updates["source"] = "BO3"
     if "match_id" in updates:
         updates["match_id"] = _coerce_match_id(updates["match_id"])
+    if "bo3_match_ids" in updates:
+        updates["bo3_match_ids"] = _coerce_int_list(updates["bo3_match_ids"])
+    if "grid_series_ids" in updates:
+        updates["grid_series_ids"] = _coerce_str_list(updates["grid_series_ids"])
+    if "bo3_auto_track" in updates:
+        updates["bo3_auto_track"] = bool(updates["bo3_auto_track"])
+    if "bo3_auto_track_limit" in updates:
+        v = updates["bo3_auto_track_limit"]
+        try:
+            n = int(v) if v is not None else 5
+            updates["bo3_auto_track_limit"] = max(0, min(50, n))
+        except (TypeError, ValueError):
+            updates["bo3_auto_track_limit"] = 5
+    if "bo3_auto_track_refresh_s" in updates:
+        v = updates["bo3_auto_track_refresh_s"]
+        try:
+            f = float(v) if v is not None else 30.0
+            updates["bo3_auto_track_refresh_s"] = max(10.0, f)
+        except (TypeError, ValueError):
+            updates["bo3_auto_track_refresh_s"] = 30.0
+    if "bo3_auto_track_probe_budget" in updates:
+        v = updates["bo3_auto_track_probe_budget"]
+        try:
+            n = int(v) if v is not None else 40
+            updates["bo3_auto_track_probe_budget"] = max(5, min(200, n))
+        except (TypeError, ValueError):
+            updates["bo3_auto_track_probe_budget"] = 40
+    if "grid_auto_track" in updates:
+        updates["grid_auto_track"] = bool(updates["grid_auto_track"])
+    if "grid_auto_track_limit" in updates:
+        v = updates["grid_auto_track_limit"]
+        try:
+            n = int(v) if v is not None else 5
+            updates["grid_auto_track_limit"] = max(0, min(50, n))
+        except (TypeError, ValueError):
+            updates["grid_auto_track_limit"] = 5
+    if "grid_auto_track_refresh_s" in updates:
+        v = updates["grid_auto_track_refresh_s"]
+        try:
+            f = float(v) if v is not None else 60.0
+            updates["grid_auto_track_refresh_s"] = max(10.0, f)
+        except (TypeError, ValueError):
+            updates["grid_auto_track_refresh_s"] = 60.0
     if "midround_v2_weight_profile" in updates:
         v = updates["midround_v2_weight_profile"]
         if isinstance(v, str) and v.strip().lower() in ("learned_v1", "learned_v2", "learned_fit"):
@@ -77,6 +163,16 @@ def merge_config(current: Config, partial: dict[str, Any]) -> Config:
     d = {
         "source": getattr(current, "source"),
         "match_id": getattr(current, "match_id"),
+        "grid_series_id": getattr(current, "grid_series_id", None),
+        "bo3_match_ids": getattr(current, "bo3_match_ids", None),
+        "grid_series_ids": getattr(current, "grid_series_ids", None),
+        "bo3_auto_track": getattr(current, "bo3_auto_track", False),
+        "bo3_auto_track_limit": getattr(current, "bo3_auto_track_limit", 5),
+        "bo3_auto_track_refresh_s": getattr(current, "bo3_auto_track_refresh_s", 30.0),
+        "bo3_auto_track_probe_budget": getattr(current, "bo3_auto_track_probe_budget", 40),
+        "grid_auto_track": getattr(current, "grid_auto_track", False),
+        "grid_auto_track_limit": getattr(current, "grid_auto_track_limit", 5),
+        "grid_auto_track_refresh_s": getattr(current, "grid_auto_track_refresh_s", 60.0),
         "poll_interval_s": getattr(current, "poll_interval_s"),
         "contract_scope": getattr(current, "contract_scope"),
         "series_fmt": getattr(current, "series_fmt"),

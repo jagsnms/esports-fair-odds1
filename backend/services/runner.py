@@ -128,6 +128,37 @@ def _bo3_raw_record_signature(payload: dict, match_id: int) -> tuple[Any, ...] |
     return (match_id, gn, rn, phase, s1, s2, ms1, ms2)
 
 
+def _match_context_diag(ctx: Any, selector_decision: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Build diagnostics dict from MatchContext for debug/dbg. Safe if ctx is None."""
+    if ctx is None:
+        return {}
+    per_source: dict[str, dict[str, Any]] = {}
+    for sk, h in getattr(ctx, "per_source_health", {}).items():
+        name = getattr(sk, "name", str(sk))
+        per_source[name] = {
+            "last_ok_ts": getattr(h, "last_ok_ts", None),
+            "last_err_ts": getattr(h, "last_err_ts", None),
+            "ok_count": getattr(h, "ok_count", 0),
+            "err_count": getattr(h, "err_count", 0),
+            "last_reason": getattr(h, "last_reason", None),
+        }
+    active = getattr(ctx, "active_source", None)
+    out: dict[str, Any] = {
+        "accepted_count": getattr(ctx, "accepted_count", 0),
+        "rejected_count": getattr(ctx, "rejected_count", 0),
+        "last_reject_reason": getattr(ctx, "last_reject_reason", None),
+        "last_accepted_key": ctx.last_accepted_key.to_display() if getattr(ctx, "last_accepted_key", None) else None,
+        "per_source_health": per_source,
+        "active_source": getattr(active, "name", str(active)) if active is not None else None,
+        "last_switch_ts": getattr(ctx, "last_switch_ts", None),
+        "last_switch_reason": getattr(ctx, "last_switch_reason", None),
+        "last_env": getattr(ctx, "last_accepted_env_summary", None),
+    }
+    if selector_decision is not None:
+        out["selector_decision"] = selector_decision
+    return out
+
+
 if TYPE_CHECKING:
     from backend.services.broadcaster import Broadcaster
     from backend.store.memory_store import MemoryStore
@@ -416,6 +447,24 @@ class Runner:
         from backend.services.bo3_freshness import Bo3FreshnessGate
         self._bo3_freshness_gate = Bo3FreshnessGate()
         self._bo3_monotonic_rejected_count: int = 0
+        # Source-agnostic telemetry: one MatchContext for active match_id (single-match stage)
+        self._match_context: Any = None
+        self._match_context_match_id: int | None = None
+        # GRID: reduced state and last series id (single-match)
+        self._grid_state: Any = None
+        self._grid_series_id: str | None = None
+        # GRID per-series polling schedule (Patch 5 multi-session can reuse)
+        self._grid_next_fetch_ts: dict[str, float] = {}
+        self._grid_last_rate_limit_reason: dict[str, str] = {}
+        # Multi-session registry (Patch 5A): SessionKey -> SessionRuntime
+        self._sessions: dict[Any, Any] = {}
+        # GRID auto-track (runtime only; manual grid_series_ids overrides)
+        self._grid_auto_last_refresh_ts: float = 0.0
+        self._grid_auto_series_ids: list[str] = []
+        # BO3 auto-track (runtime only; manual bo3_match_ids overrides)
+        self._bo3_auto_last_refresh_ts: float = 0.0
+        self._bo3_auto_match_ids: list[int] = []
+        self._bo3_readiness_cache: dict[int, dict[str, Any]] = {}
         # ML-ready series-line-dislocation episode logger (paper only; emits setup_trigger, episode_start/end/outcome)
         self._trade_episode_manager = TradeEpisodeManager()
 
@@ -435,6 +484,8 @@ class Runner:
         self._bo3_last_seen_match_score_by_game = {}
         self._map_identity_cache.clear()
         self._bo3_freshness_gate.clear_cache()
+        self._match_context = None
+        self._match_context_match_id = None
 
     def _ensure_map_identity_from_raw(
         self,
@@ -581,6 +632,211 @@ class Runner:
             out_debug["market_bid"] = snap.get("bid")
             out_debug["market_ask"] = snap.get("ask")
         return (float(mid) if mid is not None else None, out_debug)
+
+    def get_match_context_diag(self) -> dict[str, Any]:
+        """Return source-agnostic match context diagnostics for debug/telemetry endpoint."""
+        ctx = self._match_context
+        selector_decision: dict[str, Any] | None = None
+        if ctx is not None:
+            from engine.telemetry.selector import decide, default_source_selector_policy
+            _policy = default_source_selector_policy()
+            _dec = decide(ctx, time.time(), _policy, None)
+            selector_decision = _dec.to_diag() if _dec else None
+        out: dict[str, Any] = {
+            "match_id": self._match_context_match_id,
+            "context": _match_context_diag(ctx, selector_decision),
+        }
+        grid_series_id = getattr(self, "_grid_series_id", None)
+        if grid_series_id:
+            from engine.ingest.grid_schedule import next_fetch_in_s
+            now = time.time()
+            next_fetch_ts = getattr(self, "_grid_next_fetch_ts", {})
+            out["grid_schedule"] = {
+                "series_id": grid_series_id,
+                "next_fetch_in_s": round(next_fetch_in_s(grid_series_id, next_fetch_ts, now), 1),
+            }
+            last_reason = getattr(self, "_grid_last_rate_limit_reason", {}).get(grid_series_id)
+            if last_reason:
+                out["grid_schedule"]["last_rate_limit_reason"] = last_reason
+        return out
+
+    def get_sessions_diag(self, config: Config | None = None) -> dict[str, Any]:
+        """Return multi-session diagnostics for GET /debug/telemetry/sessions."""
+        now = time.time()
+        sessions_out: list[dict[str, Any]] = []
+        for key, runtime in getattr(self, "_sessions", {}).items():
+            display = key.display() if hasattr(key, "display") else str(key)
+            source = getattr(key, "source", None)
+            source_name = getattr(source, "value", str(source)) if source else "?"
+            id_str = getattr(key, "id", "")
+            last_ts = getattr(runtime, "last_update_ts", None)
+            age_s = round(now - last_ts, 1) if last_ts is not None else None
+            ctx_diag = _match_context_diag(getattr(runtime, "ctx", None), None)
+            row: dict[str, Any] = {
+                "session_key": display,
+                "source": source_name,
+                "id": id_str,
+                "last_update_ts": last_ts,
+                "age_s": age_s,
+                "ctx": ctx_diag,
+            }
+            if source_name == "GRID" and id_str:
+                next_ts = getattr(self, "_grid_next_fetch_ts", {}).get(id_str, 0.0)
+                row["grid_schedule"] = {
+                    "next_fetch_in_s": round(max(0.0, next_ts - now), 1),
+                }
+                last_reason = getattr(self, "_grid_last_rate_limit_reason", {}).get(id_str)
+                if last_reason:
+                    row["grid_schedule"]["last_rate_limit_reason"] = last_reason
+            sessions_out.append(row)
+        out: dict[str, Any] = {"now_ts": now, "sessions": sessions_out}
+        if config is not None and getattr(config, "bo3_auto_track", False):
+            last_ts = getattr(self, "_bo3_auto_last_refresh_ts", 0.0)
+            out["bo3_auto_track_enabled"] = True
+            out["bo3_auto_match_ids"] = list(getattr(self, "_bo3_auto_match_ids", []))
+            out["bo3_auto_last_refresh_age_s"] = round(now - last_ts, 1) if last_ts else None
+            cache = getattr(self, "_bo3_readiness_cache", {})
+            out["bo3_readiness_cache_size"] = len(cache)
+        if config is not None and getattr(config, "grid_auto_track", False):
+            last_ts = getattr(self, "_grid_auto_last_refresh_ts", 0.0)
+            out["grid_auto_track_enabled"] = True
+            out["grid_auto_track_limit"] = max(0, min(50, int(getattr(config, "grid_auto_track_limit", 5) or 5)))
+            out["grid_auto_series_ids"] = list(getattr(self, "_grid_auto_series_ids", []))
+            out["grid_auto_last_refresh_age_s"] = round(now - last_ts, 1) if last_ts else None
+        return out
+
+    def _is_multi_session(self, config: Config) -> bool:
+        """True if bo3_match_ids, grid_series_ids (manual), or bo3/grid auto_track is used."""
+        bo3 = getattr(config, "bo3_match_ids", None)
+        grid = getattr(config, "grid_series_ids", None)
+        bo3_auto = getattr(config, "bo3_auto_track", False)
+        grid_auto = getattr(config, "grid_auto_track", False)
+        return (
+            bool(bo3 and len(bo3) > 0)
+            or bool(grid and len(grid) > 0)
+            or bool(bo3_auto)
+            or bool(grid_auto)
+        )
+
+    def _maybe_refresh_grid_auto_ids(self, config: Config, now_ts: float) -> None:
+        """Refresh _grid_auto_series_ids from Central Data when grid_auto_track and refresh interval elapsed."""
+        if not getattr(config, "grid_auto_track", False):
+            return
+        refresh_s = max(10.0, float(getattr(config, "grid_auto_track_refresh_s", 60.0)))
+        if now_ts - getattr(self, "_grid_auto_last_refresh_ts", 0.0) < refresh_s:
+            return
+        try:
+            from engine.ingest.grid_central_data import get_cs2_series_candidates, select_best_series_ids
+            candidates = get_cs2_series_candidates(limit=100, order_direction="ASC")
+            limit = getattr(config, "grid_auto_track_limit", 5)
+            try:
+                limit = max(0, min(50, int(limit)))
+            except (TypeError, ValueError):
+                limit = 5
+            self._grid_auto_series_ids = select_best_series_ids(candidates, limit=limit, min_rank=2, allow_unknown_fallback=True)
+            self._grid_auto_last_refresh_ts = now_ts
+        except Exception:
+            pass
+
+    async def _maybe_refresh_bo3_auto_ids(self, config: Config, now_ts: float) -> None:
+        """Refresh _bo3_auto_match_ids from candidates + readiness probe when bo3_auto_track and interval elapsed."""
+        if not getattr(config, "bo3_auto_track", False):
+            return
+        refresh_s = max(10.0, float(getattr(config, "bo3_auto_track_refresh_s", 30.0)))
+        if now_ts - getattr(self, "_bo3_auto_last_refresh_ts", 0.0) < refresh_s:
+            return
+        try:
+            from engine.ingest.bo3_client import fetch_candidates, probe_snapshot_readiness
+            from engine.ingest.bo3_readiness_cache import (
+                DEFAULT_TTL_S,
+                filter_needs_probe,
+                select_telemetry_ready_match_ids,
+                update_cache_from_results,
+            )
+            candidates = await fetch_candidates()
+            candidate_ids = [int(c["id"]) for c in candidates if c.get("id") is not None]
+            cache = self._bo3_readiness_cache
+            ttl_s = DEFAULT_TTL_S
+            budget = max(5, min(200, int(getattr(config, "bo3_auto_track_probe_budget", 40) or 40)))
+            to_probe = filter_needs_probe(candidate_ids, cache, now_ts, ttl_s=ttl_s, budget=budget)
+            if to_probe:
+                sem = asyncio.Semaphore(4)
+                async def probe_one(mid: int):
+                    async with sem:
+                        return await probe_snapshot_readiness(mid)
+                results = await asyncio.gather(*(probe_one(mid) for mid in to_probe), return_exceptions=True)
+                out_results: list[dict[str, Any]] = []
+                for i, r in enumerate(results):
+                    if isinstance(r, Exception):
+                        mid = to_probe[i] if i < len(to_probe) else 0
+                        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+                        out_results.append({
+                            "match_id": mid,
+                            "telemetry_ready": False,
+                            "status_code": 502,
+                            "reason": "upstream_error",
+                            "last_probe_ts": ts,
+                        })
+                    else:
+                        out_results.append(r)
+                update_cache_from_results(cache, out_results, now_ts)
+            limit = max(0, min(50, int(getattr(config, "bo3_auto_track_limit", 5) or 5)))
+            self._bo3_auto_match_ids = select_telemetry_ready_match_ids(candidates, cache, limit=limit)
+            self._bo3_auto_last_refresh_ts = now_ts
+        except Exception:
+            pass
+
+    def _effective_bo3_match_ids(self, config: Config) -> list[int]:
+        """BO3 match ids to tick: manual bo3_match_ids overrides; else auto-track list or single match_id."""
+        manual = getattr(config, "bo3_match_ids", None) or []
+        if manual and len(manual) > 0:
+            return [int(x) for x in manual if x is not None]
+        if getattr(config, "bo3_auto_track", False):
+            return list(getattr(self, "_bo3_auto_match_ids", []))
+        mid = getattr(config, "match_id", None)
+        return [int(mid)] if mid is not None else []
+
+    def _effective_grid_series_ids(self, config: Config, now_ts: float | None = None) -> list[str]:
+        """GRID series ids to tick: manual grid_series_ids overrides; else auto-track list or single grid_series_id."""
+        manual = getattr(config, "grid_series_ids", None) or []
+        if manual and len(manual) > 0:
+            return [str(x).strip() for x in manual if x is not None and str(x).strip()]
+        if getattr(config, "grid_auto_track", False):
+            self._maybe_refresh_grid_auto_ids(config, now_ts or time.time())
+            return list(getattr(self, "_grid_auto_series_ids", []))
+        gid = getattr(config, "grid_series_id", None)
+        s = str(gid).strip() if gid else ""
+        return [s] if s else []
+
+    def _get_or_create_session(self, key: Any, match_id_int: int) -> Any:
+        """Get or create SessionRuntime for SessionKey; match_id_int used for MatchContext."""
+        from engine.telemetry import MatchContext, SessionKey, SessionRuntime
+        if key not in self._sessions:
+            ctx = MatchContext(match_id=match_id_int)
+            self._sessions[key] = SessionRuntime(ctx=ctx)
+        return self._sessions[key]
+
+    def _ingest_canonical_envelope(
+        self,
+        ctx: Any,
+        env: Any,
+        snap_meta: dict[str, Any] | None = None,
+    ) -> bool:
+        """
+        Source-agnostic entrypoint: validate key, run should_accept, update ctx and SourceHealth.
+        Does NOT call reduce/compute. Returns True if envelope accepted else False.
+        If env.key is None and snap_meta provides frame/raw for BO3, key is computed.
+        """
+        from engine.telemetry import SourceKind, compute_monotonic_key_from_bo3_snapshot
+        from engine.telemetry.envelope import process_canonical_envelope
+
+        if env.key is None and snap_meta and env.source == SourceKind.BO3:
+            frame_obj = snap_meta.get("frame")
+            raw = snap_meta.get("raw")
+            if frame_obj is not None or raw is not None:
+                env.key = compute_monotonic_key_from_bo3_snapshot(frame_obj, raw)
+        accepted, _ = process_canonical_envelope(ctx, env)
+        return accepted
 
     @property
     def is_running(self) -> bool:
@@ -1002,11 +1258,20 @@ class Runner:
         except OSError as e:
             logger.warning("BO3 raw record write failed %s: %s", filepath, e)
 
-    async def _tick_bo3(self, config: Config) -> bool:
-        """If source=BO3 and match_id set: fetch snapshot, normalize, append_point, broadcast. Return True if did BO3."""
+    async def _tick_bo3(
+        self,
+        config: Config,
+        effective_match_id: int | None = None,
+        session_runtime: Any = None,
+        write_to_store: bool = True,
+    ) -> bool:
+        """If source=BO3 and match_id set: fetch snapshot, normalize, append_point, broadcast. Return True if did BO3.
+        When session_runtime is provided, use its ctx; when write_to_store is False, skip append/broadcast and update session."""
         src = getattr(config, "source", None)
-        match_id = getattr(config, "match_id", None)
-        if src != "BO3" or match_id is None:
+        match_id = effective_match_id if effective_match_id is not None else getattr(config, "match_id", None)
+        if match_id is None:
+            return False
+        if effective_match_id is None and src != "BO3":
             return False
         mid = int(match_id)
         team_a_is_team_one = getattr(config, "team_a_is_team_one", True)
@@ -1140,6 +1405,59 @@ class Runner:
                     extra={"diag": gate_diag, "rejected_total": self._bo3_monotonic_rejected_count},
                 )
             return True
+        # Canonical envelope path: BO3 as first-class SourceKind
+        from engine.telemetry import (
+            CanonicalFrameEnvelope,
+            MatchContext,
+            SourceKind,
+            compute_monotonic_key_from_bo3_snapshot,
+        )
+        from engine.telemetry.core import IdentityEntry
+        if session_runtime is not None:
+            ctx = session_runtime.ctx
+        else:
+            if self._match_context is None or self._match_context_match_id != mid:
+                self._match_context = MatchContext(match_id=mid)
+                self._match_context_match_id = mid
+            ctx = self._match_context
+        frame_dict = asdict(frame)
+        new_key = compute_monotonic_key_from_bo3_snapshot(frame, snap if isinstance(snap, dict) else None)
+        env = CanonicalFrameEnvelope(
+            match_id=mid,
+            source=SourceKind.BO3,
+            observed_ts=t,
+            key=new_key,
+            frame=frame_dict,
+            valid=True,
+        )
+        snap_meta = {"frame": frame, "raw": snap if isinstance(snap, dict) else None}
+        if isinstance(snap, dict):
+            snap_meta["round_phase"] = snap.get("round_phase") or snap.get("phase")
+        if not self._ingest_canonical_envelope(ctx, env, snap_meta):
+            return True
+        # Identity cache stub: per-match team_a_is_team_one and provider ids from map identity
+        _gn: int | None = None
+        if isinstance(snap, dict):
+            try:
+                g = snap.get("game_number")
+                _gn = int(g) if g is not None else None
+            except (TypeError, ValueError):
+                pass
+        _mi = getattr(frame, "map_index", 0)
+        map_id_entry = self._ensure_map_identity_from_frame(frame, config, _gn, _mi)
+        if map_id_entry:
+            ta_one = map_id_entry.get("team_a_is_team_one", True)
+            ctx.identity = IdentityEntry(
+                team_a_is_team_one=bool(map_id_entry.get("team_a_is_team_one", True)),
+                provider_team_a_id=map_id_entry.get("team_one_provider_id") if ta_one else map_id_entry.get("team_two_provider_id"),
+                provider_team_b_id=map_id_entry.get("team_two_provider_id") if ta_one else map_id_entry.get("team_one_provider_id"),
+            )
+        # Selector diagnostics only (no ingest change): decide + maybe_switch for telemetry output
+        round_phase_sel = snap_meta.get("round_phase") if isinstance(snap, dict) else None
+        from engine.telemetry.selector import decide, default_source_selector_policy, maybe_switch
+        _sel_policy = default_source_selector_policy()
+        _sel_decision = decide(ctx, t, _sel_policy, round_phase_sel)
+        maybe_switch(ctx, _sel_decision, t, _sel_policy, round_phase_sel)
         from engine.compute.bounds import compute_bounds
         from engine.compute.rails import compute_rails
         from engine.compute.resolve import resolve_p_hat
@@ -1195,6 +1513,7 @@ class Runner:
                 "final": {"p_hat_final": p_hat, "clamp_reason": "inter_map_break"},
             }
             dbg["bo3_monotonic_gate"] = gate_diag
+            dbg["match_context_diag"] = _match_context_diag(ctx, _sel_decision.to_diag() if _sel_decision else None)
         else:
             bounds = (bound_low, bound_high)
             rails_result = compute_rails(frame, config, new_state, bounds)
@@ -1203,6 +1522,7 @@ class Runner:
             p_hat, dbg = resolve_p_hat(frame, config, new_state, (rail_low, rail_high))
             dbg = {**dbg, **bounds_debug, **rails_debug}
             dbg["bo3_monotonic_gate"] = gate_diag
+            dbg["match_context_diag"] = _match_context_diag(ctx, _sel_decision.to_diag() if _sel_decision else None)
 
         from engine.diagnostics.fragility_cs2 import build_raw_debug, compute_fragility_debug
         dbg["raw"] = build_raw_debug(frame)
@@ -1392,9 +1712,265 @@ class Runner:
             kappa=0.0,
             debug=dbg,
         )
-        await self._store.append_point(point, new_state, derived)
-        await self._broadcast_point(point)
+        if session_runtime is not None:
+            session_runtime.last_state = new_state
+            session_runtime.last_frame = asdict(frame)
+            session_runtime.last_update_ts = t
+            session_runtime.last_error = None
+        if write_to_store:
+            await self._store.append_point(point, new_state, derived)
+            await self._broadcast_point(point)
         return True
+
+    async def _tick_bo3_for_match(
+        self, match_id: int, config: Config, is_primary: bool
+    ) -> bool:
+        """Multi-session: tick one BO3 match; use session ctx; only primary writes to store."""
+        from engine.telemetry import SessionKey, SourceKind
+        key = SessionKey(source=SourceKind.BO3, id=str(match_id))
+        session = self._get_or_create_session(key, match_id)
+        return await self._tick_bo3(
+            config,
+            effective_match_id=match_id,
+            session_runtime=session,
+            write_to_store=is_primary,
+        )
+
+    async def _tick_grid(
+        self,
+        config: Config,
+        effective_series_id: str | None = None,
+        session_runtime: Any = None,
+        write_to_store: bool = True,
+    ) -> bool:
+        """If source=GRID and grid_series_id set: fetch series state, reduce, envelope, compute. Return True if did GRID.
+        When session_runtime is provided, use its ctx and grid_state; when write_to_store is False, skip append/broadcast."""
+        from engine.ingest.grid_client import fetch_series_state
+        from engine.ingest.grid_schedule import (
+            after_rate_limit,
+            after_success,
+            is_rate_limit_response,
+            next_fetch_allowed,
+        )
+        from engine.ingest.grid_reducer import GridState, grid_state_to_frame, reduce_event
+        from engine.telemetry import (
+            CanonicalFrameEnvelope,
+            MatchContext,
+            SourceKind,
+            compute_monotonic_key_from_grid_state,
+        )
+        from engine.telemetry.core import IdentityEntry
+        from engine.telemetry.selector import decide, default_source_selector_policy, maybe_switch
+
+        src = getattr(config, "source", None)
+        grid_series_id = (effective_series_id or "").strip() or (getattr(config, "grid_series_id", None) or "")
+        grid_series_id = str(grid_series_id).strip() if grid_series_id else ""
+        if not grid_series_id:
+            return False
+        if effective_series_id is None and src != "GRID":
+            return False
+        mid = getattr(config, "match_id", None)
+        if mid is not None:
+            try:
+                mid = int(mid)
+            except (TypeError, ValueError):
+                mid = None
+        if mid is None:
+            mid = hash(grid_series_id) % (2**31)
+        team_a_is_team_one = getattr(config, "team_a_is_team_one", True)
+        t = time.time()
+
+        # Per-series schedule: skip fetch until next_fetch_ts
+        if not next_fetch_allowed(grid_series_id, self._grid_next_fetch_ts, t):
+            return True
+
+        if session_runtime is not None:
+            ctx = session_runtime.ctx
+        else:
+            if self._match_context is None or self._match_context_match_id != mid:
+                self._match_context = MatchContext(match_id=mid)
+                self._match_context_match_id = mid
+            ctx = self._match_context
+
+        payload = fetch_series_state(grid_series_id)
+
+        if is_rate_limit_response(payload):
+            after_rate_limit(grid_series_id, self._grid_next_fetch_ts, t)
+            self._grid_last_rate_limit_reason[grid_series_id] = "rate_limit_429"
+            h = ctx.get_or_create_source_health(SourceKind.GRID)
+            h.err_count = getattr(h, "err_count", 0) + 1
+            h.last_err_ts = t
+            h.last_reason = "rate_limit_429"
+            return True
+
+        if payload.get("errors"):
+            return True
+        data = payload.get("data") or {}
+        ss = data.get("seriesState")
+        if not isinstance(ss, dict):
+            return True
+        after_success(grid_series_id, self._grid_next_fetch_ts, t)
+        if session_runtime is not None:
+            if session_runtime.grid_state is None:
+                session_runtime.grid_state = GridState()
+            session_runtime.grid_state = reduce_event(session_runtime.grid_state, ss)
+            state = session_runtime.grid_state
+        else:
+            if self._grid_state is None or self._grid_series_id != grid_series_id:
+                self._grid_state = GridState()
+                self._grid_series_id = grid_series_id
+            self._grid_state = reduce_event(self._grid_state, ss)
+            state = self._grid_state
+        frame = grid_state_to_frame(state, team_a_is_team_one=team_a_is_team_one, timestamp=t)
+        new_key = compute_monotonic_key_from_grid_state(state, t)
+        frame_dict = asdict(frame)
+        env = CanonicalFrameEnvelope(
+            match_id=mid,
+            source=SourceKind.GRID,
+            observed_ts=t,
+            key=new_key,
+            frame=frame_dict,
+            valid=True,
+        )
+        if not self._ingest_canonical_envelope(ctx, env, None):
+            return True
+        ctx.identity = IdentityEntry(
+            team_a_is_team_one=team_a_is_team_one,
+            provider_team_a_id=state.team_a_id,
+            provider_team_b_id=state.team_b_id,
+        )
+        round_phase_sel = state.round_phase
+        _sel_policy = default_source_selector_policy()
+        _sel_decision = decide(ctx, t, _sel_policy, round_phase_sel)
+        maybe_switch(ctx, _sel_decision, t, _sel_policy, round_phase_sel)
+
+        from engine.compute.bounds import compute_bounds
+        from engine.compute.rails import compute_rails
+        from engine.compute.resolve import resolve_p_hat
+        from engine.state.reducer import reduce_state
+        from engine.diagnostics.inter_map_break import detect_inter_map_break
+        from engine.diagnostics.fragility_cs2 import build_raw_debug, compute_fragility_debug
+
+        old_state = await self._store.get_state()
+        new_state = reduce_state(old_state, frame, config)
+        bounds_result = compute_bounds(frame, config, new_state)
+        bound_low, bound_high = bounds_result[0], bounds_result[1]
+        bounds_debug = bounds_result[2] if len(bounds_result) > 2 else {}
+        is_break, break_reason = detect_inter_map_break(frame, new_state)
+        if is_break:
+            series_width = bound_high - bound_low
+            center = max(bound_low, min(bound_high, 0.5 * (bound_low + bound_high)))
+            map_width = min(series_width * 0.6, 0.30)
+            half = 0.5 * map_width
+            rail_low = max(bound_low, min(bound_high, center - half))
+            rail_high = max(bound_low, min(bound_high, center + half))
+            cur = await self._store.get_current()
+            d = (cur.get("derived") or {}) if isinstance(cur, dict) else {}
+            last_p = d.get("p_hat")
+            p_hat = float(last_p) if isinstance(last_p, (int, float)) else center
+            p_hat = max(rail_low, min(rail_high, p_hat))
+            cw = rail_high - rail_low if rail_high >= rail_low else 0.0
+            dbg: dict[str, Any] = {
+                "inter_map_break": True,
+                "inter_map_break_reason": break_reason,
+                "source": "GRID",
+                "grid_series_id": grid_series_id,
+                "match_context_diag": _match_context_diag(ctx, _sel_decision.to_diag() if _sel_decision else None),
+            }
+            dbg.update(bounds_debug)
+            dbg["explain"] = {
+                "phase": "inter_map_break",
+                "p_base_map": None,
+                "p_base_series": None,
+                "midround_weight": 0.0,
+                "q_intra_total": None,
+                "q_terms": {},
+                "micro_adj": {"alive_adj": 0.0, "hp_adj": 0.0, "econ_adj": 0.0},
+                "rails": {"rail_low": rail_low, "rail_high": rail_high, "corridor_width": cw},
+                "final": {"p_hat_final": p_hat, "clamp_reason": "inter_map_break"},
+            }
+        else:
+            bounds = (bound_low, bound_high)
+            rails_result = compute_rails(frame, config, new_state, bounds)
+            rail_low, rail_high = rails_result[0], rails_result[1]
+            rails_debug = rails_result[2] if len(rails_result) > 2 else {}
+            p_hat, dbg = resolve_p_hat(frame, config, new_state, (rail_low, rail_high))
+            dbg = {**dbg, **bounds_debug, **rails_debug}
+            dbg["source"] = "GRID"
+            dbg["grid_series_id"] = grid_series_id
+            dbg["match_context_diag"] = _match_context_diag(ctx, _sel_decision.to_diag() if _sel_decision else None)
+        dbg["raw"] = build_raw_debug(frame)
+        dbg["fragility"] = compute_fragility_debug(frame)
+        market_mid, market_dbg = self._get_market_for_point(config)
+        dbg.update(market_dbg)
+        from engine.compute.breach import compute_breach_flags
+        from engine.diagnostics.invariants import compute_corridor_invariants
+        breach_map_hi, breach_map_lo, breach_series_hi, breach_series_lo, breach_mag, breach_type = compute_breach_flags(
+            market_mid, bound_low, bound_high, rail_low, rail_high
+        )
+        dbg["breach_map_hi"] = breach_map_hi
+        dbg["breach_map_lo"] = breach_map_lo
+        dbg["breach_series_hi"] = breach_series_hi
+        dbg["breach_series_lo"] = breach_series_lo
+        dbg["breach_mag"] = breach_mag
+        inv = compute_corridor_invariants(
+            series_low=bound_low,
+            series_high=bound_high,
+            map_low=rail_low,
+            map_high=rail_high,
+            p_hat=p_hat,
+        )
+        dbg.update(inv)
+        explain = dbg.get("explain") or _minimal_explain("live", rail_low, rail_high, p_hat, clamp_reason="grid")
+        identity_kw = _team_identity_for_point(frame, config)
+        point = HistoryPoint(
+            time=t,
+            p_hat=p_hat,
+            bound_low=bound_low,
+            bound_high=bound_high,
+            rail_low=rail_low,
+            rail_high=rail_high,
+            market_mid=market_mid,
+            segment_id=new_state.segment_id,
+            map_index=getattr(frame, "map_index", 0),
+            round_number=getattr(state, "round_index", None),
+            game_number=getattr(state, "game_index", None),
+            explain=explain,
+            **identity_kw,
+        )
+        derived = Derived(
+            p_hat=p_hat,
+            bound_low=bound_low,
+            bound_high=bound_high,
+            rail_low=rail_low,
+            rail_high=rail_high,
+            kappa=0.0,
+            debug=dbg,
+        )
+        if session_runtime is not None:
+            session_runtime.last_state = new_state
+            session_runtime.last_frame = asdict(frame)
+            session_runtime.last_update_ts = t
+            session_runtime.last_error = None
+        if write_to_store:
+            await self._store.append_point(point, new_state, derived)
+            await self._broadcast_point(point)
+        return True
+
+    async def _tick_grid_for_series(
+        self, series_id: str, config: Config, is_primary: bool
+    ) -> bool:
+        """Multi-session: tick one GRID series; use session ctx and grid_state; only primary writes to store."""
+        from engine.telemetry import SessionKey, SourceKind
+        mid = hash(series_id) % (2**31)
+        key = SessionKey(source=SourceKind.GRID, id=series_id)
+        session = self._get_or_create_session(key, mid)
+        return await self._tick_grid(
+            config,
+            effective_series_id=series_id,
+            session_runtime=session,
+            write_to_store=is_primary,
+        )
 
     async def _tick_replay_point_passthrough(self, payload: dict[str, Any], config: Config) -> bool:
         """Point replay: append wire point as-is, no normalize/resolve; backfill explain if missing."""
@@ -1783,35 +2359,52 @@ class Runner:
                 sleep_interval = interval / speed
             else:
                 sleep_interval = interval
-                did_bo3 = await self._tick_bo3(config)
-                if did_bo3 and getattr(self, "_bo3_buf_consecutive_failures", 0) >= 3:
-                    sleep_interval += 5.0  # mild backoff when BO3 fetch keeps failing
-                if not did_bo3:
+                did_tick = False
+                if self._is_multi_session(config):
+                    if getattr(config, "bo3_auto_track", False):
+                        await self._maybe_refresh_bo3_auto_ids(config, time.time())
+                    bo3_ids = self._effective_bo3_match_ids(config)
+                    grid_ids = self._effective_grid_series_ids(config, now_ts=time.time())
+                    for i, mid in enumerate(bo3_ids):
+                        is_primary = i == 0 and len(bo3_ids) > 0
+                        did_tick = await self._tick_bo3_for_match(mid, config, is_primary) or did_tick
+                        if did_tick and getattr(self, "_bo3_buf_consecutive_failures", 0) >= 3:
+                            sleep_interval += 5.0
+                    for i, sid in enumerate(grid_ids):
+                        is_primary = len(bo3_ids) == 0 and i == 0
+                        did_tick = await self._tick_grid_for_series(sid, config, is_primary) or did_tick
+                else:
+                    src = getattr(config, "source", None)
+                    if src == "GRID":
+                        did_tick = await self._tick_grid(config)
+                    elif src == "BO3":
+                        did_tick = await self._tick_bo3(config)
+                        if did_tick and getattr(self, "_bo3_buf_consecutive_failures", 0) >= 3:
+                            sleep_interval += 5.0
+                if not did_tick:
                     src = getattr(config, "source", None)
                     if src == "DUMMY":
-                        # Idle: no history append, no point broadcasts. Optionally one snapshot on first entry.
-                        if not self._dummy_snapshot_sent:
-                            neutral_derived = Derived(
-                                p_hat=0.5,
-                                bound_low=0.01,
-                                bound_high=0.99,
-                                rail_low=0.01,
-                                rail_high=0.99,
-                                kappa=0.0,
-                            )
-                            neutral_state = State(
-                                config=config,
-                                last_frame=Frame(timestamp=time.time(), teams=("A", "B"), scores=(0, 0)),
-                                map_index=0,
-                                last_total_rounds=0,
-                            )
-                            await self._store.set_current(neutral_state, neutral_derived)
-                            current = await self._store.get_current()
-                            history = await self._store.get_history(limit=500)
-                            await self._broadcaster.broadcast(
-                                {"type": "snapshot", "current": current, "history": history}
-                            )
-                            self._dummy_snapshot_sent = True
+                        neutral_derived = Derived(
+                            p_hat=0.5,
+                            bound_low=0.01,
+                            bound_high=0.99,
+                            rail_low=0.01,
+                            rail_high=0.99,
+                            kappa=0.0,
+                        )
+                        neutral_state = State(
+                            config=config,
+                            last_frame=Frame(timestamp=time.time(), teams=("A", "B"), scores=(0, 0)),
+                            map_index=0,
+                            last_total_rounds=0,
+                        )
+                        await self._store.set_current(neutral_state, neutral_derived)
+                        current = await self._store.get_current()
+                        history = await self._store.get_history(limit=500)
+                        await self._broadcaster.broadcast(
+                            {"type": "snapshot", "current": current, "history": history}
+                        )
+                        self._dummy_snapshot_sent = True
                     else:
                         # Legacy fallback when not BO3/REPLAY and source != DUMMY (e.g. BO3 with no match_id)
                         t = time.time()

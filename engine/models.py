@@ -18,6 +18,18 @@ class Config:
 
     source: Literal["BO3", "GRID", "REPLAY", "DUMMY"] = "BO3"
     match_id: Optional[int] = None
+    grid_series_id: Optional[str] = None  # GRID series id when source=GRID
+    bo3_match_ids: Optional[list[int]] = None  # multi-session: list of BO3 match ids
+    grid_series_ids: Optional[list[str]] = None  # multi-session: list of GRID series ids
+    # BO3 auto-track (runtime only; manual bo3_match_ids overrides)
+    bo3_auto_track: Optional[bool] = False
+    bo3_auto_track_limit: Optional[int] = 5
+    bo3_auto_track_refresh_s: Optional[float] = 30.0
+    bo3_auto_track_probe_budget: Optional[int] = 40
+    # GRID auto-track (runtime only; manual grid_series_ids overrides)
+    grid_auto_track: Optional[bool] = False
+    grid_auto_track_limit: Optional[int] = 5
+    grid_auto_track_refresh_s: Optional[float] = 60.0
     poll_interval_s: float = 5.0
     contract_scope: str = ""
     series_fmt: str = ""

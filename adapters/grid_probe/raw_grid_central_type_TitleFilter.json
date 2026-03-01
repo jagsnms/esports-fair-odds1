@@ -1,0 +1,13 @@
+{
+  "kind": "INPUT_OBJECT",
+  "name": "TitleFilter",
+  "inputFields": [
+    {
+      "name": "private",
+      "type": {
+        "kind": "INPUT_OBJECT",
+        "name": "BooleanFilter"
+      }
+    }
+  ]
+}

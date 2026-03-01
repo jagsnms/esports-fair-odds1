@@ -62,6 +62,38 @@ type Bo3Readiness = {
   last_probe_ts: string
 }
 
+/** Session row from GET /api/v1/debug/telemetry/sessions */
+type TelemetrySessionRow = {
+  session_key: string
+  source: string
+  id: string
+  last_update_ts: number | null
+  age_s: number | null
+  ctx?: {
+    active_source?: string | null
+    selector_decision?: { chosen_source?: string | null; reason?: string; considered?: unknown[] }
+    last_accepted_key?: string | null
+    last_env?: { key_display?: string } | null
+    per_source_health?: Record<string, { ok_count?: number; err_count?: number; last_reason?: string | null }>
+  }
+  grid_schedule?: { next_fetch_in_s?: number; last_rate_limit_reason?: string }
+  last_error?: string | null
+}
+
+/** Full response from GET /api/v1/debug/telemetry/sessions */
+type TelemetrySessionsResponse = {
+  now_ts?: number
+  sessions: TelemetrySessionRow[]
+  bo3_auto_track_enabled?: boolean
+  bo3_auto_match_ids?: number[]
+  bo3_auto_last_refresh_age_s?: number | null
+  bo3_readiness_cache_size?: number
+  grid_auto_track_enabled?: boolean
+  grid_auto_track_limit?: number
+  grid_auto_series_ids?: string[]
+  grid_auto_last_refresh_age_s?: number | null
+}
+
 const filterHistoryToSeg = (history: Point[] | undefined, seg: number): Point[] => {
   if (!history || history.length === 0) return []
   const segValues = history
@@ -183,8 +215,15 @@ function App() {
 
   const [debugOpen, setDebugOpen] = useState(false)
 
+  const [telemetrySessions, setTelemetrySessions] = useState<TelemetrySessionsResponse | null>(null)
+  const [telemetryFilterSource, setTelemetryFilterSource] = useState<'all' | 'BO3' | 'GRID'>('all')
+  const [telemetryFilterStatus, setTelemetryFilterStatus] = useState<'all' | 'LIVE' | 'STALE' | 'DEAD'>('all')
+  const [telemetrySearch, setTelemetrySearch] = useState('')
+  const [telemetrySortColumn, setTelemetrySortColumn] = useState<string>('age_s')
+  const [telemetrySortDir, setTelemetrySortDir] = useState<'asc' | 'desc'>('asc')
+
   // LEFT TOOLBAR: one drawer panel at a time
-  const [activePanel, setActivePanel] = useState<'bo3' | 'prematch' | 'market' | 'replay' | null>('bo3')
+  const [activePanel, setActivePanel] = useState<'bo3' | 'prematch' | 'market' | 'replay' | 'telemetry' | null>('bo3')
 
   // Midround V2 weight profile (temporary A/B toggle); persisted in backend via POST /config
   const [midroundV2WeightProfile, setMidroundV2WeightProfile] = useState<'current' | 'learned_v1' | 'learned_v2' | 'learned_fit'>('current')
@@ -334,6 +373,24 @@ function App() {
     const id = setInterval(poll, 5000)
     return () => clearInterval(id)
   }, [])
+
+  // Telemetry Sessions: poll every 5s when panel is open (render-only; does not trigger provider fetches)
+  useEffect(() => {
+    if (activePanel !== 'telemetry') return
+    const poll = async () => {
+      try {
+        const r = await fetch(`${API_BASE}/api/v1/debug/telemetry/sessions`)
+        if (!r.ok) return
+        const data = (await r.json()) as TelemetrySessionsResponse
+        setTelemetrySessions(data)
+      } catch {
+        setTelemetrySessions((prev) => prev)
+      }
+    }
+    poll()
+    const id = setInterval(poll, 5000)
+    return () => clearInterval(id)
+  }, [activePanel])
 
   /** Rebuild marker list from episode map and set on p_hat series. Call after adding/updating episode markers. */
   const applyEpisodeMarkers = useCallback(() => {
@@ -1209,11 +1266,159 @@ function App() {
     </section>
   )
 
+  const sessionStatusBadge = (row: TelemetrySessionRow): 'LIVE' | 'STALE' | 'DEAD' => {
+    const age = row.age_s
+    if (row.last_error) return 'DEAD'
+    if (age == null) return 'DEAD'
+    if (age <= 15) return 'LIVE'
+    if (age <= 60) return 'STALE'
+    return 'DEAD'
+  }
+
+  const sessionsFiltered = ((): TelemetrySessionRow[] => {
+    const raw = telemetrySessions?.sessions ?? []
+    let list = raw
+    if (telemetryFilterSource !== 'all') {
+      list = list.filter((s) => s.source === telemetryFilterSource)
+    }
+    if (telemetryFilterStatus !== 'all') {
+      list = list.filter((s) => sessionStatusBadge(s) === telemetryFilterStatus)
+    }
+    if (telemetrySearch.trim()) {
+      const q = telemetrySearch.trim().toLowerCase()
+      list = list.filter((s) => {
+        const key = (s.session_key ?? '').toLowerCase()
+        const id = (s.id ?? '').toLowerCase()
+        const ctxStr = JSON.stringify(s.ctx ?? {}).toLowerCase()
+        return key.includes(q) || id.includes(q) || ctxStr.includes(q)
+      })
+    }
+    const col = telemetrySortColumn
+    const dir = telemetrySortDir === 'asc' ? 1 : -1
+    list = [...list].sort((a, b) => {
+      const aVal = col === 'age_s' ? (a.age_s ?? 9999) : col === 'last_update_ts' ? (a.last_update_ts ?? 0) : col === 'source' ? (a.source ?? '') : col === 'id' ? (a.id ?? '') : (a.session_key ?? '')
+      const bVal = col === 'age_s' ? (b.age_s ?? 9999) : col === 'last_update_ts' ? (b.last_update_ts ?? 0) : col === 'source' ? (b.source ?? '') : col === 'id' ? (b.id ?? '') : (b.session_key ?? '')
+      if (typeof aVal === 'number' && typeof bVal === 'number') return (aVal - bVal) * dir
+      return String(aVal).localeCompare(String(bVal)) * dir
+    })
+    return list
+  })()
+
+  const handleSort = (column: string) => {
+    setTelemetrySortColumn(column)
+    setTelemetrySortDir((prev) => (telemetrySortColumn === column && prev === 'asc' ? 'desc' : 'asc'))
+  }
+
+  const TelemetrySessionsPanel = (
+    <section style={{ padding: 12, border: '1px solid #374151', borderRadius: 6 }}>
+      <h3 style={{ marginTop: 0 }}>Telemetry Sessions</h3>
+      <p style={{ marginTop: 0, fontSize: 12, color: '#9ca3af' }}>
+        GET /debug/telemetry/sessions · poll 5s
+      </p>
+      {(() => {
+        const d = telemetrySessions
+        const hasBo3 = (d?.bo3_auto_match_ids?.length ?? 0) > 0 || d?.bo3_auto_track_enabled
+        const hasGrid = (d?.grid_auto_series_ids?.length ?? 0) > 0 || d?.grid_auto_track_enabled
+        if (!hasBo3 && !hasGrid) return null
+        return (
+          <div style={{ marginBottom: 12, padding: 8, background: '#1f2937', borderRadius: 6, fontSize: 12 }}>
+            <strong style={{ color: '#e5e7eb' }}>Auto-track</strong>
+            {d?.bo3_auto_track_enabled && (
+              <div style={{ marginTop: 4 }}>
+                BO3: {Array.isArray(d.bo3_auto_match_ids) ? d.bo3_auto_match_ids.join(', ') : '—'}
+                {d.bo3_auto_last_refresh_age_s != null && ` · refresh ${d.bo3_auto_last_refresh_age_s}s ago`}
+                {d.bo3_readiness_cache_size != null && ` · cache ${d.bo3_readiness_cache_size}`}
+              </div>
+            )}
+            {d?.grid_auto_track_enabled && (
+              <div style={{ marginTop: 4 }}>
+                GRID: {Array.isArray(d.grid_auto_series_ids) ? d.grid_auto_series_ids.join(', ') : '—'}
+                {d.grid_auto_last_refresh_age_s != null && ` · refresh ${d.grid_auto_last_refresh_age_s}s ago`}
+                {d.grid_auto_track_limit != null && ` · limit ${d.grid_auto_track_limit}`}
+              </div>
+            )}
+          </div>
+        )
+      })()}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ fontSize: 12, color: '#9ca3af' }}>Source</span>
+          <select value={telemetryFilterSource} onChange={(e) => setTelemetryFilterSource(e.target.value as 'all' | 'BO3' | 'GRID')} style={{ padding: '2px 6px', fontSize: 12 }}>
+            <option value="all">All</option>
+            <option value="BO3">BO3</option>
+            <option value="GRID">GRID</option>
+          </select>
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ fontSize: 12, color: '#9ca3af' }}>Status</span>
+          <select value={telemetryFilterStatus} onChange={(e) => setTelemetryFilterStatus(e.target.value as 'all' | 'LIVE' | 'STALE' | 'DEAD')} style={{ padding: '2px 6px', fontSize: 12 }}>
+            <option value="all">All</option>
+            <option value="LIVE">LIVE</option>
+            <option value="STALE">STALE</option>
+            <option value="DEAD">DEAD</option>
+          </select>
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ fontSize: 12, color: '#9ca3af' }}>Search</span>
+          <input type="text" value={telemetrySearch} onChange={(e) => setTelemetrySearch(e.target.value)} placeholder="id / key / ctx…" style={{ width: 140, padding: '2px 6px', fontSize: 12 }} />
+        </label>
+      </div>
+      <div style={{ overflowX: 'auto', fontSize: 11 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', color: '#e5e7eb' }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid #374151' }}>
+              {(['session_key', 'source', 'id', 'status', 'age_s', 'last_update_ts', 'active_source', 'chosen_source', 'key_display', 'health', 'next_fetch_in_s'] as const).map((col) => {
+                const sortCol = col === 'status' ? 'age_s' : ['session_key', 'source', 'id', 'age_s', 'last_update_ts'].includes(col) ? col : null
+                return (
+                  <th key={col} style={{ textAlign: 'left', padding: '6px 4px', whiteSpace: 'nowrap', cursor: sortCol ? 'pointer' : 'default' }} onClick={sortCol ? () => handleSort(sortCol) : undefined}>
+                    {col === 'key_display' ? 'last_env.key' : col === 'health' ? 'per_source_health' : col === 'next_fetch_in_s' ? 'grid next_fetch_s' : col}
+                    {sortCol && telemetrySortColumn === sortCol ? (telemetrySortDir === 'asc' ? ' ↑' : ' ↓') : ''}
+                  </th>
+                )
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {sessionsFiltered.length === 0 && (
+              <tr><td colSpan={11} style={{ padding: 12, color: '#9ca3af' }}>No sessions (or none match filters).</td></tr>
+            )}
+            {sessionsFiltered.map((row, idx) => {
+              const status = sessionStatusBadge(row)
+              const badgeColor = status === 'LIVE' ? '#22c55e' : status === 'STALE' ? '#f59e0b' : '#ef4444'
+              const ctx = row.ctx ?? {}
+              const sel = ctx.selector_decision
+              const chosen = sel && typeof sel === 'object' && 'chosen_source' in sel ? (sel as { chosen_source?: string }).chosen_source : null
+              const keyDisplay = ctx.last_env && typeof ctx.last_env === 'object' && 'key_display' in ctx.last_env ? (ctx.last_env as { key_display?: string }).key_display : null
+              const health = ctx.per_source_health
+              const healthStr = health && typeof health === 'object' ? Object.entries(health).map(([k, v]) => `${k}: ok=${(v as any)?.ok_count ?? 0} err=${(v as any)?.err_count ?? 0}${(v as any)?.last_reason ? ` ${(v as any).last_reason}` : ''}`).join('; ') : '—'
+              return (
+                <tr key={row.session_key + row.id + String(idx)} style={{ borderBottom: '1px solid #374151' }}>
+                  <td style={{ padding: '4px 4px' }} title={row.session_key}>{String(row.session_key ?? '').slice(0, 20)}{(row.session_key?.length ?? 0) > 20 ? '…' : ''}</td>
+                  <td style={{ padding: '4px 4px' }}>{row.source ?? '—'}</td>
+                  <td style={{ padding: '4px 4px' }}>{row.id ?? '—'}</td>
+                  <td style={{ padding: '4px 4px' }}><span style={{ background: badgeColor, color: '#fff', padding: '1px 6px', borderRadius: 4, fontSize: 10 }}>{status}</span></td>
+                  <td style={{ padding: '4px 4px' }}>{row.age_s != null ? row.age_s : '—'}</td>
+                  <td style={{ padding: '4px 4px' }}>{row.last_update_ts != null ? new Date(row.last_update_ts * 1000).toISOString().slice(11, 19) : '—'}</td>
+                  <td style={{ padding: '4px 4px' }}>{ctx.active_source ?? '—'}</td>
+                  <td style={{ padding: '4px 4px' }}>{chosen ?? '—'}</td>
+                  <td style={{ padding: '4px 4px', maxWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis' }} title={keyDisplay ?? ''}>{keyDisplay ?? '—'}</td>
+                  <td style={{ padding: '4px 4px', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis' }} title={healthStr}>{healthStr.slice(0, 40)}{healthStr.length > 40 ? '…' : ''}</td>
+                  <td style={{ padding: '4px 4px' }}>{row.grid_schedule?.next_fetch_in_s != null ? row.grid_schedule.next_fetch_in_s : '—'}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )
+
   const DrawerContent =
     activePanel === 'bo3' ? Bo3Panel :
     activePanel === 'prematch' ? PrematchPanel :
     activePanel === 'market' ? MarketPanel :
     activePanel === 'replay' ? ReplayPanel :
+    activePanel === 'telemetry' ? TelemetrySessionsPanel :
     null
 
   return (
@@ -1246,6 +1451,7 @@ function App() {
                 { id: 'prematch' as const, label: 'Pre' },
                 { id: 'market' as const, label: 'Mkt' },
                 { id: 'replay' as const, label: 'Rep' },
+                { id: 'telemetry' as const, label: 'Sess' },
               ] as const
             ).map((tab) => {
               const isActive = activePanel === tab.id
