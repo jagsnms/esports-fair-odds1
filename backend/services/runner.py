@@ -26,6 +26,8 @@ logger = logging.getLogger(__name__)
 _BO3_RAW_RECORD_ENABLED = os.environ.get("BO3_RAW_RECORD_ENABLED", "true").strip().lower() in ("1", "true", "yes")
 _BO3_RAW_RECORD_DIR = (os.environ.get("BO3_RAW_RECORD_DIR", "logs") or "logs").strip()
 _BO3_RAW_RECORD_PER_MATCH = os.environ.get("BO3_RAW_RECORD_PER_MATCH", "true").strip().lower() in ("1", "true", "yes")
+# Monotonic gating: reject out-of-order BO3 frames (time rewind)
+_BO3_TICK_MONOTONIC_DEBUG = os.environ.get("BO3_TICK_MONOTONIC_DEBUG", "false").strip().lower() in ("1", "true", "yes")
 
 
 def _minimal_explain(
@@ -410,6 +412,10 @@ class Runner:
         self._bo3_raw_last_sig_by_match: dict[int, tuple[Any, ...]] = {}
         # Canonical Team A identity per (game_number, map_index) so round_result labels and score ticks use same definition
         self._map_identity_cache: dict[tuple[int, int], dict[str, Any]] = {}
+        # BO3 tick monotonic gating: reject stale/out-of-order frames (time rewind)
+        from backend.services.bo3_freshness import Bo3FreshnessGate
+        self._bo3_freshness_gate = Bo3FreshnessGate()
+        self._bo3_monotonic_rejected_count: int = 0
         # ML-ready series-line-dislocation episode logger (paper only; emits setup_trigger, episode_start/end/outcome)
         self._trade_episode_manager = TradeEpisodeManager()
 
@@ -428,6 +434,7 @@ class Runner:
         self._bo3_last_seen_match_score_team_two = None
         self._bo3_last_seen_match_score_by_game = {}
         self._map_identity_cache.clear()
+        self._bo3_freshness_gate.clear_cache()
 
     def _ensure_map_identity_from_raw(
         self,
@@ -1122,6 +1129,17 @@ class Runner:
 
         t = time.time()
         health, health_reason, health_age_s = self._bo3_health_from_buffer(frame, t)
+        # Monotonic gating: reject out-of-order frames before they update state (prevents time rewind)
+        accept, gate_reason, gate_diag = self._bo3_freshness_gate.accept_frame(frame, snap if isinstance(snap, dict) else None)
+        if not accept:
+            self._bo3_monotonic_rejected_count += 1
+            if _BO3_TICK_MONOTONIC_DEBUG:
+                logger.warning(
+                    "BO3 monotonic gate rejected frame: %s",
+                    gate_reason,
+                    extra={"diag": gate_diag, "rejected_total": self._bo3_monotonic_rejected_count},
+                )
+            return True
         from engine.compute.bounds import compute_bounds
         from engine.compute.rails import compute_rails
         from engine.compute.resolve import resolve_p_hat
@@ -1176,6 +1194,7 @@ class Runner:
                 "rails": {"rail_low": rail_low, "rail_high": rail_high, "corridor_width": cw},
                 "final": {"p_hat_final": p_hat, "clamp_reason": "inter_map_break"},
             }
+            dbg["bo3_monotonic_gate"] = gate_diag
         else:
             bounds = (bound_low, bound_high)
             rails_result = compute_rails(frame, config, new_state, bounds)
@@ -1183,6 +1202,7 @@ class Runner:
             rails_debug = rails_result[2] if len(rails_result) > 2 else {}
             p_hat, dbg = resolve_p_hat(frame, config, new_state, (rail_low, rail_high))
             dbg = {**dbg, **bounds_debug, **rails_debug}
+            dbg["bo3_monotonic_gate"] = gate_diag
 
         from engine.diagnostics.fragility_cs2 import build_raw_debug, compute_fragility_debug
         dbg["raw"] = build_raw_debug(frame)

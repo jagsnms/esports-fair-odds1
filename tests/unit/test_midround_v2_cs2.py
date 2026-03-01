@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 import unittest
+from types import SimpleNamespace
 
 from engine.compute.midround_v2_cs2 import (
     HP_FRAC_WEIGHT,
@@ -255,6 +256,38 @@ class TestMidroundV2Cs2(unittest.TestCase):
 
     def test_weight_profile_learned_v1_and_current(self) -> None:
         test_weight_profile_learned_v1_and_current()
+
+    def test_learned_fit_team_a_advantage_gives_q_above_half(self) -> None:
+        test_learned_fit_team_a_advantage_gives_q_above_half()
+
+
+def test_learned_fit_team_a_advantage_gives_q_above_half() -> None:
+    """Regression: learned_fit must be Team-A-positive; clear A advantage -> raw_score > 0 and q_intra > 0.5."""
+    # Team A advantage: more alive, more HP share, more loadout
+    features = _features(
+        alive_diff=2,
+        hp_a=400.0,
+        hp_b=200.0,
+        load_a=12000.0,
+        load_b=4000.0,
+        bomb_planted=0,
+    )
+    config = SimpleNamespace(midround_v2_weight_profile="learned_fit")
+    result = apply_cs2_midround_adjustment_v2_mixture(
+        frozen_a=0.7,
+        frozen_b=0.3,
+        features=features,
+        config=config,
+    )
+    assert result.get("weight_profile") == "learned_fit"
+    raw_score = result.get("raw_score_pre_urgency")
+    q_intra = result.get("q_intra")
+    assert raw_score is not None and raw_score > 0, (
+        f"learned_fit with Team A advantage must give raw_score_pre_urgency > 0, got {raw_score}"
+    )
+    assert q_intra is not None and q_intra > 0.5, (
+        f"learned_fit with Team A advantage must give q_intra (p_unshaped) > 0.5, got {q_intra}"
+    )
 
 
 def test_weight_profile_learned_v1_and_current() -> None:

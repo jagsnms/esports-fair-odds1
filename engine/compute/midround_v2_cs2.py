@@ -45,12 +45,12 @@ WEIGHTS_LEARNED_V2 = {
     "bomb": 0.10,
     "cash": 0.0,
 }
-# Fitted suggested_coef from midround_fit_weights (replace with values from your chosen run)
+# Fitted suggested_coef from midround_fit_weights, sign-corrected so Team-A-positive term_raw yields positive score (q_intra > 0.5)
 WEIGHTS_LEARNED_FIT = {
-    "alive": -6.80,
-    "hp": -11.41,
-    "loadout": -0.00392,
-    "bomb": -3.11,
+    "alive": 6.80,
+    "hp": 11.41,
+    "loadout": 0.00392,
+    "bomb": 3.11,
     "cash": 0.0,
 }
 

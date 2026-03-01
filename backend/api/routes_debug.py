@@ -4,12 +4,17 @@ Temporary; no impact on model logic.
 """
 from __future__ import annotations
 
+import asyncio
 import copy
 import json
+import time
 
 from fastapi import APIRouter, HTTPException, Query
 
 from backend.deps import get_runner, get_store
+
+BO3_WS_PROBE_WAIT_S = 3.0
+BO3_WS_FIRST_NON_PING_MAX_CHARS = 500
 
 router = APIRouter(prefix="/debug", tags=["debug"])
 
@@ -58,6 +63,73 @@ def _truncate_raw(snap: dict) -> tuple[dict | str, bool]:
     except Exception:
         pass
     return (js[:MAX_RAW_JSON_CHARS], True)
+
+
+@router.get("/bo3/ws_probe/{match_id}")
+async def get_debug_bo3_ws_probe(match_id: int) -> dict:
+    """
+    Test-only: connect to BO3 live WS, wait up to 3s, count ping/pong vs data messages.
+    Returns connected, total_messages, ping_pong_messages, non_ping_messages,
+    first_non_ping_truncated, error_if_any. No API keys; read-only probe.
+    """
+    uri = f"wss://live.bo3.gg/ws/live_game/{match_id}"
+    out = {
+        "match_id": match_id,
+        "connected": False,
+        "total_messages": 0,
+        "ping_pong_messages": 0,
+        "non_ping_messages": 0,
+        "first_non_ping_truncated": None,
+        "error_if_any": None,
+    }
+    try:
+        import websockets
+    except ImportError:
+        out["error_if_any"] = "websockets not installed"
+        return out
+    try:
+        async with websockets.connect(
+            uri,
+            open_timeout=5.0,
+            close_timeout=1.0,
+        ) as ws:
+            out["connected"] = True
+            deadline = time.monotonic() + BO3_WS_PROBE_WAIT_S
+            first_non_ping: str | None = None
+            while time.monotonic() < deadline:
+                remaining = max(0.1, deadline - time.monotonic())
+                try:
+                    msg = await asyncio.wait_for(ws.recv(), timeout=min(0.5, remaining))
+                except asyncio.TimeoutError:
+                    break
+                out["total_messages"] += 1
+                is_ping_pong = False
+                if isinstance(msg, str):
+                    low = msg.strip().lower()
+                    if low in ("ping", "pong"):
+                        is_ping_pong = True
+                elif isinstance(msg, bytes):
+                    try:
+                        low = msg.decode("utf-8", errors="replace").strip().lower()
+                        if low in ("ping", "pong"):
+                            is_ping_pong = True
+                    except Exception:
+                        pass
+                if is_ping_pong:
+                    out["ping_pong_messages"] += 1
+                else:
+                    out["non_ping_messages"] += 1
+                    if first_non_ping is None:
+                        first_non_ping = msg if isinstance(msg, str) else msg.decode("utf-8", errors="replace")
+            if first_non_ping is not None:
+                out["first_non_ping_truncated"] = (
+                    first_non_ping[:BO3_WS_FIRST_NON_PING_MAX_CHARS]
+                    if len(first_non_ping) > BO3_WS_FIRST_NON_PING_MAX_CHARS
+                    else first_non_ping
+                )
+    except Exception as e:
+        out["error_if_any"] = str(e)
+    return out
 
 
 @router.get("/bo3/last_snapshot")
