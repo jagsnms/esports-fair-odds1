@@ -71,6 +71,7 @@ class MatchContext:
     last_switch_ts: float | None = None
     last_switch_reason: str | None = None
     last_accepted_env_summary: dict | None = None  # {source, match_id, key_display, observed_ts} for debug
+    last_drive_deny_reason: str | None = None  # when envelope accepted but not allowed to drive compute (e.g. inactive_source)
 
     def get_or_create_source_health(self, source: SourceKind) -> SourceHealth:
         if source not in self.per_source_health:

@@ -222,8 +222,10 @@ function App() {
   const [telemetrySortColumn, setTelemetrySortColumn] = useState<string>('age_s')
   const [telemetrySortDir, setTelemetrySortDir] = useState<'asc' | 'desc'>('asc')
 
+  const [gridCandidates, setGridCandidates] = useState<Array<{ series_id?: string; name?: string; tournament_name?: string; start_time?: string; live_data_feed_level?: string }>>([])
+
   // LEFT TOOLBAR: one drawer panel at a time
-  const [activePanel, setActivePanel] = useState<'bo3' | 'prematch' | 'market' | 'replay' | 'telemetry' | null>('bo3')
+  const [activePanel, setActivePanel] = useState<'bo3' | 'prematch' | 'market' | 'replay' | 'telemetry' | 'telemetry_controls' | null>('bo3')
 
   // Midround V2 weight profile (temporary A/B toggle); persisted in backend via POST /config
   const [midroundV2WeightProfile, setMidroundV2WeightProfile] = useState<'current' | 'learned_v1' | 'learned_v2' | 'learned_fit'>('current')
@@ -1413,12 +1415,276 @@ function App() {
     </section>
   )
 
+  const cfg = (current?.state as { config?: Record<string, unknown> } | undefined)?.config ?? {} as Record<string, unknown>
+  const postConfigPartial = async (partial: Record<string, unknown>) => {
+    setConfigError(null)
+    try {
+      const r = await fetch(`${API_BASE}/api/v1/config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(partial),
+      })
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}))
+        setConfigError(String((body as { detail?: string })?.detail ?? (body as { message?: string })?.message ?? r.statusText))
+        return
+      }
+      setWsReconnectTrigger((prev) => prev + 1)
+    } catch (e) {
+      setConfigError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  const clampLimit = (v: number) => Math.max(0, Math.min(50, Math.round(v)))
+  const clampRefreshS = (v: number) => Math.max(10, Number(v))
+  const clampProbeBudget = (v: number) => Math.max(5, Math.min(200, Math.round(v)))
+
+  const TelemetryControlsPanel = (
+    <section style={{ padding: 12, border: '1px solid #374151', borderRadius: 6 }}>
+      <h3 style={{ marginTop: 0 }}>Telemetry Controls</h3>
+      <p style={{ marginTop: 0, fontSize: 12, color: '#9ca3af' }}>Config from current.state.config · POST /api/v1/config</p>
+
+      {/* BO3 */}
+      <div style={{ marginTop: 12, paddingBottom: 12, borderBottom: '1px solid #374151' }}>
+        <strong style={{ color: '#9ca3af', fontSize: 12 }}>BO3</strong>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+          <input
+            type="checkbox"
+            checked={!!cfg.bo3_auto_track}
+            onChange={(e) => postConfigPartial({ bo3_auto_track: e.target.checked })}
+          />
+          <span style={{ fontSize: 12 }}>bo3_auto_track</span>
+        </label>
+        <label style={{ display: 'block', marginTop: 6, fontSize: 12 }}>
+          bo3_auto_track_limit (0–50)
+          <input
+            type="number"
+            min={0}
+            max={50}
+            value={typeof cfg.bo3_auto_track_limit === 'number' ? cfg.bo3_auto_track_limit : (cfg.bo3_auto_track_limit ?? 5)}
+            onChange={(e) => postConfigPartial({ bo3_auto_track_limit: clampLimit(Number(e.target.value) || 0) })}
+            style={{ marginLeft: 8, width: 56, padding: '2px 4px' }}
+          />
+        </label>
+        <label style={{ display: 'block', marginTop: 6, fontSize: 12 }}>
+          bo3_auto_track_refresh_s (min 10)
+          <input
+            type="number"
+            min={10}
+            step={1}
+            value={typeof cfg.bo3_auto_track_refresh_s === 'number' ? cfg.bo3_auto_track_refresh_s : (cfg.bo3_auto_track_refresh_s ?? 30)}
+            onChange={(e) => postConfigPartial({ bo3_auto_track_refresh_s: clampRefreshS(Number(e.target.value) || 10) })}
+            style={{ marginLeft: 8, width: 56, padding: '2px 4px' }}
+          />
+        </label>
+        <label style={{ display: 'block', marginTop: 6, fontSize: 12 }}>
+          bo3_auto_track_probe_budget (5–200)
+          <input
+            type="number"
+            min={5}
+            max={200}
+            value={typeof cfg.bo3_auto_track_probe_budget === 'number' ? cfg.bo3_auto_track_probe_budget : (cfg.bo3_auto_track_probe_budget ?? 40)}
+            onChange={(e) => postConfigPartial({ bo3_auto_track_probe_budget: clampProbeBudget(Number(e.target.value) || 40) })}
+            style={{ marginLeft: 8, width: 56, padding: '2px 4px' }}
+          />
+        </label>
+        <div style={{ marginTop: 8, fontSize: 12 }}>
+          <span style={{ color: '#9ca3af' }}>bo3_match_ids (manual)</span>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+            {(Array.isArray(cfg.bo3_match_ids) ? cfg.bo3_match_ids : []).map((id: unknown) => (
+              <span
+                key={String(id)}
+                style={{ background: '#374151', padding: '2px 8px', borderRadius: 4, fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}
+              >
+                {String(id)}
+                <button type="button" onClick={() => postConfigPartial({ bo3_match_ids: (cfg.bo3_match_ids as unknown[]).filter((x) => x !== id) })} style={{ background: 'transparent', border: 'none', color: '#9ca3af', cursor: 'pointer' }}>×</button>
+              </span>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+            <input
+              type="number"
+              placeholder="Match ID"
+              id="bo3-pin-input"
+              style={{ width: 80, padding: '2px 4px', fontSize: 12 }}
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter') return
+                const input = document.getElementById('bo3-pin-input') as HTMLInputElement
+                const v = parseInt(input?.value ?? '', 10)
+                if (!Number.isInteger(v) || v < 0) return
+                const existing = Array.isArray(cfg.bo3_match_ids) ? cfg.bo3_match_ids as number[] : []
+                const next = [...existing.filter((x) => x !== v), v]
+                postConfigPartial({ bo3_match_ids: next })
+                input.value = ''
+              }}
+            />
+            <button type="button" onClick={() => {
+              const input = document.getElementById('bo3-pin-input') as HTMLInputElement
+              const v = parseInt(input?.value ?? '', 10)
+              if (!Number.isInteger(v) || v < 0) return
+              const existing = Array.isArray(cfg.bo3_match_ids) ? (cfg.bo3_match_ids as number[]) : []
+              const next = [...existing.filter((x) => x !== v), v]
+              postConfigPartial({ bo3_match_ids: next })
+              input.value = ''
+            }} style={{ padding: '2px 8px', fontSize: 12 }}>Add BO3 ID</button>
+          </div>
+        </div>
+      </div>
+
+      {/* GRID */}
+      <div style={{ marginTop: 12, paddingBottom: 12, borderBottom: '1px solid #374151' }}>
+        <strong style={{ color: '#9ca3af', fontSize: 12 }}>GRID</strong>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+          <input
+            type="checkbox"
+            checked={!!cfg.grid_auto_track}
+            onChange={(e) => postConfigPartial({ grid_auto_track: e.target.checked })}
+          />
+          <span style={{ fontSize: 12 }}>grid_auto_track</span>
+        </label>
+        <label style={{ display: 'block', marginTop: 6, fontSize: 12 }}>
+          grid_auto_track_limit (0–50)
+          <input
+            type="number"
+            min={0}
+            max={50}
+            value={typeof cfg.grid_auto_track_limit === 'number' ? cfg.grid_auto_track_limit : (cfg.grid_auto_track_limit ?? 5)}
+            onChange={(e) => postConfigPartial({ grid_auto_track_limit: clampLimit(Number(e.target.value) || 0) })}
+            style={{ marginLeft: 8, width: 56, padding: '2px 4px' }}
+          />
+        </label>
+        <label style={{ display: 'block', marginTop: 6, fontSize: 12 }}>
+          grid_auto_track_refresh_s (min 10)
+          <input
+            type="number"
+            min={10}
+            step={1}
+            value={typeof cfg.grid_auto_track_refresh_s === 'number' ? cfg.grid_auto_track_refresh_s : (cfg.grid_auto_track_refresh_s ?? 60)}
+            onChange={(e) => postConfigPartial({ grid_auto_track_refresh_s: clampRefreshS(Number(e.target.value) || 10) })}
+            style={{ marginLeft: 8, width: 56, padding: '2px 4px' }}
+          />
+        </label>
+        <div style={{ marginTop: 8, fontSize: 12 }}>
+          <span style={{ color: '#9ca3af' }}>grid_series_ids (manual)</span>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+            {(Array.isArray(cfg.grid_series_ids) ? cfg.grid_series_ids : []).map((id: unknown) => (
+              <span
+                key={String(id)}
+                style={{ background: '#374151', padding: '2px 8px', borderRadius: 4, fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}
+              >
+                {String(id)}
+                <button type="button" onClick={() => postConfigPartial({ grid_series_ids: (cfg.grid_series_ids as unknown[]).filter((x) => x !== id) })} style={{ background: 'transparent', border: 'none', color: '#9ca3af', cursor: 'pointer' }}>×</button>
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Buttons */}
+      <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <button
+          type="button"
+          onClick={() => postConfigPartial({ bo3_auto_track: false, grid_auto_track: false, bo3_match_ids: [], grid_series_ids: [] })}
+          style={{ padding: '6px 12px', fontSize: 12, background: '#7f1d1d', color: '#fecaca', border: '1px solid #991b1b', borderRadius: 6, cursor: 'pointer' }}
+        >
+          Stop all telemetry
+        </button>
+        <button
+          type="button"
+          onClick={async () => {
+            setConfigError(null)
+            try {
+              const r = await fetch(`${API_BASE}/api/v1/debug/telemetry/clear_sessions`, { method: 'POST' })
+              if (!r.ok) {
+                const body = await r.json().catch(() => ({}))
+                setConfigError(String((body as { detail?: string })?.detail ?? r.statusText))
+                return
+              }
+              setWsReconnectTrigger((prev) => prev + 1)
+            } catch (e) {
+              setConfigError(e instanceof Error ? e.message : String(e))
+            }
+          }}
+          style={{ padding: '6px 12px', fontSize: 12, background: '#374151', color: '#e5e7eb', border: '1px solid #4b5563', borderRadius: 6, cursor: 'pointer' }}
+        >
+          Clear sessions (runtime)
+        </button>
+      </div>
+
+      {/* GRID candidate picker */}
+      <div style={{ marginTop: 12, paddingBottom: 12, borderBottom: '1px solid #374151' }}>
+        <strong style={{ color: '#9ca3af', fontSize: 12 }}>GRID candidates</strong>
+        <button
+          type="button"
+          onClick={async () => {
+            try {
+              const r = await fetch(`${API_BASE}/api/v1/grid/candidates?limit=25`)
+              const data = await r.json()
+              setGridCandidates(Array.isArray(data) ? data : [])
+            } catch {
+              setGridCandidates([])
+            }
+          }}
+          style={{ marginTop: 6, padding: '4px 8px', fontSize: 12 }}
+        >
+          Load GRID candidates
+        </button>
+        {gridCandidates.length > 0 && (
+          <div style={{ marginTop: 8, maxHeight: 180, overflowY: 'auto', fontSize: 11 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid #374151' }}>
+                  <th style={{ textAlign: 'left', padding: '2px 4px' }}>series_id</th>
+                  <th style={{ textAlign: 'left', padding: '2px 4px' }}>name</th>
+                  <th style={{ textAlign: 'left', padding: '2px 4px' }}>tournament</th>
+                  <th style={{ textAlign: 'left', padding: '2px 4px' }}>start_time</th>
+                  <th style={{ textAlign: 'left', padding: '2px 4px' }}>level</th>
+                  <th style={{ textAlign: 'left', padding: '2px 4px' }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {gridCandidates.map((c) => {
+                  const sid = c.series_id ?? ''
+                  return (
+                    <tr key={sid} style={{ borderBottom: '1px solid #1f2937' }}>
+                      <td style={{ padding: '2px 4px' }}>{sid}</td>
+                      <td style={{ padding: '2px 4px' }}>{(c as { name?: string }).name ?? '—'}</td>
+                      <td style={{ padding: '2px 4px' }}>{(c as { tournament_name?: string }).tournament_name ?? '—'}</td>
+                      <td style={{ padding: '2px 4px' }}>{(c as { start_time?: string }).start_time ?? '—'}</td>
+                      <td style={{ padding: '2px 4px' }}>{(c as { live_data_feed_level?: string }).live_data_feed_level ?? '—'}</td>
+                      <td style={{ padding: '2px 4px' }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const existing = Array.isArray(cfg.grid_series_ids) ? (cfg.grid_series_ids as string[]) : []
+                            const next = [...existing.filter((x) => x !== sid), sid]
+                            postConfigPartial({ grid_series_ids: next })
+                          }}
+                          style={{ padding: '1px 6px', fontSize: 10 }}
+                        >
+                          Pin
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {configError && <p style={{ color: '#ef4444', fontSize: 12, marginTop: 8 }}>{configError}</p>}
+    </section>
+  )
+
   const DrawerContent =
     activePanel === 'bo3' ? Bo3Panel :
     activePanel === 'prematch' ? PrematchPanel :
     activePanel === 'market' ? MarketPanel :
     activePanel === 'replay' ? ReplayPanel :
     activePanel === 'telemetry' ? TelemetrySessionsPanel :
+    activePanel === 'telemetry_controls' ? TelemetryControlsPanel :
     null
 
   return (
@@ -1452,6 +1718,7 @@ function App() {
                 { id: 'market' as const, label: 'Mkt' },
                 { id: 'replay' as const, label: 'Rep' },
                 { id: 'telemetry' as const, label: 'Sess' },
+                { id: 'telemetry_controls' as const, label: 'Ctl' },
               ] as const
             ).map((tab) => {
               const isActive = activePanel === tab.id

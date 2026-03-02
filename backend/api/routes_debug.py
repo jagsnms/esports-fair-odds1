@@ -203,3 +203,14 @@ async def get_debug_telemetry_sessions() -> dict:
     runner = get_runner()
     config = await get_store().get_config()
     return getattr(runner, "get_sessions_diag", lambda c=None: {"now_ts": time.time(), "sessions": []})(config)
+
+
+@router.post("/telemetry/clear_sessions")
+async def post_debug_telemetry_clear_sessions() -> dict:
+    """
+    Clear runtime session state only: sessions registry, auto-track lists, readiness cache, grid schedule.
+    Does NOT modify persistent config. Returns { "ok": true }.
+    """
+    runner = get_runner()
+    getattr(runner, "clear_sessions", lambda: None)()
+    return {"ok": True}

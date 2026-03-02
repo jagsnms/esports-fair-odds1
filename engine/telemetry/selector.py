@@ -177,3 +177,39 @@ def maybe_switch(
     ctx.last_switch_ts = now_ts
     ctx.last_switch_reason = f"switch_to_{chosen}"
     return (True, ctx.last_switch_reason)
+
+
+def allowed_to_drive(
+    ctx: "MatchContext",
+    env_source: "SourceKind",
+    now_ts: float,
+    round_phase: str | None,
+    policy: "SourceSelectorPolicy | None" = None,
+) -> tuple[bool, str]:
+    """
+    Decide whether an accepted envelope from env_source is allowed to drive reduce/compute/write.
+    Returns (allowed: bool, reason: str).
+    - If ctx.active_source is None: allow and set ctx.active_source = env_source (bootstrap).
+    - If ctx.active_source == env_source: allow.
+    - Else: if active is stale and maybe_switch would switch to env_source, run maybe_switch and allow if switched.
+    - Else: deny (inactive_source).
+    """
+    from engine.telemetry.core import SourceKind
+
+    active = getattr(ctx, "active_source", None)
+    env_name = _source_name(env_source)
+
+    if active is None:
+        ctx.active_source = env_source
+        return (True, "bootstrap")
+
+    if active == env_source:
+        return (True, "active")
+
+    policy = policy or default_source_selector_policy()
+    decision = decide(ctx, now_ts, policy, round_phase)
+    if decision.chosen_source == env_name:
+        switched, reason = maybe_switch(ctx, decision, now_ts, policy, round_phase)
+        if switched:
+            return (True, reason)
+    return (False, "inactive_source")

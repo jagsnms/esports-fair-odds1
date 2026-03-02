@@ -8,6 +8,7 @@ import pytest
 from engine.telemetry.core import MatchContext, SourceHealth, SourceKind
 from engine.telemetry.selector import (
     SourceSelectorPolicy,
+    allowed_to_drive,
     decide,
     is_fresh,
     maybe_switch,
@@ -210,3 +211,68 @@ def test_source_decision_to_diag() -> None:
     assert diag["chosen_source"] == "BO3"
     assert diag["reason"] == "fresh"
     assert diag["considered"] == [("BO3", "fresh"), ("GRID", "missing")]
+
+
+# --- allowed_to_drive (authoritative selector: execution must match decision) ---
+
+
+def test_allowed_to_drive_bootstrap() -> None:
+    """When ctx.active_source is None, allow and set active_source = env_source (bootstrap)."""
+    ctx = MatchContext(match_id=1)
+    assert ctx.active_source is None
+    allow, reason = allowed_to_drive(ctx, SourceKind.BO3, 1000.0, None)
+    assert allow is True
+    assert reason == "bootstrap"
+    assert ctx.active_source == SourceKind.BO3
+
+
+def test_allowed_to_drive_active_matches() -> None:
+    """When ctx.active_source == env_source, allow."""
+    ctx = _ctx_with_health(bo3_ok_ts=999.0, active_source=SourceKind.BO3)
+    allow, reason = allowed_to_drive(ctx, SourceKind.BO3, 1000.0, None)
+    assert allow is True
+    assert reason == "active"
+    assert ctx.active_source == SourceKind.BO3
+
+
+def test_allowed_to_drive_deny_inactive_source() -> None:
+    """When ctx.active_source is BO3 and env_source is GRID (and BO3 still preferred/fresh), deny (inactive_source)."""
+    ctx = _ctx_with_health(bo3_ok_ts=999.0, grid_ok_ts=999.0, grid_ok_count=1, active_source=SourceKind.BO3)
+    allow, reason = allowed_to_drive(ctx, SourceKind.GRID, 1000.0, None)
+    assert allow is False
+    assert reason == "inactive_source"
+    assert ctx.active_source == SourceKind.BO3
+
+
+def test_allowed_to_drive_allow_after_switch_when_active_stale() -> None:
+    """When active is BO3 (stale), env_source is GRID (fresh), and not mid-round: maybe_switch switches to GRID, then allow."""
+    ctx = _ctx_with_health(
+        bo3_ok_ts=990.0,
+        grid_ok_ts=999.0,
+        grid_ok_count=1,
+        active_source=SourceKind.BO3,
+    )
+    policy = SourceSelectorPolicy(
+        stale_after_s={"BO3": 5.0, "GRID": 3.0},
+        switch_cooldown_s=10.0,
+        prefer_order=["GRID", "BO3"],
+        allow_mid_round_switch=False,
+    )
+    allow, reason = allowed_to_drive(ctx, SourceKind.GRID, 1000.0, None, policy)
+    assert allow is True
+    assert "switch_to_GRID" in reason
+    assert ctx.active_source == SourceKind.GRID
+
+
+def test_allowed_to_drive_session_runtime_grid_does_not_advance() -> None:
+    """Integration-ish: ctx.active_source=BO3, env.source=GRID => denied; session last_update_ts unchanged (runner would not run reduce/write)."""
+    from engine.telemetry.session import SessionRuntime
+
+    ctx = _ctx_with_health(bo3_ok_ts=999.0, grid_ok_ts=999.0, grid_ok_count=1, active_source=SourceKind.BO3)
+    runtime = SessionRuntime(ctx=ctx, last_state=None, last_frame=None, last_update_ts=100.0, last_error=None, grid_state=None)
+    allow, reason = allowed_to_drive(ctx, SourceKind.GRID, 1000.0, None)
+    assert allow is False
+    assert reason == "inactive_source"
+    assert runtime.last_update_ts == 100.0
+    assert runtime.last_state is None
+    assert runtime.last_frame is None

@@ -153,6 +153,7 @@ def _match_context_diag(ctx: Any, selector_decision: dict[str, Any] | None = Non
         "last_switch_ts": getattr(ctx, "last_switch_ts", None),
         "last_switch_reason": getattr(ctx, "last_switch_reason", None),
         "last_env": getattr(ctx, "last_accepted_env_summary", None),
+        "last_drive_deny_reason": getattr(ctx, "last_drive_deny_reason", None),
     }
     if selector_decision is not None:
         out["selector_decision"] = selector_decision
@@ -493,13 +494,15 @@ class Runner:
         config: Config,
         game_number: int | None,
         map_index: int | None,
+        session_runtime: Any = None,
     ) -> dict[str, Any] | None:
         """Populate canonical identity for (game_number, map_index) from raw payload; return cache entry or None."""
         if game_number is None or map_index is None:
             return None
         key = (int(game_number), int(map_index))
-        if key in self._map_identity_cache:
-            return self._map_identity_cache[key]
+        cache = session_runtime.map_identity_cache if session_runtime is not None else self._map_identity_cache
+        if key in cache:
+            return cache[key]
         t1 = raw.get("team_one") or {}
         t2 = raw.get("team_two") or {}
         try:
@@ -524,7 +527,7 @@ class Runner:
             "team_a_is_team_one": team_a_is_team_one,
             "a_side": a_side,
         }
-        self._map_identity_cache[key] = entry
+        cache[key] = entry
         return entry
 
     def _ensure_map_identity_from_frame(
@@ -533,13 +536,15 @@ class Runner:
         config: Config,
         game_number: int | None,
         map_index: int | None,
+        session_runtime: Any = None,
     ) -> dict[str, Any] | None:
         """Populate canonical identity for (game_number, map_index) from frame; return cache entry or None."""
         if game_number is None or map_index is None:
             return None
         key = (int(game_number), int(map_index))
-        if key in self._map_identity_cache:
-            return self._map_identity_cache[key]
+        cache = session_runtime.map_identity_cache if session_runtime is not None else self._map_identity_cache
+        if key in cache:
+            return cache[key]
         if frame is None:
             return None
         team_one_id = getattr(frame, "team_one_id", None)
@@ -575,7 +580,7 @@ class Runner:
             "team_a_is_team_one": team_a_is_team_one,
             "a_side": a_side,
         }
-        self._map_identity_cache[key] = entry
+        cache[key] = entry
         return entry
 
     def get_replay_progress(self) -> dict[str, int] | None:
@@ -704,6 +709,22 @@ class Runner:
             out["grid_auto_series_ids"] = list(getattr(self, "_grid_auto_series_ids", []))
             out["grid_auto_last_refresh_age_s"] = round(now - last_ts, 1) if last_ts else None
         return out
+
+    def clear_sessions(self) -> None:
+        """
+        Runtime-only cleanup: clear session registry, auto-track lists, readiness cache, grid schedule.
+        Does NOT modify persistent config. Used by POST /debug/telemetry/clear_sessions.
+        """
+        self._sessions.clear()
+        if hasattr(self, "_session_points") and isinstance(getattr(self, "_session_points"), dict):
+            getattr(self, "_session_points").clear()
+        self._bo3_auto_match_ids = []
+        self._grid_auto_series_ids = []
+        self._bo3_auto_last_refresh_ts = 0.0
+        self._grid_auto_last_refresh_ts = 0.0
+        self._bo3_readiness_cache.clear()
+        self._grid_next_fetch_ts.clear()
+        self._grid_last_rate_limit_reason.clear()
 
     def _is_multi_session(self, config: Config) -> bool:
         """True if bo3_match_ids, grid_series_ids (manual), or bo3/grid auto_track is used."""
@@ -877,42 +898,33 @@ class Runner:
         if frame_dict:
             await self._broadcaster.broadcast({"type": "frame", "frame": frame_dict})
 
-    async def _bo3_fetch_into_buffer(self, match_id: int) -> None:
+    async def _bo3_fetch_into_buffer(self, match_id: int, session_runtime: Any) -> None:
         """
         Writer: attempt fetch up to 3 times with short delays; update buffer only.
-        On success: set _bo3_buf_raw, _bo3_buf_snapshot_ts, _bo3_buf_last_success_epoch, clear error/failures.
-        On failure: keep _bo3_buf_raw, set _bo3_buf_last_error, increment _bo3_buf_consecutive_failures.
-        Clear buffer when match_id changes.
+        Writes into session_runtime.bo3_buf_* (per-session, no cross-session leakage).
+        On success: set bo3_buf_raw, bo3_buf_snapshot_ts, bo3_buf_last_success_epoch, clear error/failures.
+        On failure: keep bo3_buf_raw, set bo3_last_err, increment bo3_buf_consecutive_failures.
         """
         mid = int(match_id)
         now = time.time()
-        self._bo3_buf_last_attempt_epoch = now
-        if mid != self._bo3_buf_match_id:
-            self._bo3_buf_raw = None
-            self._bo3_buf_snapshot_ts = None
-            self._bo3_buf_last_success_epoch = None
-            self._bo3_buf_last_error = None
-            self._bo3_buf_consecutive_failures = 0
-            self._bo3_buf_match_id = mid
-            self._reset_outcome_trackers()
-            self._trade_episode_manager = TradeEpisodeManager()
-            self._bo3_raw_last_sig_by_match.clear()
+        session_runtime.bo3_buf_last_attempt_epoch = now
         try:
             from engine.ingest.bo3_client import get_snapshot
         except ImportError:
-            self._bo3_buf_last_error = "bo3_client not available"
-            self._bo3_buf_consecutive_failures += 1
+            session_runtime.bo3_last_err = "bo3_client not available"
+            session_runtime.bo3_buf_consecutive_failures += 1
             return
         last_err: str | None = None
         for attempt in range(3):
             try:
                 snap = await get_snapshot(mid)
                 if snap and isinstance(snap, dict) and (snap.get("team_one") or snap.get("team_two")):
-                    self._bo3_buf_raw = snap
-                    self._bo3_buf_snapshot_ts = _bo3_extract_snapshot_ts(snap)
-                    self._bo3_buf_last_success_epoch = time.time()
-                    self._bo3_buf_last_error = None
-                    self._bo3_buf_consecutive_failures = 0
+                    session_runtime.bo3_buf_raw = snap
+                    session_runtime.bo3_buf_snapshot_ts = _bo3_extract_snapshot_ts(snap)
+                    session_runtime.bo3_buf_ts = time.time()
+                    session_runtime.bo3_buf_last_success_epoch = time.time()
+                    session_runtime.bo3_last_err = None
+                    session_runtime.bo3_buf_consecutive_failures = 0
                     return
                 last_err = "snapshot empty or missing team keys"
             except Exception as e:
@@ -920,8 +932,8 @@ class Runner:
             if attempt < 2:
                 delay = BO3_FETCH_RETRY_DELAYS[attempt]
                 await asyncio.sleep(delay)
-        self._bo3_buf_last_error = last_err
-        self._bo3_buf_consecutive_failures += 1
+        session_runtime.bo3_last_err = last_err
+        session_runtime.bo3_buf_consecutive_failures += 1
 
     async def _maybe_emit_outcome_events_from_bo3_payload(
         self,
@@ -939,11 +951,25 @@ class Runner:
         dbg: dict[str, Any],
         team_a_is_team_one: bool,
         match_id_used: int | None,
+        session_runtime: Any = None,
     ) -> None:
         """
         Emit outcome label events from a BO3 payload: round_result and segment_result.
-        Appends+broadcasts event HistoryPoints before the main point. Dedupes via runner trackers.
+        Appends+broadcasts event HistoryPoints before the main point. Dedupes via session or runner trackers.
         """
+        s = session_runtime
+
+        def _tr(n: str, default: Any = None) -> Any:
+            if s is not None:
+                return getattr(s, "bo3_" + n, default)
+            return getattr(self, "_bo3_" + n, default)
+
+        def _set_tr(n: str, v: Any) -> None:
+            if s is not None:
+                setattr(s, "bo3_" + n, v)
+            else:
+                setattr(self, "_bo3_" + n, v)
+
         if not isinstance(raw, dict):
             return
         t1 = raw.get("team_one") or {}
@@ -974,13 +1000,15 @@ class Runner:
                 map_index = game_number - 1
             except (TypeError, ValueError):
                 pass
-        if game_number is None and self._bo3_last_seen_game_number is not None:
-            game_number = self._bo3_last_seen_game_number
-            map_index = game_number - 1
+        if game_number is None and _tr("last_seen_game_number") is not None:
+            game_number = _tr("last_seen_game_number")
+            map_index = game_number - 1 if game_number is not None else None
         if game_number_raw is not None and game_number is not None:
-            self._bo3_last_seen_game_number = game_number
+            _set_tr("last_seen_game_number", game_number)
         # Canonical Team A per (game_number, map_index): same definition for labels and score ticks
-        map_identity_entry = self._ensure_map_identity_from_raw(raw, config, game_number, map_index)
+        map_identity_entry = self._ensure_map_identity_from_raw(
+            raw, config, game_number, map_index, session_runtime=session_runtime
+        )
         team_one_id = int(t1.get("id", 0) or 0)
         team_two_id = int(t2.get("id", 0) or 0)
         if map_identity_entry:
@@ -993,15 +1021,15 @@ class Runner:
             team_a_id = team_one_id if team_a_is_team_one else team_two_id
         s1 = int(t1.get("score", 0) or 0)
         s2 = int(t2.get("score", 0) or 0)
-        last_s1 = self._bo3_last_seen_score_team_one
-        last_s2 = self._bo3_last_seen_score_team_two
+        last_s1 = _tr("last_seen_score_team_one")
+        last_s2 = _tr("last_seen_score_team_two")
 
         async def maybe_emit_round_result(round_to_label: int, winner_team_id: int) -> None:
             if winner_team_id == 0:
                 return
             if (
-                self._bo3_last_emitted_round_number == round_to_label
-                and self._bo3_last_emitted_round_winner_team_id == winner_team_id
+                _tr("last_emitted_round_number") == round_to_label
+                and _tr("last_emitted_round_winner_team_id") == winner_team_id
             ):
                 return
             round_winner_is_team_a = bool(team_a_id and winner_team_id == team_a_id)
@@ -1047,8 +1075,8 @@ class Runner:
             )
             await self._store.append_point(round_point, new_state, derived_evt)
             await self._broadcast_point(round_point)
-            self._bo3_last_emitted_round_number = round_to_label
-            self._bo3_last_emitted_round_winner_team_id = winner_team_id
+            _set_tr("last_emitted_round_number", round_to_label)
+            _set_tr("last_emitted_round_winner_team_id", winner_team_id)
 
         # Infer winner by score delta (winning_team_id is always 0 in our BO3 replay payloads)
         winner_from_delta = _infer_round_winner_by_score_delta(
@@ -1061,17 +1089,17 @@ class Runner:
             await maybe_emit_round_result(rn, winner)
 
         # B) rn advanced: previous round ended when round number increased
-        last_rn = self._bo3_last_seen_round_number
+        last_rn = _tr("last_seen_round_number")
         if last_rn is not None and rn is not None and rn > last_rn:
             prev_round = last_rn
             winner = winning_team_id if winning_team_id != 0 else winner_from_delta
             await maybe_emit_round_result(prev_round, winner)
 
         # Update last-seen round and scores every tick
-        self._bo3_last_seen_round_number = rn
-        self._bo3_last_seen_score_team_one = s1
-        self._bo3_last_seen_score_team_two = s2
-        self._bo3_last_seen_scores = (s1, s2)
+        _set_tr("last_seen_round_number", rn)
+        _set_tr("last_seen_score_team_one", s1)
+        _set_tr("last_seen_score_team_two", s2)
+        _set_tr("last_seen_scores", (s1, s2))
 
         # --- segment_result: emit on credible match_score increment only (+1 for one team, 0 for other) ---
         mf = raw.get("match_fixture") or {}
@@ -1101,7 +1129,7 @@ class Runner:
             except (TypeError, ValueError):
                 ms2 = 0
 
-            prev = self._bo3_last_seen_match_score_by_game.get(game_number)
+            prev = (_tr("last_seen_match_score_by_game") or {}).get(game_number)
             if prev is not None:
                 prev_ms1, prev_ms2 = prev[0], prev[1]
                 d1 = ms1 - (prev_ms1 if prev_ms1 is not None else 0)
@@ -1113,8 +1141,8 @@ class Runner:
                     finished_map_index = map_index
                     # Dedupe on (finished_map_index, winner_team_id)
                     if (
-                        self._bo3_last_seen_segment_id_for_result != finished_map_index
-                        or self._bo3_last_seen_map_winner_team_id != winner_team_id
+                        _tr("last_seen_segment_id_for_result") != finished_map_index
+                        or _tr("last_seen_map_winner_team_id") != winner_team_id
                     ):
                         scores = (
                             getattr(new_state.last_frame, "scores", (0, 0))
@@ -1164,32 +1192,36 @@ class Runner:
                         )
                         await self._store.append_point(segment_point, new_state, derived_seg)
                         await self._broadcast_point(segment_point)
-                        self._bo3_last_seen_segment_id_for_result = finished_map_index
-                        self._bo3_last_seen_map_winner_team_id = winner_team_id
+                        _set_tr("last_seen_segment_id_for_result", finished_map_index)
+                        _set_tr("last_seen_map_winner_team_id", winner_team_id)
 
             # Always update stored match_score for this game (overwrite on resets/decreases)
-            self._bo3_last_seen_match_score_by_game[game_number] = (ms1, ms2)
-            self._bo3_last_seen_game_number = game_number
-            self._bo3_last_seen_match_score_team_one = ms1
-            self._bo3_last_seen_match_score_team_two = ms2
+            d = dict(_tr("last_seen_match_score_by_game") or {})
+            d[game_number] = (ms1, ms2)
+            _set_tr("last_seen_match_score_by_game", d)
+            _set_tr("last_seen_game_number", game_number)
+            _set_tr("last_seen_match_score_team_one", ms1)
+            _set_tr("last_seen_match_score_team_two", ms2)
 
-    def _bo3_buffer_debug(self, now: float) -> dict[str, Any]:
-        """Build buffer observability dict for derived.debug."""
+    def _bo3_buffer_debug(self, session_runtime: Any, now: float) -> dict[str, Any]:
+        """Build buffer observability dict for derived.debug from session_runtime BO3 buffer."""
         age = None
-        if self._bo3_buf_last_success_epoch is not None:
-            age = now - self._bo3_buf_last_success_epoch
+        if session_runtime.bo3_buf_last_success_epoch is not None:
+            age = now - session_runtime.bo3_buf_last_success_epoch
         return {
-            "bo3_buffer_has_snapshot": self._bo3_buf_raw is not None,
+            "bo3_buffer_has_snapshot": session_runtime.bo3_buf_raw is not None,
             "bo3_buffer_age_s": age,
-            "bo3_buffer_last_error": self._bo3_buf_last_error,
-            "bo3_buffer_consecutive_failures": self._bo3_buf_consecutive_failures,
-            "bo3_buffer_snapshot_ts": self._bo3_buf_snapshot_ts,
-            "bo3_buffer_last_success_epoch": self._bo3_buf_last_success_epoch,
+            "bo3_buffer_last_error": session_runtime.bo3_last_err,
+            "bo3_buffer_consecutive_failures": session_runtime.bo3_buf_consecutive_failures,
+            "bo3_buffer_snapshot_ts": session_runtime.bo3_buf_snapshot_ts,
+            "bo3_buffer_last_success_epoch": session_runtime.bo3_buf_last_success_epoch,
         }
 
-    def _bo3_health_from_buffer(self, frame: Frame | None, now: float) -> tuple[str, str | None, float | None]:
+    def _bo3_health_from_buffer(
+        self, session_runtime: Any, frame: Frame | None, now: float
+    ) -> tuple[str, str | None, float | None]:
         """
-        Health from buffer age + phase: GOOD if age <= 20s, STALE if > 20, PAUSED from phase, ERROR only if no snapshot and last_error set.
+        Health from session buffer age + phase: GOOD if age <= 20s, STALE if > 20, PAUSED from phase, ERROR only if no snapshot and last_error set.
         """
         if frame is not None:
             round_phase = None
@@ -1199,11 +1231,11 @@ class Runner:
                 phase_str = str(round_phase).strip().upper()
                 if phase_str in BO3_PAUSED_PHASES:
                     return ("PAUSED", phase_str, None)
-        if self._bo3_buf_raw is None and self._bo3_buf_last_error is not None:
-            return ("ERROR", self._bo3_buf_last_error, None)
-        if self._bo3_buf_last_success_epoch is None:
+        if session_runtime.bo3_buf_raw is None and session_runtime.bo3_last_err is not None:
+            return ("ERROR", session_runtime.bo3_last_err, None)
+        if session_runtime.bo3_buf_last_success_epoch is None:
             return ("GOOD", None, None)
-        age = now - self._bo3_buf_last_success_epoch
+        age = now - session_runtime.bo3_buf_last_success_epoch
         if age <= BO3_BUFFER_GOOD_AGE_SEC:
             return ("GOOD", None, None)
         return ("STALE", f"buffer age {int(age)}s", age)
@@ -1213,6 +1245,7 @@ class Runner:
         payload: dict[str, Any],
         match_id: int,
         team_a_is_team_one: bool | None,
+        session_runtime: Any = None,
     ) -> None:
         """
         If raw BO3 recording is enabled, validate payload, dedupe by signature, and append one line
@@ -1231,10 +1264,16 @@ class Runner:
         sig = _bo3_raw_record_signature(payload, match_id)
         if sig is None:
             return
-        last_sig = self._bo3_raw_last_sig_by_match.get(match_id)
-        if last_sig is not None and last_sig == sig:
-            return
-        self._bo3_raw_last_sig_by_match[match_id] = sig
+        if session_runtime is not None:
+            last_sig = session_runtime.bo3_raw_last_sig
+            if last_sig is not None and last_sig == sig:
+                return
+            session_runtime.bo3_raw_last_sig = sig
+        else:
+            last_sig = self._bo3_raw_last_sig_by_match.get(match_id)
+            if last_sig is not None and last_sig == sig:
+                return
+            self._bo3_raw_last_sig_by_match[match_id] = sig
 
         rec = {
             "schema": "bo3_raw_snapshot_v1",
@@ -1266,7 +1305,9 @@ class Runner:
         write_to_store: bool = True,
     ) -> bool:
         """If source=BO3 and match_id set: fetch snapshot, normalize, append_point, broadcast. Return True if did BO3.
-        When session_runtime is provided, use its ctx; when write_to_store is False, skip append/broadcast and update session."""
+        When session_runtime is provided, use its ctx and per-session buffer/gate; when None, get-or-create one for mid (single-session)."""
+        from engine.telemetry import SessionKey, SourceKind
+
         src = getattr(config, "source", None)
         match_id = effective_match_id if effective_match_id is not None else getattr(config, "match_id", None)
         if match_id is None:
@@ -1274,6 +1315,8 @@ class Runner:
         if effective_match_id is None and src != "BO3":
             return False
         mid = int(match_id)
+        if session_runtime is None:
+            session_runtime = self._get_or_create_session(SessionKey(source=SourceKind.BO3, id=str(mid)), mid)
         team_a_is_team_one = getattr(config, "team_a_is_team_one", True)
         try:
             from engine.ingest.bo3_client import get_snapshot
@@ -1281,8 +1324,8 @@ class Runner:
         except ImportError:
             return False
 
-        await self._bo3_fetch_into_buffer(mid)
-        snap = self._bo3_buf_raw
+        await self._bo3_fetch_into_buffer(mid, session_runtime)
+        snap = session_runtime.bo3_buf_raw
         now = time.time()
         if snap is None:
             cur = await self._store.get_current()
@@ -1294,11 +1337,11 @@ class Runner:
             new_debug = dict(cur_derived.get("debug") or {}) if isinstance(cur_derived, dict) else {}
             new_debug["bo3_fetch_ok"] = False
             new_debug["bo3_snapshot_status"] = "empty"
-            new_debug["bo3_feed_error"] = self._bo3_buf_last_error
+            new_debug["bo3_feed_error"] = session_runtime.bo3_last_err
             new_debug["bo3_snapshot_ts"] = None
             new_debug["bo3_match_id_used"] = mid
-            new_debug.update(self._bo3_buffer_debug(now))
-            health, health_reason, health_age_s = self._bo3_health_from_buffer(None, now)
+            new_debug.update(self._bo3_buffer_debug(session_runtime, now))
+            health, health_reason, health_age_s = self._bo3_health_from_buffer(session_runtime, None, now)
             new_debug["bo3_health"] = health
             new_debug["bo3_health_reason"] = health_reason
             new_debug["bo3_health_age_s"] = health_age_s
@@ -1312,20 +1355,21 @@ class Runner:
                 debug=new_debug,
             )
             await self._store.set_current(state, fail_derived)
+            self._bo3_buf_consecutive_failures = session_runtime.bo3_buf_consecutive_failures
             return True
         if isinstance(snap, dict):
-            self._bo3_last_raw_snapshot = snap
-            self._maybe_record_raw_bo3_snapshot(snap, mid, team_a_is_team_one)
+            session_runtime.bo3_last_raw_snapshot = snap
+            self._maybe_record_raw_bo3_snapshot(snap, mid, team_a_is_team_one, session_runtime=session_runtime)
         frame = bo3_snapshot_to_frame(snap, team_a_is_team_one=team_a_is_team_one)
         status, feed_error, snapshot_ts, is_fresh = _bo3_snapshot_status(
             snap, frame,
-            self._bo3_last_snapshot_ts,
-            self._bo3_last_scores,
-            self._bo3_same_snapshot_polls,
+            session_runtime.bo3_last_snapshot_ts,
+            session_runtime.bo3_last_scores,
+            session_runtime.bo3_same_snapshot_polls,
         )
         if status != "live":
             now = time.time()
-            health, health_reason, health_age_s = self._bo3_health_from_buffer(frame, now)
+            health, health_reason, health_age_s = self._bo3_health_from_buffer(session_runtime, frame, now)
             if status == "invalid_clock":
                 health = "PAUSED" if health == "PAUSED" else "GOOD"
                 health_reason = "invalid_clock"
@@ -1340,7 +1384,7 @@ class Runner:
             new_debug["bo3_feed_error"] = feed_error
             new_debug["bo3_snapshot_ts"] = snapshot_ts
             new_debug["bo3_match_id_used"] = mid
-            new_debug.update(self._bo3_buffer_debug(now))
+            new_debug.update(self._bo3_buffer_debug(session_runtime, now))
             new_debug["bo3_health"] = health
             new_debug["bo3_health_reason"] = health_reason
             new_debug["bo3_health_age_s"] = health_age_s
@@ -1381,21 +1425,23 @@ class Runner:
             await self._store.append_point(hold_point, state, fail_derived)
             await self._broadcast_point(hold_point)
             if status == "stale":
-                self._bo3_same_snapshot_polls += 1
+                session_runtime.bo3_same_snapshot_polls += 1
+            self._bo3_buf_consecutive_failures = session_runtime.bo3_buf_consecutive_failures
             return True
 
         if is_fresh:
-            self._bo3_same_snapshot_polls = 0
-            self._bo3_last_snapshot_ts = snapshot_ts
-            self._bo3_last_scores = getattr(frame, "scores", (0, 0))
-            self._bo3_last_change_epoch = time.time()
+            session_runtime.bo3_same_snapshot_polls = 0
+            session_runtime.bo3_last_snapshot_ts = snapshot_ts
+            session_runtime.bo3_last_scores = getattr(frame, "scores", (0, 0))
+            session_runtime.bo3_last_change_epoch = time.time()
         else:
-            self._bo3_same_snapshot_polls += 1
+            session_runtime.bo3_same_snapshot_polls += 1
 
         t = time.time()
-        health, health_reason, health_age_s = self._bo3_health_from_buffer(frame, t)
-        # Monotonic gating: reject out-of-order frames before they update state (prevents time rewind)
-        accept, gate_reason, gate_diag = self._bo3_freshness_gate.accept_frame(frame, snap if isinstance(snap, dict) else None)
+        health, health_reason, health_age_s = self._bo3_health_from_buffer(session_runtime, frame, t)
+        # Monotonic gating: per-session gate (no cross-session leakage)
+        gate = session_runtime.ensure_bo3_gate()
+        accept, gate_reason, gate_diag = gate.accept_frame(frame, snap if isinstance(snap, dict) else None)
         if not accept:
             self._bo3_monotonic_rejected_count += 1
             if _BO3_TICK_MONOTONIC_DEBUG:
@@ -1404,6 +1450,7 @@ class Runner:
                     gate_reason,
                     extra={"diag": gate_diag, "rejected_total": self._bo3_monotonic_rejected_count},
                 )
+            self._bo3_buf_consecutive_failures = session_runtime.bo3_buf_consecutive_failures
             return True
         # Canonical envelope path: BO3 as first-class SourceKind
         from engine.telemetry import (
@@ -1413,13 +1460,7 @@ class Runner:
             compute_monotonic_key_from_bo3_snapshot,
         )
         from engine.telemetry.core import IdentityEntry
-        if session_runtime is not None:
-            ctx = session_runtime.ctx
-        else:
-            if self._match_context is None or self._match_context_match_id != mid:
-                self._match_context = MatchContext(match_id=mid)
-                self._match_context_match_id = mid
-            ctx = self._match_context
+        ctx = session_runtime.ctx
         frame_dict = asdict(frame)
         new_key = compute_monotonic_key_from_bo3_snapshot(frame, snap if isinstance(snap, dict) else None)
         env = CanonicalFrameEnvelope(
@@ -1434,6 +1475,14 @@ class Runner:
         if isinstance(snap, dict):
             snap_meta["round_phase"] = snap.get("round_phase") or snap.get("phase")
         if not self._ingest_canonical_envelope(ctx, env, snap_meta):
+            self._bo3_buf_consecutive_failures = session_runtime.bo3_buf_consecutive_failures
+            return True
+        round_phase_drive = snap_meta.get("round_phase") if snap_meta else None
+        from engine.telemetry.selector import allowed_to_drive, default_source_selector_policy
+        allow_drive, drive_reason = allowed_to_drive(ctx, env.source, t, round_phase_drive, default_source_selector_policy())
+        if not allow_drive:
+            ctx.last_drive_deny_reason = drive_reason
+            self._bo3_buf_consecutive_failures = session_runtime.bo3_buf_consecutive_failures
             return True
         # Identity cache stub: per-match team_a_is_team_one and provider ids from map identity
         _gn: int | None = None
@@ -1444,7 +1493,7 @@ class Runner:
             except (TypeError, ValueError):
                 pass
         _mi = getattr(frame, "map_index", 0)
-        map_id_entry = self._ensure_map_identity_from_frame(frame, config, _gn, _mi)
+        map_id_entry = self._ensure_map_identity_from_frame(frame, config, _gn, _mi, session_runtime=session_runtime)
         if map_id_entry:
             ta_one = map_id_entry.get("team_a_is_team_one", True)
             ctx.identity = IdentityEntry(
@@ -1463,9 +1512,16 @@ class Runner:
         from engine.compute.resolve import resolve_p_hat
         from engine.state.reducer import reduce_state
         from engine.diagnostics.inter_map_break import detect_inter_map_break
+        from engine.telemetry.initial_state import initial_state
 
-        old_state = await self._store.get_state()
+        if write_to_store:
+            old_state = await self._store.get_state()
+        else:
+            old_state = session_runtime.last_state if (session_runtime.last_state is not None) else initial_state(config)
         new_state = reduce_state(old_state, frame, config)
+        session_runtime.last_state = new_state
+        session_runtime.last_frame = asdict(frame)
+        session_runtime.last_update_ts = t
         bounds_result = compute_bounds(frame, config, new_state)
         bound_low, bound_high = bounds_result[0], bounds_result[1]
         bounds_debug = bounds_result[2] if len(bounds_result) > 2 else {}
@@ -1592,6 +1648,7 @@ class Runner:
                 dbg=dbg,
                 team_a_is_team_one=team_a_is_team_one,
                 match_id_used=mid,
+                session_runtime=session_runtime,
             )
         # ML-ready series-line-dislocation episode logger: emit setup_trigger, episode_start/end/outcome into history
         bid_yes = market_dbg.get("market_bid")
@@ -1667,8 +1724,8 @@ class Runner:
         dbg["bo3_feed_error"] = None
         dbg["bo3_match_id_used"] = mid
         dbg["bo3_success_counter"] = self._bo3_success_counter
-        dbg["bo3_snapshot_ts"] = self._bo3_buf_snapshot_ts
-        dbg.update(self._bo3_buffer_debug(t))
+        dbg["bo3_snapshot_ts"] = session_runtime.bo3_buf_snapshot_ts
+        dbg.update(self._bo3_buffer_debug(session_runtime, t))
         dbg["bo3_health"] = health
         dbg["bo3_health_reason"] = health_reason
         dbg["bo3_health_age_s"] = health_age_s
@@ -1720,6 +1777,8 @@ class Runner:
         if write_to_store:
             await self._store.append_point(point, new_state, derived)
             await self._broadcast_point(point)
+            self._bo3_last_raw_snapshot = session_runtime.bo3_last_raw_snapshot
+        self._bo3_buf_consecutive_failures = session_runtime.bo3_buf_consecutive_failures
         return True
 
     async def _tick_bo3_for_match(
@@ -1834,6 +1893,12 @@ class Runner:
         )
         if not self._ingest_canonical_envelope(ctx, env, None):
             return True
+        round_phase_drive = getattr(state, "round_phase", None)
+        from engine.telemetry.selector import allowed_to_drive, default_source_selector_policy
+        allow_drive, drive_reason = allowed_to_drive(ctx, env.source, t, round_phase_drive, default_source_selector_policy())
+        if not allow_drive:
+            ctx.last_drive_deny_reason = drive_reason
+            return True
         ctx.identity = IdentityEntry(
             team_a_is_team_one=team_a_is_team_one,
             provider_team_a_id=state.team_a_id,
@@ -1850,9 +1915,21 @@ class Runner:
         from engine.state.reducer import reduce_state
         from engine.diagnostics.inter_map_break import detect_inter_map_break
         from engine.diagnostics.fragility_cs2 import build_raw_debug, compute_fragility_debug
+        from engine.telemetry.initial_state import initial_state
 
-        old_state = await self._store.get_state()
+        if write_to_store:
+            old_state = await self._store.get_state()
+        else:
+            old_state = (
+                session_runtime.last_state
+                if (session_runtime is not None and session_runtime.last_state is not None)
+                else initial_state(config)
+            )
         new_state = reduce_state(old_state, frame, config)
+        if session_runtime is not None:
+            session_runtime.last_state = new_state
+            session_runtime.last_frame = asdict(frame)
+            session_runtime.last_update_ts = t
         bounds_result = compute_bounds(frame, config, new_state)
         bound_low, bound_high = bounds_result[0], bounds_result[1]
         bounds_debug = bounds_result[2] if len(bounds_result) > 2 else {}
