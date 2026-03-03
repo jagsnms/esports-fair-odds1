@@ -1,13 +1,61 @@
 """
 GRID reducer: seriesState snapshot -> GridState -> canonical frame (Frame-compatible).
 MVP: one snapshot = one state update; no event stream. No FastAPI deps.
+Open Access parity: timestamp from updatedAt, armor_totals alive-only, series_fmt from format.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
 from engine.models import Frame, PlayerRow
+
+# Default series format when GRID format is missing or unrecognized
+DEFAULT_SERIES_FMT = "bo3"
+
+
+def _parse_updated_at_to_unix(updated_at: str | None) -> float | None:
+    """Parse seriesState.updatedAt (ISO8601) to Unix seconds. Returns None if missing or invalid."""
+    if not updated_at or not isinstance(updated_at, str):
+        return None
+    updated_at = updated_at.strip()
+    if not updated_at:
+        return None
+    try:
+        from datetime import datetime, timezone
+        # Support both Z and +00:00 style; assume UTC if no tz
+        dt = datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.timestamp()
+    except (ValueError, TypeError):
+        return None
+
+
+def _normalize_series_fmt(format_val: Any) -> str:
+    """Map GRID series format to Frame.series_fmt: bo1, bo3, bo5. Default DEFAULT_SERIES_FMT."""
+    if format_val is None:
+        return DEFAULT_SERIES_FMT
+    s = str(format_val).strip().lower()
+    if not s:
+        return DEFAULT_SERIES_FMT
+    # BO1, BO3, BO5 or "1", "3", "5" or "best of 3" style
+    if s in ("bo1", "1", "bestof1", "best_of_1"):
+        return "bo1"
+    if s in ("bo3", "3", "bestof3", "best_of_3"):
+        return "bo3"
+    if s in ("bo5", "5", "bestof5", "best_of_5"):
+        return "bo5"
+    m = re.search(r"bo\s*(\d)|best\s*of\s*(\d)|(\d)", s)
+    if m:
+        n = int(m.group(1) or m.group(2) or m.group(3) or "3")
+        if n == 1:
+            return "bo1"
+        if n == 5:
+            return "bo5"
+        return "bo3"
+    return DEFAULT_SERIES_FMT
 
 
 @dataclass
@@ -42,6 +90,7 @@ class GridState:
     bomb_planted: bool = False
     updated_at: str | None = None
     valid: bool | None = None
+    series_fmt: str = DEFAULT_SERIES_FMT
 
 
 def reduce_event(state: GridState, event: dict[str, Any]) -> GridState:
@@ -55,6 +104,7 @@ def reduce_event(state: GridState, event: dict[str, Any]) -> GridState:
         state.series_id = ss.get("id")
         state.valid = ss.get("valid")
         state.updated_at = ss.get("updatedAt")
+        state.series_fmt = _normalize_series_fmt(ss.get("format"))
         return state
 
     # Current game: started and not finished; else last; else first
@@ -69,6 +119,7 @@ def reduce_event(state: GridState, event: dict[str, Any]) -> GridState:
     state.series_id = ss.get("id")
     state.valid = ss.get("valid")
     state.updated_at = ss.get("updatedAt")
+    state.series_fmt = _normalize_series_fmt(ss.get("format"))
     state.game_index = current_game.get("sequenceNumber")
     state.game_started = bool(current_game.get("started"))
     state.game_finished = bool(current_game.get("finished"))
@@ -141,9 +192,19 @@ def _money_total(players: list[dict]) -> float:
     return sum(float(p.get("money") or 0) for p in players)
 
 
+def _armor_total_alive(players: list[dict]) -> float:
+    """Sum currentArmor for alive players only. Returns 0.0 if no players or no data."""
+    return sum(
+        float(p.get("currentArmor") or p.get("current_armor") or 0)
+        for p in players
+        if p.get("alive") is True
+    )
+
+
 def grid_state_to_canonical_frame(state: GridState, team_a_is_team_one: bool = True) -> dict[str, Any]:
     """
     Build Frame-compatible dict from GridState. Keys match Frame attributes for reduce/compute path.
+    Timestamp from seriesState.updatedAt (ISO8601 -> unix seconds); armor_totals = alive-only sum; series_fmt from format.
     """
     scores = (state.rounds_a or 0, state.rounds_b or 0)
     alive_a = _alive_count(state.players_a)
@@ -154,6 +215,11 @@ def grid_state_to_canonical_frame(state: GridState, team_a_is_team_one: bool = T
     loadout_b = state.team_b_loadout_value or _loadout_total(state.players_b)
     cash_a = state.team_a_money if state.team_a_money is not None else _money_total(state.players_a)
     cash_b = state.team_b_money if state.team_b_money is not None else _money_total(state.players_b)
+    armor_a = _armor_total_alive(state.players_a)
+    armor_b = _armor_total_alive(state.players_b)
+    ts_unix = _parse_updated_at_to_unix(state.updated_at)
+    frame_timestamp = float(ts_unix) if ts_unix is not None else 0.0
+    series_fmt = (state.series_fmt or DEFAULT_SERIES_FMT).strip().lower() or DEFAULT_SERIES_FMT
     round_time_s: float | None = None
     if state.clock_seconds is not None:
         round_time_s = float(state.clock_seconds)
@@ -189,7 +255,7 @@ def grid_state_to_canonical_frame(state: GridState, team_a_is_team_one: bool = T
     ]
 
     return {
-        "timestamp": 0.0,
+        "timestamp": frame_timestamp,
         "teams": (state.team_a_id or "", state.team_b_id or ""),
         "scores": scores,
         "alive_counts": (alive_a, alive_b),
@@ -197,8 +263,10 @@ def grid_state_to_canonical_frame(state: GridState, team_a_is_team_one: bool = T
         "cash_loadout_totals": (cash_a + loadout_a, cash_b + loadout_b),
         "cash_totals": (cash_a, cash_b),
         "loadout_totals": (loadout_a, loadout_b),
+        "armor_totals": (armor_a, armor_b),
         "map_index": (game_index - 1) if game_index else 0,
         "series_score": series_score,
+        "series_fmt": series_fmt,
         "map_name": state.map_name or "",
         "a_side": a_side,
         "round_time_remaining_s": round_time_s,
@@ -214,9 +282,10 @@ def grid_state_to_canonical_frame(state: GridState, team_a_is_team_one: bool = T
 
 
 def grid_state_to_frame(state: GridState, team_a_is_team_one: bool = True, timestamp: float = 0.0) -> Frame:
-    """Build Frame from GridState for reduce/compute path."""
+    """Build Frame from GridState for reduce/compute path. Frame.timestamp = seriesState.updatedAt (fallback to timestamp arg if missing)."""
     d = grid_state_to_canonical_frame(state, team_a_is_team_one)
-    d["timestamp"] = timestamp
+    if d.get("timestamp", 0.0) == 0.0 and timestamp != 0.0:
+        d["timestamp"] = timestamp
     valid = {f for f in Frame.__dataclass_fields__}
     kwargs = {k: v for k, v in d.items() if k in valid}
     return Frame(**kwargs)

@@ -216,6 +216,7 @@ function App() {
   const [debugOpen, setDebugOpen] = useState(false)
 
   const [telemetrySessions, setTelemetrySessions] = useState<TelemetrySessionsResponse | null>(null)
+  const [selectedSession, setSelectedSession] = useState<{ source: string; id: string } | null>(null)
   const [telemetryFilterSource, setTelemetryFilterSource] = useState<'all' | 'BO3' | 'GRID'>('all')
   const [telemetryFilterStatus, setTelemetryFilterStatus] = useState<'all' | 'LIVE' | 'STALE' | 'DEAD'>('all')
   const [telemetrySearch, setTelemetrySearch] = useState('')
@@ -1342,7 +1343,7 @@ function App() {
           </div>
         )
       })()}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8, alignItems: 'center' }}>
         <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <span style={{ fontSize: 12, color: '#9ca3af' }}>Source</span>
           <select value={telemetryFilterSource} onChange={(e) => setTelemetryFilterSource(e.target.value as 'all' | 'BO3' | 'GRID')} style={{ padding: '2px 6px', fontSize: 12 }}>
@@ -1364,16 +1365,76 @@ function App() {
           <span style={{ fontSize: 12, color: '#9ca3af' }}>Search</span>
           <input type="text" value={telemetrySearch} onChange={(e) => setTelemetrySearch(e.target.value)} placeholder="id / key / ctx…" style={{ width: 140, padding: '2px 6px', fontSize: 12 }} />
         </label>
+        <span style={{ marginLeft: 8, fontSize: 12, color: '#9ca3af' }}>Use session:</span>
+        <button
+          type="button"
+          disabled={!selectedSession}
+          onClick={async () => {
+            if (!selectedSession) return
+            setConfigError(null)
+            try {
+              const r = await fetch(`${API_BASE}/api/v1/config`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ primary_session_source: selectedSession.source, primary_session_id: selectedSession.id }),
+              })
+              if (!r.ok) {
+                const body = await r.json().catch(() => ({}))
+                setConfigError(String((body as { detail?: string })?.detail ?? (body as { message?: string })?.message ?? r.statusText))
+                return
+              }
+              setWsReconnectTrigger((prev) => prev + 1)
+            } catch (e) {
+              setConfigError(e instanceof Error ? e.message : String(e))
+            }
+          }}
+          style={{ padding: '4px 10px', fontSize: 12, borderRadius: 6, cursor: selectedSession ? 'pointer' : 'not-allowed', opacity: selectedSession ? 1 : 0.6 }}
+        >
+          Run this match
+        </button>
+        <button
+          type="button"
+          onClick={async () => {
+            setConfigError(null)
+            try {
+              const r = await fetch(`${API_BASE}/api/v1/config`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ primary_session_source: null, primary_session_id: null }),
+              })
+              if (!r.ok) {
+                const body = await r.json().catch(() => ({}))
+                setConfigError(String((body as { detail?: string })?.detail ?? (body as { message?: string })?.message ?? r.statusText))
+                return
+              }
+              setWsReconnectTrigger((prev) => prev + 1)
+            } catch (e) {
+              setConfigError(e instanceof Error ? e.message : String(e))
+            }
+          }}
+          style={{ padding: '4px 10px', fontSize: 12, borderRadius: 6, cursor: 'pointer' }}
+        >
+          Stop match
+        </button>
       </div>
       <div style={{ overflowX: 'auto', fontSize: 11 }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', color: '#e5e7eb' }}>
           <thead>
             <tr style={{ borderBottom: '1px solid #374151' }}>
-              {(['session_key', 'source', 'id', 'status', 'age_s', 'last_update_ts', 'active_source', 'chosen_source', 'key_display', 'health', 'next_fetch_in_s'] as const).map((col) => {
-                const sortCol = col === 'status' ? 'age_s' : ['session_key', 'source', 'id', 'age_s', 'last_update_ts'].includes(col) ? col : null
+              <th style={{ width: 28, padding: '6px 4px', textAlign: 'center' }} title="Select to run">Use</th>
+              {(['matchup', 'status', 'source', 'age_s', 'last_update_ts', 'active_source', 'chosen_source', 'key_display', 'health', 'next_fetch_in_s'] as const).map((col) => {
+                const sortCol = col === 'status' ? 'age_s' : ['matchup', 'source', 'age_s', 'last_update_ts'].includes(col) ? (col === 'matchup' ? 'session_key' : col) : null
                 return (
                   <th key={col} style={{ textAlign: 'left', padding: '6px 4px', whiteSpace: 'nowrap', cursor: sortCol ? 'pointer' : 'default' }} onClick={sortCol ? () => handleSort(sortCol) : undefined}>
-                    {col === 'key_display' ? 'last_env.key' : col === 'health' ? 'per_source_health' : col === 'next_fetch_in_s' ? 'grid next_fetch_s' : col}
+                    {col === 'matchup'
+                      ? 'match'
+                      : col === 'key_display'
+                        ? 'last_env.key'
+                        : col === 'health'
+                          ? 'per_source_health'
+                          : col === 'next_fetch_in_s'
+                            ? 'grid next_fetch_s'
+                            : col}
                     {sortCol && telemetrySortColumn === sortCol ? (telemetrySortDir === 'asc' ? ' ↑' : ' ↓') : ''}
                   </th>
                 )
@@ -1382,7 +1443,7 @@ function App() {
           </thead>
           <tbody>
             {sessionsFiltered.length === 0 && (
-              <tr><td colSpan={11} style={{ padding: 12, color: '#9ca3af' }}>No sessions (or none match filters).</td></tr>
+              <tr><td colSpan={12} style={{ padding: 12, color: '#9ca3af' }}>No sessions (or none match filters).</td></tr>
             )}
             {sessionsFiltered.map((row, idx) => {
               const status = sessionStatusBadge(row)
@@ -1393,12 +1454,41 @@ function App() {
               const keyDisplay = ctx.last_env && typeof ctx.last_env === 'object' && 'key_display' in ctx.last_env ? (ctx.last_env as { key_display?: string }).key_display : null
               const health = ctx.per_source_health
               const healthStr = health && typeof health === 'object' ? Object.entries(health).map(([k, v]) => `${k}: ok=${(v as any)?.ok_count ?? 0} err=${(v as any)?.err_count ?? 0}${(v as any)?.last_reason ? ` ${(v as any).last_reason}` : ''}`).join('; ') : '—'
+              const cfg = (current?.state as { config?: { primary_session_source?: string; primary_session_id?: string } } | undefined)?.config
+              const isRunning = cfg?.primary_session_source === row.source && cfg?.primary_session_id === row.id
+              const isSelected = selectedSession?.source === row.source && selectedSession?.id === row.id
+              const lastFrame = (ctx as any)?.last_frame as { teams?: [string, string] } | undefined
+              const teamsTuple = Array.isArray(lastFrame?.teams) ? lastFrame?.teams : undefined
+              const matchLabel =
+                teamsTuple && teamsTuple.length === 2
+                  ? `${teamsTuple[0] || 'Team A'} vs ${teamsTuple[1] || 'Team B'}`
+                  : String(row.session_key ?? '').slice(0, 20) || row.id || row.source || 'Session'
               return (
-                <tr key={row.session_key + row.id + String(idx)} style={{ borderBottom: '1px solid #374151' }}>
-                  <td style={{ padding: '4px 4px' }} title={row.session_key}>{String(row.session_key ?? '').slice(0, 20)}{(row.session_key?.length ?? 0) > 20 ? '…' : ''}</td>
-                  <td style={{ padding: '4px 4px' }}>{row.source ?? '—'}</td>
-                  <td style={{ padding: '4px 4px' }}>{row.id ?? '—'}</td>
+                <tr
+                  key={row.session_key + row.id + String(idx)}
+                  style={{ borderBottom: '1px solid #374151', cursor: 'pointer', background: isSelected ? 'rgba(59, 130, 246, 0.15)' : isRunning ? 'rgba(34, 197, 94, 0.08)' : undefined }}
+                  onClick={() => setSelectedSession({ source: row.source, id: row.id })}
+                >
+                  <td style={{ padding: '4px 4px', textAlign: 'center', verticalAlign: 'middle' }} onClick={(e) => e.stopPropagation()}>
+                    <button
+                      type="button"
+                      aria-label={isSelected ? 'Selected session' : 'Select session'}
+                      title={isSelected ? 'Selected (click Run to use)' : 'Select this session'}
+                      style={{
+                        width: 18,
+                        height: 18,
+                        borderRadius: '50%',
+                        border: `2px solid ${isSelected ? '#3b82f6' : '#6b7280'}`,
+                        background: isSelected ? '#3b82f6' : 'transparent',
+                        cursor: 'pointer',
+                        padding: 0,
+                      }}
+                      onClick={() => setSelectedSession(isSelected ? null : { source: row.source, id: row.id })}
+                    />
+                  </td>
+                  <td style={{ padding: '4px 4px' }} title={matchLabel}>{matchLabel}{isRunning ? ' ●' : ''}</td>
                   <td style={{ padding: '4px 4px' }}><span style={{ background: badgeColor, color: '#fff', padding: '1px 6px', borderRadius: 4, fontSize: 10 }}>{status}</span></td>
+                  <td style={{ padding: '4px 4px' }}>{row.source ?? '—'}</td>
                   <td style={{ padding: '4px 4px' }}>{row.age_s != null ? row.age_s : '—'}</td>
                   <td style={{ padding: '4px 4px' }}>{row.last_update_ts != null ? new Date(row.last_update_ts * 1000).toISOString().slice(11, 19) : '—'}</td>
                   <td style={{ padding: '4px 4px' }}>{ctx.active_source ?? '—'}</td>

@@ -246,7 +246,7 @@ class MemoryStore:
 
     async def update_config(self, partial: dict[str, Any]) -> None:
         """Merge partial config update. If source or match_id changed (old != new), clear history
-        and reset state.last_total_rounds to avoid mixing points between dummy/BO3 or between matches."""
+        and reset state.last_total_rounds to avoid mixing points between sources or between matches."""
         async with self._lock:
             current = self._state.config
             new_config = merge_config(current, partial)

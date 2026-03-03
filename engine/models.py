@@ -16,11 +16,14 @@ from typing import Any, Literal, Optional
 class Config:
     """Runtime configuration. Backend is source of truth."""
 
-    source: Literal["BO3", "GRID", "REPLAY", "DUMMY"] = "BO3"
+    source: Literal["BO3", "GRID", "REPLAY"] = "BO3"
     match_id: Optional[int] = None
     grid_series_id: Optional[str] = None  # GRID series id when source=GRID
     bo3_match_ids: Optional[list[int]] = None  # multi-session: list of BO3 match ids
     grid_series_ids: Optional[list[str]] = None  # multi-session: list of GRID series ids
+    # Primary session (which session drives the store in multi-session); None = first in list
+    primary_session_source: Optional[str] = None  # "BO3" | "GRID"
+    primary_session_id: Optional[str] = None  # match_id as string for BO3, series_id for GRID
     # BO3 auto-track (runtime only; manual bo3_match_ids overrides)
     bo3_auto_track: Optional[bool] = False
     bo3_auto_track_limit: Optional[int] = 5

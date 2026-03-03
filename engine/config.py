@@ -17,6 +17,8 @@ DEFAULTS: dict[str, Any] = {
     "grid_series_id": None,
     "bo3_match_ids": None,
     "grid_series_ids": None,
+    "primary_session_source": None,
+    "primary_session_id": None,
     "bo3_auto_track": False,
     "bo3_auto_track_limit": 5,
     "bo3_auto_track_refresh_s": 30.0,
@@ -107,7 +109,7 @@ def merge_config(current: Config, partial: dict[str, Any]) -> Config:
         return current
     if "source" in updates and isinstance(updates["source"], str):
         updates["source"] = (updates["source"] or "BO3").strip().upper()
-        if updates["source"] not in ("BO3", "GRID", "REPLAY", "DUMMY"):
+        if updates["source"] not in ("BO3", "GRID", "REPLAY"):
             updates["source"] = "BO3"
     if "match_id" in updates:
         updates["match_id"] = _coerce_match_id(updates["match_id"])
@@ -115,6 +117,19 @@ def merge_config(current: Config, partial: dict[str, Any]) -> Config:
         updates["bo3_match_ids"] = _coerce_int_list(updates["bo3_match_ids"])
     if "grid_series_ids" in updates:
         updates["grid_series_ids"] = _coerce_str_list(updates["grid_series_ids"])
+    if "primary_session_source" in updates:
+        v = updates["primary_session_source"]
+        if v is None or (isinstance(v, str) and not v.strip()):
+            updates["primary_session_source"] = None
+        else:
+            s = str(v).strip().upper()
+            updates["primary_session_source"] = s if s in ("BO3", "GRID") else None
+    if "primary_session_id" in updates:
+        v = updates["primary_session_id"]
+        if v is None or (isinstance(v, str) and not v.strip()):
+            updates["primary_session_id"] = None
+        else:
+            updates["primary_session_id"] = str(v).strip()
     if "bo3_auto_track" in updates:
         updates["bo3_auto_track"] = bool(updates["bo3_auto_track"])
     if "bo3_auto_track_limit" in updates:
@@ -166,6 +181,8 @@ def merge_config(current: Config, partial: dict[str, Any]) -> Config:
         "grid_series_id": getattr(current, "grid_series_id", None),
         "bo3_match_ids": getattr(current, "bo3_match_ids", None),
         "grid_series_ids": getattr(current, "grid_series_ids", None),
+        "primary_session_source": getattr(current, "primary_session_source", None),
+        "primary_session_id": getattr(current, "primary_session_id", None),
         "bo3_auto_track": getattr(current, "bo3_auto_track", False),
         "bo3_auto_track_limit": getattr(current, "bo3_auto_track_limit", 5),
         "bo3_auto_track_refresh_s": getattr(current, "bo3_auto_track_refresh_s", 30.0),

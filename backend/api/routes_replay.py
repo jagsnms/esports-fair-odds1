@@ -230,8 +230,8 @@ async def replay_load(
 async def replay_stop(
     store: MemoryStore = Depends(get_store),
 ) -> dict[str, Any]:
-    """Set source=DUMMY to stop replay."""
-    await store.update_config({"source": "DUMMY"})
+    """Set source=BO3 to stop replay (idle telemetry)."""
+    await store.update_config({"source": "BO3"})
     return await store.get_current()
 
 

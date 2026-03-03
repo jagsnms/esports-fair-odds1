@@ -112,6 +112,7 @@ query SeriesStateRich($id: ID!) {
     id
     valid
     updatedAt
+    format
     started
     finished
     title {

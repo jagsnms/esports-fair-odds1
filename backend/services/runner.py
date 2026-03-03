@@ -1,5 +1,5 @@
 """
-Async Runner: loop at poll_interval_s; BO3 live, REPLAY from JSONL, or dummy.
+Async Runner: loop at poll_interval_s; BO3 live, REPLAY from JSONL, or GRID.
 Market: poll Kalshi when enabled, push to delay buffer, attach market_mid to points.
 """
 from __future__ import annotations
@@ -7,7 +7,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import math
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -388,7 +387,7 @@ def compute_breach_flags(
 
 
 class Runner:
-    """Runs tick loop: BO3 snapshot, REPLAY from JSONL, or dummy; append_point, broadcast."""
+    """Runs tick loop: BO3 snapshot, REPLAY from JSONL, or GRID; append_point, broadcast."""
 
     def __init__(self, store: MemoryStore, broadcaster: Broadcaster) -> None:
         self._store = store
@@ -402,7 +401,6 @@ class Runner:
         self._replay_match_id: int | None = None
         self._replay_format: str | None = None  # "raw" | "point" from first payload
         self._replay_skipped_point_like_count: int = 0  # warning counter when in raw mode
-        self._dummy_snapshot_sent = False
         # Market delay buffer + poll throttle
         from backend.services.market_buffer import MarketDelayBuffer
         self._market_buffer = MarketDelayBuffer(maxlen=5000)
@@ -2420,13 +2418,11 @@ class Runner:
         return True
 
     async def _loop(self) -> None:
-        """Tick: get config; REPLAY or BO3 or dummy, append_point, broadcast."""
+        """Tick: get config; REPLAY or BO3 or GRID, append_point, broadcast."""
         while not self._stop.is_set():
             try:
                 config = await self._store.get_config()
                 interval = max(5.0, float(getattr(config, "poll_interval_s", 5.0)))
-                if getattr(config, "source", None) != "DUMMY":
-                    self._dummy_snapshot_sent = False
                 await self._maybe_poll_market(config)
             except Exception:
                 interval = 5.0
@@ -2442,13 +2438,21 @@ class Runner:
                         await self._maybe_refresh_bo3_auto_ids(config, time.time())
                     bo3_ids = self._effective_bo3_match_ids(config)
                     grid_ids = self._effective_grid_series_ids(config, now_ts=time.time())
+                    primary_src = getattr(config, "primary_session_source", None)
+                    primary_id = getattr(config, "primary_session_id", None)
                     for i, mid in enumerate(bo3_ids):
-                        is_primary = i == 0 and len(bo3_ids) > 0
+                        if primary_src and primary_id is not None:
+                            is_primary = primary_src == "BO3" and primary_id == str(mid)
+                        else:
+                            is_primary = i == 0 and len(bo3_ids) > 0
                         did_tick = await self._tick_bo3_for_match(mid, config, is_primary) or did_tick
                         if did_tick and getattr(self, "_bo3_buf_consecutive_failures", 0) >= 3:
                             sleep_interval += 5.0
                     for i, sid in enumerate(grid_ids):
-                        is_primary = len(bo3_ids) == 0 and i == 0
+                        if primary_src and primary_id is not None:
+                            is_primary = primary_src == "GRID" and primary_id == sid
+                        else:
+                            is_primary = len(bo3_ids) == 0 and i == 0
                         did_tick = await self._tick_grid_for_series(sid, config, is_primary) or did_tick
                 else:
                     src = getattr(config, "source", None)
@@ -2458,60 +2462,7 @@ class Runner:
                         did_tick = await self._tick_bo3(config)
                         if did_tick and getattr(self, "_bo3_buf_consecutive_failures", 0) >= 3:
                             sleep_interval += 5.0
-                if not did_tick:
-                    src = getattr(config, "source", None)
-                    if src == "DUMMY":
-                        neutral_derived = Derived(
-                            p_hat=0.5,
-                            bound_low=0.01,
-                            bound_high=0.99,
-                            rail_low=0.01,
-                            rail_high=0.99,
-                            kappa=0.0,
-                        )
-                        neutral_state = State(
-                            config=config,
-                            last_frame=Frame(timestamp=time.time(), teams=("A", "B"), scores=(0, 0)),
-                            map_index=0,
-                            last_total_rounds=0,
-                        )
-                        await self._store.set_current(neutral_state, neutral_derived)
-                        current = await self._store.get_current()
-                        history = await self._store.get_history(limit=500)
-                        await self._broadcaster.broadcast(
-                            {"type": "snapshot", "current": current, "history": history}
-                        )
-                        self._dummy_snapshot_sent = True
-                    else:
-                        # Legacy fallback when not BO3/REPLAY and source != DUMMY (e.g. BO3 with no match_id)
-                        t = time.time()
-                        p_hat = 0.5 + 0.4 * math.sin(t * 0.1)
-                        p_hat = max(0.1, min(0.9, p_hat))
-                        lo = max(0.0, p_hat - 0.1)
-                        hi = min(1.0, p_hat + 0.1)
-                        market_mid = p_hat - 0.02 * math.sin(t * 0.15)
-                        market_mid = max(0.0, min(1.0, market_mid)) if market_mid is not None else None
-                        idle_explain = _minimal_explain("idle", lo, hi, p_hat, clamp_reason="no_source")
-                        point = HistoryPoint(
-                            time=t,
-                            p_hat=p_hat,
-                            bound_low=lo,
-                            bound_high=hi,
-                            rail_low=lo,
-                            rail_high=hi,
-                            market_mid=market_mid,
-                            segment_id=0,
-                            explain=idle_explain,
-                        )
-                        state = State(
-                            config=config,
-                            last_frame=Frame(timestamp=t, teams=("A", "B"), scores=(0, 0)),
-                            map_index=0,
-                            last_total_rounds=0,
-                        )
-                        derived = Derived(p_hat=p_hat, bound_low=lo, bound_high=hi, rail_low=lo, rail_high=hi, kappa=0.0)
-                        await self._store.append_point(point, state, derived)
-                        await self._broadcast_point(point)
+                # When no tick (no replay, no BO3/GRID update): do not inject synthetic points
             try:
                 await asyncio.sleep(sleep_interval)
             except asyncio.CancelledError:
