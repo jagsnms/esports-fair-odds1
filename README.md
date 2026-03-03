@@ -6,9 +6,9 @@
    ```powershell
    .\scripts\bootstrap.ps1
    ```
-2. Run the app:
+2. Run the legacy Streamlit app (dev/analysis only):
    ```bash
-   streamlit run app35_ml.py
+   streamlit run legacy/app/app35_ml.py
    ```
 
 ## Dev (migration branch)

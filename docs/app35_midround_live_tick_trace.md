@@ -1,4 +1,4 @@
-# CS2 live tick / resolver path and midround parity oracle (app35_ml.py)
+# CS2 live tick / resolver path and midround parity oracle (`legacy/app/app35_ml.py`)
 
 Traced by following the **final assignment to p_hat** in the live loop and walking backward to the midround function(s) and their inputs. Not inferred from function names alone.
 

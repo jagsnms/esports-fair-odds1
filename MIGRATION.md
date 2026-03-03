@@ -46,7 +46,7 @@
 - The backend emits append-only history points. Logging these (e.g. to a file or ring buffer) allows deterministic replay.
 - Invariant checks in `engine/diagnostics/invariants.py` validate prob ranges, monotonic time, and team identity consistency before publish.
 
-## Current scaffold (no app35_ml changes)
+## Current scaffold (no app35_ml changes; now located under `legacy/app/app35_ml.py`)
 
 - **Engine:** `engine/models.py`, `engine/config.py`, `engine/diagnostics/invariants.py` — minimal stubs.
 - **Backend:** `backend/main.py` (FastAPI, `/health`, `/api/v1/state/current`, `/api/v1/stream` WebSocket stub), `backend/api/routes_state.py`, `backend/api/ws.py`.

@@ -403,29 +403,29 @@ if sys.platform.startswith("win"):
 _APP_DIR = Path(__file__).resolve().parent
 if str(_APP_DIR) not in sys.path:
     sys.path.insert(0, str(_APP_DIR))
-from fair_odds.paths import (
+from legacy.fair_odds.paths import (
     PROJECT_ROOT, APP_DIR, LOG_PATH, LOG_COLUMNS,
     INPLAY_LOG_PATH, INPLAY_RESULTS_PATH, INPLAY_MAP_RESULTS_PATH,
     INPLAY_LOG_COLUMNS, INPLAY_RESULTS_COLUMNS, INPLAY_MAP_RESULTS_COLUMNS,
     KAPPA_CALIB_PATH, P_CALIB_PATH, P_CALIB_REPORT_PATH,
 )
-from fair_odds.odds import (
+from legacy.fair_odds.odds import (
     american_to_decimal, decimal_to_american, implied_prob_from_american,
     calculate_fair_odds_curve, calculate_fair_odds_from_p, logistic_mapping,
     color_ev, prob_to_fair_american, compute_bo2_probs, ev_pct_decimal,
     decide_bet, decide_bo2_3way,
 )
-from fair_odds.calibration import (
+from legacy.fair_odds.calibration import (
     load_kappa_calibration, load_p_calibration_json, load_p_calibration,
     apply_p_calibration, get_kappa_multiplier,
     run_kappa_trainer, run_prob_trainer,
 )
-from fair_odds.data import (
+from legacy.fair_odds.data import (
     load_cs2_teams, load_dota_teams, get_team_tier,
     normalize_name, gosu_name_from_slug, read_csv_tolerant, sniff_bad_csv,
     piecewise_recent_weights,
 )
-from fair_odds.logs import (
+from legacy.fair_odds.logs import (
     migrate_log_schema, recompute_metrics_from_logs, load_persisted_logs,
     persist_log_row, init_metrics, update_metrics_binary, update_metrics_3way,
     log_row, export_logs_df,
@@ -433,13 +433,13 @@ from fair_odds.logs import (
     persist_cs2_replay_snapshot, persist_cs2_ml_feature_snapshot, derive_cs2_ml_feature_row,
     show_inplay_log_paths,
 )
-from fair_odds.scrapers import scrape_cs2_matches, scrape_dota_matches_gosu_subprocess, fetch_dota_matches
-from fair_odds.scoring import (
+from legacy.fair_odds.scrapers import scrape_cs2_matches, scrape_dota_matches_gosu_subprocess, fetch_dota_matches
+from legacy.fair_odds.scoring import (
     calculate_score, base_points_from_tier, normalize_series_result_from_fields,
     series_score_modifier_5tier,
     SERIES_CLAMP, SERIES_WEIGHTS, SERIES_PCT_OF_BASE_CAP,
 )
-from fair_odds.backtest import (
+from legacy.fair_odds.backtest import (
     load_state as load_backtest_state,
     save_state as save_backtest_state,
     load_match_settlements,
@@ -451,7 +451,7 @@ from fair_odds.bo3_adapter import (
     fetch_bo3_snapshot,
     normalize_bo3_snapshot_to_app,
 )
-from fair_odds.replay_bo3 import (
+from legacy.fair_odds.replay_bo3 import (
     load_bo3_jsonl,
     group_bo3_by_match,
     write_replay_frame_to_feed,
