@@ -17,7 +17,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-LOGS_DIR = ROOT / "logs"
+LOGS_DIR = ROOT / "data" / "raw" / "bo3"
 
 if sys.platform.startswith("win"):
     try:

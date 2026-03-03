@@ -474,14 +474,14 @@ def main() -> None:
     parser.add_argument(
         "--config",
         type=Path,
-        default=Path("configs/inplay_strategies.json"),
-        help="Path to strategy config JSON (default: configs/inplay_strategies.json)",
+        default=Path("config/inplay_strategies.json"),
+        help="Path to strategy config JSON (default: config/inplay_strategies.json)",
     )
     parser.add_argument(
         "--outdir",
         type=Path,
-        default=Path("logs"),
-        help="Output directory for trades CSV and summary JSON (default: logs)",
+        default=Path("artifacts/reports"),
+        help="Output directory for trades CSV and summary JSON (default: artifacts/reports)",
     )
     parser.add_argument(
         "--results",

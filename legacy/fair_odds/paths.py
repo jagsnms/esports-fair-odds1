@@ -1,8 +1,9 @@
 """Path constants and schema definitions."""
 from pathlib import Path
 
-# Project root: parent of this package
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# Project root: repo root (three levels up from legacy/fair_odds/paths.py)
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+# Historical app directory (repo root, where config/ and ML/ live)
 APP_DIR = PROJECT_ROOT
 
 LOG_PATH = PROJECT_ROOT / "logs" / "fair_odds_logs.csv"
@@ -53,8 +54,8 @@ P_CALIB_REPORT_PATH = PROJECT_ROOT / "config" / "p_calibration_report.json"
 P_TRAIN_SCRIPT = PROJECT_ROOT / "ML" / "train_prob_calibration.py"
 
 # CS2 persistent snapshot logging (replay + ML features)
-CS2_REPLAY_SNAPSHOT_PARQUET_PATH = PROJECT_ROOT / "logs" / "cs2_replay_snapshots.parquet"
-CS2_ML_FEATURE_PARQUET_PATH = PROJECT_ROOT / "logs" / "cs2_ml_features.parquet"
+CS2_REPLAY_SNAPSHOT_PARQUET_PATH = PROJECT_ROOT / "data" / "processed" / "cs2_replay_snapshots.parquet"
+CS2_ML_FEATURE_PARQUET_PATH = PROJECT_ROOT / "data" / "processed" / "cs2_ml_features.parquet"
 
 # Stable column order for replay parquet (broad, app-used/chart-used fields only; no UI state)
 CS2_REPLAY_SNAPSHOT_COLUMNS = [

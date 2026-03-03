@@ -25,13 +25,46 @@ netdump/
 .DS_Store
 Thumbs.db
 
-# Optional: uncomment if you don't want to track large/generated data
-# *.csv
-# logs/
-# Runtime log artifacts (config templates in logs/ kept if named accordingly)
-logs/*.json
+# --- Python caches / test artifacts ---
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Runtime logs ---
+logs/runtime/
+logs/debug/
+*.log
+
+# --- Data artifacts (keep folder structure via .gitkeep) ---
+**/*.parquet
+data/raw/**
+data/processed/**
+artifacts/reports/**
+
+# Local artifacts / dumps
+out/
+pytest_fit_auc_data/
+pytest_fit_midround_data/
 logs/*.jsonl
-logs/*.log
+logs/*.json
+logs/bo3_*
+logs/grid_*
+logs/history_points*.jsonl
+logs/history_score_points*.jsonl
+logs/inplay_backtest_state.json
+logs/bo3_live_feed.json
+logs/bo3_pulls.jsonl
+
+# Keep directory scaffolding tracked
+!data/raw/.gitkeep
+!data/raw/bo3/.gitkeep
+!data/processed/.gitkeep
+!artifacts/reports/.gitkeep
+!logs/runtime/.gitkeep
+
+!**/.gitkeep
 
 # Frontend (Vite / npm)
 frontend/node_modules/

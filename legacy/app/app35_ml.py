@@ -9520,9 +9520,9 @@ with tabs[6]:
             "**Match-end settlement:** If a position is still open when the match ends, it closes at 1 (Team A wins) or 0 (Team B wins) using the winner you log via **Winner** → **Save result** (inplay_match_results_clean.csv)."
         )
 
-    default_inplay = str(INPLAY_LOG_PATH) if INPLAY_LOG_PATH else "logs/inplay_kappa_logs_clean.csv"
-    default_config = str(PROJECT_ROOT / "configs" / "inplay_strategies.json")
-    default_outdir = str(PROJECT_ROOT / "logs")
+    default_inplay = str(INPLAY_LOG_PATH) if INPLAY_LOG_PATH else "artifacts/reports/inplay_kappa_logs_clean.csv"
+    default_config = str(PROJECT_ROOT / "config" / "inplay_strategies.json")
+    default_outdir = str(PROJECT_ROOT / "artifacts" / "reports")
 
     inplay_path = st.text_input("In-play log CSV path", value=default_inplay, key="inplay_bt_inplay_path")
     config_path = st.text_input("Config path", value=default_config, key="inplay_bt_config_path")
