@@ -27,6 +27,9 @@ _BO3_RAW_RECORD_DIR = (os.environ.get("BO3_RAW_RECORD_DIR", "logs") or "logs").s
 _BO3_RAW_RECORD_PER_MATCH = os.environ.get("BO3_RAW_RECORD_PER_MATCH", "true").strip().lower() in ("1", "true", "yes")
 # Monotonic gating: reject out-of-order BO3 frames (time rewind)
 _BO3_TICK_MONOTONIC_DEBUG = os.environ.get("BO3_TICK_MONOTONIC_DEBUG", "false").strip().lower() in ("1", "true", "yes")
+# Point-emit instrumentation: log each candidate and warn on discontinuities (teams/map/round/ts/corridor jump)
+_RUNNER_POINT_EMIT_DEBUG = os.environ.get("RUNNER_POINT_EMIT_DEBUG", "0").strip().lower() in ("1", "true", "yes")
+_POINT_JUMP_THRESHOLD = float(os.environ.get("POINT_JUMP_THRESHOLD", "0.25"))
 
 
 def _minimal_explain(
@@ -468,6 +471,8 @@ class Runner:
         self._bo3_readiness_cache: dict[int, dict[str, Any]] = {}
         # ML-ready series-line-dislocation episode logger (paper only; emits setup_trigger, episode_start/end/outcome)
         self._trade_episode_manager = TradeEpisodeManager()
+        # Per-session last emitted signature for point-emit discontinuity detection (key: (source, id))
+        self._point_emit_last_sig: dict[tuple[str, str], dict[str, Any]] = {}
 
     def _reset_outcome_trackers(self) -> None:
         """Reset dedupe trackers for outcome event emission."""
@@ -487,6 +492,74 @@ class Runner:
         self._bo3_freshness_gate.clear_cache()
         self._match_context = None
         self._match_context_match_id = None
+
+    def _point_emit_log(
+        self,
+        *,
+        session_source: str,
+        session_id: str,
+        match_key: str,
+        teams: tuple[str, str],
+        map_i: int | None,
+        round_i: int | None,
+        ts: float,
+        drv_summary: dict[str, Any],
+        p_hat: float,
+        bounds: tuple[float, float],
+        rails: tuple[float, float],
+        clamp_ctx: str,
+        emit_allowed: bool,
+        emit_reason: str,
+    ) -> None:
+        """Log per-candidate point and warn on discontinuities. No-op unless RUNNER_POINT_EMIT_DEBUG=1."""
+        if not _RUNNER_POINT_EMIT_DEBUG:
+            return
+        sig_key = (session_source, session_id)
+        last = self._point_emit_last_sig.get(sig_key)
+        bound_low, bound_high = bounds
+        rail_low, rail_high = rails
+        teams_tuple = (teams[0] if len(teams) > 0 else "", teams[1] if len(teams) > 1 else "")
+        log_line = (
+            f"point_emit session={session_source}:{session_id} match={match_key} teams={teams_tuple!r} "
+            f"map_i={map_i} round_i={round_i} ts={ts} p_hat={p_hat:.4f} "
+            f"bounds=({bound_low:.4f},{bound_high:.4f}) rails=({rail_low:.4f},{rail_high:.4f}) "
+            f"clamp={clamp_ctx} emit_allowed={emit_allowed} reason={emit_reason}"
+        )
+        logger.info(log_line, extra={"drv_summary": drv_summary})
+        if last is not None:
+            warn: list[str] = []
+            if last.get("teams") != teams_tuple:
+                warn.append(f"teams_change {last.get('teams')!r} -> {teams_tuple!r}")
+            if last.get("map_i") is not None and map_i is not None and last["map_i"] > map_i:
+                warn.append(f"map_regress {last['map_i']} -> {map_i}")
+            if last.get("round_i") is not None and round_i is not None and last["round_i"] > round_i:
+                warn.append(f"round_regress {last['round_i']} -> {round_i}")
+            if last.get("ts") is not None and last["ts"] > ts:
+                warn.append(f"ts_regress {last['ts']} -> {ts}")
+            for key, (lo, hi) in [("bounds", bounds), ("rails", rails)]:
+                old_lo = last.get(f"{key}_lo")
+                old_hi = last.get(f"{key}_hi")
+                if old_lo is not None and old_hi is not None:
+                    delta_lo = abs(lo - old_lo)
+                    delta_hi = abs(hi - old_hi)
+                    if delta_lo > _POINT_JUMP_THRESHOLD or delta_hi > _POINT_JUMP_THRESHOLD:
+                        warn.append(f"{key}_jump ({old_lo},{old_hi}) -> ({lo},{hi})")
+            if last.get("p_hat") is not None and abs(p_hat - last["p_hat"]) > _POINT_JUMP_THRESHOLD:
+                warn.append(f"p_hat_jump {last['p_hat']} -> {p_hat}")
+            if warn:
+                logger.warning("point_emit discontinuity: %s", "; ".join(warn), extra={"session": sig_key})
+        if emit_allowed:
+            self._point_emit_last_sig[sig_key] = {
+                "teams": teams_tuple,
+                "map_i": map_i,
+                "round_i": round_i,
+                "ts": ts,
+                "p_hat": p_hat,
+                "bounds_lo": bound_low,
+                "bounds_hi": bound_high,
+                "rails_lo": rail_low,
+                "rails_hi": rail_high,
+            }
 
     def _ensure_map_identity_from_raw(
         self,
@@ -1621,6 +1694,48 @@ class Runner:
                 "corridor invariant violation",
                 extra={"violations": inv["invariant_violations"], "seg": getattr(new_state, "segment_id", 0)},
             )
+        # BO3 live emission gate: do not append/broadcast when driver validity is false (legacy-style gating).
+        fragility = dbg.get("fragility") or {}
+        drv_valid_microstate = not fragility.get("missing_microstate_flag", False)
+        drv_valid_roundstate = not fragility.get("clock_invalid_flag", False)
+        if not (drv_valid_microstate and drv_valid_roundstate):
+            dbg["drv_emit_skipped"] = True
+            dbg["drv_emit_reason"] = "drv_invalid"
+            dbg["drv_valid_microstate"] = drv_valid_microstate
+            dbg["drv_valid_roundstate"] = drv_valid_roundstate
+            if session_runtime is not None:
+                session_runtime.last_state = new_state
+                session_runtime.last_frame = asdict(frame)
+                session_runtime.last_update_ts = t
+                session_runtime.last_error = "drv_invalid"
+            teams_bo3 = getattr(frame, "teams", None) or ("", "")
+            if isinstance(teams_bo3, (list, tuple)) and len(teams_bo3) >= 2:
+                teams_bo3 = (str(teams_bo3[0]), str(teams_bo3[1]))
+            else:
+                teams_bo3 = ("", "")
+            clamp_reason = "unknown"
+            if isinstance(dbg.get("explain"), dict) and isinstance(dbg["explain"].get("final"), dict):
+                clamp_reason = dbg["explain"]["final"].get("clamp_reason", "unknown")
+            self._point_emit_log(
+                session_source="BO3",
+                session_id=str(mid),
+                match_key=str(mid),
+                teams=teams_bo3,
+                map_i=getattr(frame, "map_index", None),
+                round_i=getattr(new_state, "round_index", None),
+                ts=t,
+                drv_summary={
+                    "drv_valid_microstate": drv_valid_microstate,
+                    "drv_valid_roundstate": drv_valid_roundstate,
+                },
+                p_hat=p_hat,
+                bounds=(bound_low, bound_high),
+                rails=(rail_low, rail_high),
+                clamp_ctx=clamp_reason,
+                emit_allowed=False,
+                emit_reason="drv_invalid",
+            )
+            return True
         if breach_type is not None and (self._last_breach_type is None or self._last_breach_type != breach_type):
             scores = (0, 0)
             if new_state.last_frame is not None:
@@ -1788,6 +1903,30 @@ class Runner:
             session_runtime.last_frame = asdict(frame)
             session_runtime.last_update_ts = t
             session_runtime.last_error = None
+        clamp_reason_bo3 = "ok"
+        if isinstance(explain, dict) and isinstance(explain.get("final"), dict):
+            clamp_reason_bo3 = explain["final"].get("clamp_reason", "ok")
+        teams_bo3_emit = getattr(frame, "teams", None) or ("", "")
+        if isinstance(teams_bo3_emit, (list, tuple)) and len(teams_bo3_emit) >= 2:
+            teams_bo3_emit = (str(teams_bo3_emit[0]), str(teams_bo3_emit[1]))
+        else:
+            teams_bo3_emit = ("", "")
+        self._point_emit_log(
+            session_source="BO3",
+            session_id=str(mid),
+            match_key=str(mid),
+            teams=teams_bo3_emit,
+            map_i=map_index_bo3,
+            round_i=round_number_ep,
+            ts=t,
+            drv_summary={"drv_valid_microstate": True, "drv_valid_roundstate": True},
+            p_hat=p_hat,
+            bounds=(bound_low, bound_high),
+            rails=(rail_low, rail_high),
+            clamp_ctx=clamp_reason_bo3,
+            emit_allowed=write_to_store,
+            emit_reason="ok",
+        )
         if write_to_store:
             await self._store.append_point(point, new_state, derived)
             await self._broadcast_point(point)
@@ -2043,6 +2182,30 @@ class Runner:
             session_runtime.last_frame = asdict(frame)
             session_runtime.last_update_ts = t
             session_runtime.last_error = None
+        clamp_reason_grid = "grid"
+        if isinstance(explain, dict) and isinstance(explain.get("final"), dict):
+            clamp_reason_grid = explain["final"].get("clamp_reason", "grid")
+        teams_grid = getattr(frame, "teams", None) or ("", "")
+        if isinstance(teams_grid, (list, tuple)) and len(teams_grid) >= 2:
+            teams_grid = (str(teams_grid[0]), str(teams_grid[1]))
+        else:
+            teams_grid = ("", "")
+        self._point_emit_log(
+            session_source="GRID",
+            session_id=grid_series_id or "",
+            match_key=grid_series_id or "",
+            teams=teams_grid,
+            map_i=getattr(frame, "map_index", None),
+            round_i=getattr(state, "round_index", None),
+            ts=t,
+            drv_summary=dbg.get("fragility") or {},
+            p_hat=p_hat,
+            bounds=(bound_low, bound_high),
+            rails=(rail_low, rail_high),
+            clamp_ctx=clamp_reason_grid,
+            emit_allowed=write_to_store,
+            emit_reason="ok",
+        )
         if write_to_store:
             await self._store.append_point(point, new_state, derived)
             await self._broadcast_point(point)

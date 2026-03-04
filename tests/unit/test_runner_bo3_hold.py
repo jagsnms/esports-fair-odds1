@@ -516,3 +516,119 @@ async def test_round_result_fallback_map_index_from_last_seen_game_number() -> N
 
 def test_round_result_fallback_map_index_from_last_seen_game_number_sync() -> None:
     asyncio.run(test_round_result_fallback_map_index_from_last_seen_game_number())
+
+
+async def test_bo3_invalid_driver_missing_microstate_does_not_append_history_point() -> None:
+    """
+    Live BO3 tick with missing microstate (no player_states) must NOT append a history point.
+    Driver validity gate: drv_valid_microstate False => skip append/broadcast (legacy-style gating).
+    """
+    store = MemoryStore(max_history=100)
+    config = Config(source="BO3", match_id=456, poll_interval_s=5.0)
+    state = State(config=config, segment_id=1)
+    derived = Derived(
+        p_hat=0.5,
+        bound_low=0.2,
+        bound_high=0.8,
+        rail_low=0.4,
+        rail_high=0.6,
+        kappa=0.0,
+        debug={},
+    )
+    await store.set_current(state, derived)
+
+    broadcaster = MagicMock()
+    broadcaster.broadcast = AsyncMock()
+    runner = Runner(store=store, broadcaster=broadcaster)
+
+    # Snapshot WITHOUT player_states => frame has loadout_totals=None => missing_microstate_flag True
+    minimal_snap_no_players = {
+        "team_one": {"name": "A", "score": 0, "id": 1},
+        "team_two": {"name": "B", "score": 0, "id": 2},
+        "created_at": "ts1",
+        "round_phase": "IN_PROGRESS",
+        "game_number": 1,
+    }
+
+    with (
+        patch("engine.ingest.bo3_client.get_snapshot", AsyncMock(return_value=minimal_snap_no_players)),
+        patch(
+            "backend.services.runner._bo3_snapshot_status",
+            return_value=("live", "ok", "ts1", True),
+        ),
+    ):
+        did_bo3 = await runner._tick_bo3(config)
+
+    assert did_bo3 is True
+    history = await store.get_history(limit=10)
+    assert len(history) == 0, "live BO3 tick with missing microstate must not append any history point"
+
+
+async def test_bo3_valid_driver_with_microstate_appends_history_point() -> None:
+    """
+    Live BO3 tick WITH player_states (valid microstate) must append one history point.
+    """
+    store = MemoryStore(max_history=100)
+    config = Config(source="BO3", match_id=789, poll_interval_s=5.0)
+    state = State(config=config, segment_id=1)
+    derived = Derived(
+        p_hat=0.5,
+        bound_low=0.2,
+        bound_high=0.8,
+        rail_low=0.4,
+        rail_high=0.6,
+        kappa=0.0,
+        debug={},
+    )
+    await store.set_current(state, derived)
+
+    broadcaster = MagicMock()
+    broadcaster.broadcast = AsyncMock()
+    runner = Runner(store=store, broadcaster=broadcaster)
+
+    # Snapshot WITH player_states => frame has microstate => missing_microstate_flag False (if clock valid)
+    snap_with_players = {
+        "team_one": {
+            "name": "A",
+            "score": 0,
+            "id": 1,
+            "player_states": [
+                {"is_alive": True, "health": 100, "balance": 4000, "equipment_value": 3000},
+                {"is_alive": True, "health": 100, "balance": 3500, "equipment_value": 2500},
+            ],
+        },
+        "team_two": {
+            "name": "B",
+            "score": 0,
+            "id": 2,
+            "player_states": [
+                {"is_alive": True, "health": 100, "balance": 4000, "equipment_value": 3000},
+                {"is_alive": True, "health": 80, "balance": 2000, "equipment_value": 1500},
+            ],
+        },
+        "created_at": "ts1",
+        "round_phase": "IN_PROGRESS",
+        "game_number": 1,
+        "round_time_remaining": 115.0,
+    }
+
+    with (
+        patch("engine.ingest.bo3_client.get_snapshot", AsyncMock(return_value=snap_with_players)),
+        patch(
+            "backend.services.runner._bo3_snapshot_status",
+            return_value=("live", "ok", "ts1", True),
+        ),
+    ):
+        did_bo3 = await runner._tick_bo3(config)
+
+    assert did_bo3 is True
+    history = await store.get_history(limit=10)
+    assert len(history) == 1, "live BO3 tick with valid microstate must append one history point"
+
+
+def test_bo3_invalid_driver_missing_microstate_does_not_append_history_point_sync() -> None:
+    asyncio.run(test_bo3_invalid_driver_missing_microstate_does_not_append_history_point())
+
+
+def test_bo3_valid_driver_with_microstate_appends_history_point_sync() -> None:
+    asyncio.run(test_bo3_valid_driver_with_microstate_appends_history_point())
