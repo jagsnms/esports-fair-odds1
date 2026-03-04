@@ -4,7 +4,19 @@ FastAPI application entrypoint.
 Long-lived service: polls feeds, maintains state, computes derived outputs,
 emits history points; exposes REST and WebSocket for the frontend.
 """
+import logging
+import os
 from contextlib import asynccontextmanager
+
+# Ensure app/module logs (e.g. BO3_RATE_DEBUG, runner) appear in console
+_level = os.getenv("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(
+    level=getattr(logging, _level, logging.INFO),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    force=True,  # apply even if uvicorn already configured logging
+)
+logging.getLogger("engine").setLevel(getattr(logging, _level, logging.INFO))
+logging.getLogger("backend").setLevel(getattr(logging, _level, logging.INFO))
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

@@ -396,6 +396,14 @@ function App() {
     return () => clearInterval(id)
   }, [activePanel])
 
+  // Sync selectedSession from config when backend has primary pinned (so UI stays in sync; polling does not overwrite selection)
+  useEffect(() => {
+    const cfg = (current?.state as { config?: { primary_session_source?: string; primary_session_id?: string } } | undefined)?.config
+    const src = cfg?.primary_session_source
+    const id = cfg?.primary_session_id
+    if (src && id) setSelectedSession({ source: src, id })
+  }, [current])
+
   /** Rebuild marker list from episode map and set on p_hat series. Call after adding/updating episode markers. */
   const applyEpisodeMarkers = useCallback(() => {
     const series = pSeriesRef.current
@@ -1313,6 +1321,45 @@ function App() {
     setTelemetrySortDir((prev) => (telemetrySortColumn === column && prev === 'asc' ? 'desc' : 'asc'))
   }
 
+  const pinSession = useCallback(async (source: string, id: string) => {
+    setSelectedSession({ source, id })
+    setConfigError(null)
+    try {
+      const r = await fetch(`${API_BASE}/api/v1/config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ primary_session_source: source, primary_session_id: id }),
+      })
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}))
+        setConfigError(String((body as { detail?: string })?.detail ?? (body as { message?: string })?.message ?? r.statusText))
+        return
+      }
+      setWsReconnectTrigger((prev) => prev + 1)
+    } catch (e) {
+      setConfigError(e instanceof Error ? e.message : String(e))
+    }
+  }, [])
+  const unpinSession = useCallback(async () => {
+    setSelectedSession(null)
+    setConfigError(null)
+    try {
+      const r = await fetch(`${API_BASE}/api/v1/config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ primary_session_source: null, primary_session_id: null }),
+      })
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}))
+        setConfigError(String((body as { detail?: string })?.detail ?? (body as { message?: string })?.message ?? r.statusText))
+        return
+      }
+      setWsReconnectTrigger((prev) => prev + 1)
+    } catch (e) {
+      setConfigError(e instanceof Error ? e.message : String(e))
+    }
+  }, [])
+
   const TelemetrySessionsPanel = (
     <section style={{ padding: 12, border: '1px solid #374151', borderRadius: 6 }}>
       <h3 style={{ marginTop: 0 }}>Telemetry Sessions</h3>
@@ -1366,53 +1413,18 @@ function App() {
           <span style={{ fontSize: 12, color: '#9ca3af' }}>Search</span>
           <input type="text" value={telemetrySearch} onChange={(e) => setTelemetrySearch(e.target.value)} placeholder="id / key / ctx…" style={{ width: 140, padding: '2px 6px', fontSize: 12 }} />
         </label>
-        <span style={{ marginLeft: 8, fontSize: 12, color: '#9ca3af' }}>Use session:</span>
+        <span style={{ marginLeft: 8, fontSize: 12, color: '#9ca3af' }}>Click a row to pin that match (runner will not rotate).</span>
         <button
           type="button"
           disabled={!selectedSession}
-          onClick={async () => {
-            if (!selectedSession) return
-            setConfigError(null)
-            try {
-              const r = await fetch(`${API_BASE}/api/v1/config`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ primary_session_source: selectedSession.source, primary_session_id: selectedSession.id }),
-              })
-              if (!r.ok) {
-                const body = await r.json().catch(() => ({}))
-                setConfigError(String((body as { detail?: string })?.detail ?? (body as { message?: string })?.message ?? r.statusText))
-                return
-              }
-              setWsReconnectTrigger((prev) => prev + 1)
-            } catch (e) {
-              setConfigError(e instanceof Error ? e.message : String(e))
-            }
-          }}
+          onClick={() => selectedSession && pinSession(selectedSession.source, selectedSession.id)}
           style={{ padding: '4px 10px', fontSize: 12, borderRadius: 6, cursor: selectedSession ? 'pointer' : 'not-allowed', opacity: selectedSession ? 1 : 0.6 }}
         >
           Run this match
         </button>
         <button
           type="button"
-          onClick={async () => {
-            setConfigError(null)
-            try {
-              const r = await fetch(`${API_BASE}/api/v1/config`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ primary_session_source: null, primary_session_id: null }),
-              })
-              if (!r.ok) {
-                const body = await r.json().catch(() => ({}))
-                setConfigError(String((body as { detail?: string })?.detail ?? (body as { message?: string })?.message ?? r.statusText))
-                return
-              }
-              setWsReconnectTrigger((prev) => prev + 1)
-            } catch (e) {
-              setConfigError(e instanceof Error ? e.message : String(e))
-            }
-          }}
+          onClick={() => unpinSession()}
           style={{ padding: '4px 10px', fontSize: 12, borderRadius: 6, cursor: 'pointer' }}
         >
           Stop match
@@ -1468,13 +1480,13 @@ function App() {
                 <tr
                   key={`${row.source}:${row.id}`}
                   style={{ borderBottom: '1px solid #374151', cursor: 'pointer', background: isSelected ? 'rgba(59, 130, 246, 0.15)' : isRunning ? 'rgba(34, 197, 94, 0.08)' : undefined }}
-                  onClick={() => setSelectedSession({ source: row.source, id: row.id })}
+                  onClick={() => pinSession(row.source, row.id)}
                 >
                   <td style={{ padding: '4px 4px', textAlign: 'center', verticalAlign: 'middle' }} onClick={(e) => e.stopPropagation()}>
                     <button
                       type="button"
-                      aria-label={isSelected ? 'Selected session' : 'Select session'}
-                      title={isSelected ? 'Selected (click Run to use)' : 'Select this session'}
+                      aria-label={isSelected ? 'Pinned session' : 'Pin this session'}
+                      title={isRunning ? 'Pinned (click to keep; Stop match to unpin)' : isSelected ? 'Pinned' : 'Click to pin this match'}
                       style={{
                         width: 18,
                         height: 18,
@@ -1484,10 +1496,13 @@ function App() {
                         cursor: 'pointer',
                         padding: 0,
                       }}
-                      onClick={() => setSelectedSession(isSelected ? null : { source: row.source, id: row.id })}
+                      onClick={() => (isSelected ? unpinSession() : pinSession(row.source, row.id))}
                     />
                   </td>
-                  <td style={{ padding: '4px 4px' }} title={matchLabel}>{matchLabel}{isRunning ? ' ●' : ''}</td>
+                  <td style={{ padding: '4px 4px' }} title={matchLabel}>
+                    {matchLabel}
+                    {isRunning ? <span style={{ marginLeft: 4, fontSize: 10, color: '#22c55e', fontWeight: 600 }} title="Pinned primary">● Pinned</span> : ''}
+                  </td>
                   <td style={{ padding: '4px 4px' }}><span style={{ background: badgeColor, color: '#fff', padding: '1px 6px', borderRadius: 4, fontSize: 10 }}>{status}</span></td>
                   <td style={{ padding: '4px 4px' }}>{row.source ?? '—'}</td>
                   <td style={{ padding: '4px 4px' }}>{row.age_s != null ? row.age_s : '—'}</td>
@@ -1622,6 +1637,35 @@ function App() {
         </div>
       </div>
 
+      {/* Market delay: only market quote (bid/ask/mid) is delayed; chart/telemetry are real-time */}
+      <div style={{ marginTop: 12, paddingBottom: 12, borderBottom: '1px solid #374151' }}>
+        <strong style={{ color: '#9ca3af', fontSize: 12 }}>Market delay</strong>
+        <p style={{ marginTop: 2, marginBottom: 6, fontSize: 11, color: '#6b7280' }}>
+          Only the market quote attached to each point is delayed; chart and telemetry are real-time.
+        </p>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+          <span>Delay (seconds):</span>
+          <select
+            value={(() => {
+              const sec = Math.max(0, Math.min(300, Number(cfg.market_delay_sec) ?? 120))
+              const opts = [0, 30, 60, 120, 180]
+              return opts.includes(sec) ? sec : opts.reduce((a, b) => (Math.abs(b - sec) <= Math.abs(a - sec) ? b : a))
+            })()}
+            onChange={(e) => {
+              const sec = Math.max(0, Math.min(300, parseInt(e.target.value, 10) || 0))
+              postConfigPartial({ market_delay_sec: sec })
+            }}
+            style={{ padding: '2px 6px', fontSize: 12, minWidth: 72 }}
+          >
+            <option value={0}>Off (live)</option>
+            <option value={30}>30 s</option>
+            <option value={60}>60 s</option>
+            <option value={120}>120 s</option>
+            <option value={180}>180 s</option>
+          </select>
+        </label>
+      </div>
+
       {/* GRID */}
       <div style={{ marginTop: 12, paddingBottom: 12, borderBottom: '1px solid #374151' }}>
         <strong style={{ color: '#9ca3af', fontSize: 12 }}>GRID</strong>
@@ -1699,6 +1743,30 @@ function App() {
           style={{ padding: '6px 12px', fontSize: 12, background: '#374151', color: '#e5e7eb', border: '1px solid #4b5563', borderRadius: 6, cursor: 'pointer' }}
         >
           Clear sessions (runtime)
+        </button>
+        <button
+          type="button"
+          onClick={async () => {
+            setSnapshotHistory([])
+            setDataFromHistory([])
+            setCurrent(null)
+            setHudFrame(null)
+            setConfigError(null)
+            try {
+              const r = await fetch(`${API_BASE}/api/v1/state/clear`, { method: 'POST' })
+              if (!r.ok) {
+                const body = await r.json().catch(() => ({}))
+                setConfigError(String((body as { detail?: string })?.detail ?? r.statusText))
+                return
+              }
+              setWsReconnectTrigger((prev) => prev + 1)
+            } catch (e) {
+              setConfigError(e instanceof Error ? e.message : String(e))
+            }
+          }}
+          style={{ padding: '6px 12px', fontSize: 12, background: '#374151', color: '#e5e7eb', border: '1px solid #4b5563', borderRadius: 6, cursor: 'pointer' }}
+        >
+          Clear chart
         </button>
       </div>
 

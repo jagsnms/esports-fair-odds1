@@ -192,6 +192,22 @@ class MemoryStore:
         async with self._lock:
             return _state_derived_to_dict(self._state, self._derived)
 
+    async def clear_display(self) -> None:
+        """Clear in-memory history and reset current state/derived for display. Keeps config. No JSONL wipe."""
+        async with self._lock:
+            self._history.clear()
+            self._state = State(
+                config=self._state.config,
+                last_frame=None,
+                team_mapping=self._state.team_mapping,
+                map_index=0,
+                last_total_rounds=0,
+                segment_id=0,
+                last_series_score=None,
+                last_map_index=None,
+            )
+            self._derived = Derived()
+
     async def get_history(self, limit: int = 2000) -> list[dict[str, Any]]:
         """Last `limit` points in wire format."""
         async with self._lock:

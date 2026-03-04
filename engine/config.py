@@ -119,17 +119,12 @@ def merge_config(current: Config, partial: dict[str, Any]) -> Config:
         updates["grid_series_ids"] = _coerce_str_list(updates["grid_series_ids"])
     if "primary_session_source" in updates:
         v = updates["primary_session_source"]
-        if v is None or (isinstance(v, str) and not v.strip()):
+        updates["primary_session_source"] = (str(v).strip().upper() if v is not None else "") or None
+        if updates["primary_session_source"] and updates["primary_session_source"] not in ("BO3", "GRID"):
             updates["primary_session_source"] = None
-        else:
-            s = str(v).strip().upper()
-            updates["primary_session_source"] = s if s in ("BO3", "GRID") else None
     if "primary_session_id" in updates:
         v = updates["primary_session_id"]
-        if v is None or (isinstance(v, str) and not v.strip()):
-            updates["primary_session_id"] = None
-        else:
-            updates["primary_session_id"] = str(v).strip()
+        updates["primary_session_id"] = (str(v).strip() if v is not None else None) or None
     if "bo3_auto_track" in updates:
         updates["bo3_auto_track"] = bool(updates["bo3_auto_track"])
     if "bo3_auto_track_limit" in updates:

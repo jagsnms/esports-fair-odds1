@@ -154,7 +154,7 @@ def test_map_width_tighter_than_series_at_early_score() -> None:
 
 
 def test_bomb_planted_or_low_alive_position_differs() -> None:
-    """Microstate (alive/loadout) affects active points -> map corridor can differ."""
+    """Microstate (alive/loadout) affects active points -> heuristic map corridor can differ."""
     config = _config()
     state = _state()
     frame_neutral = _frame(scores=(5, 5), alive_counts=(5, 5), bomb_phase_time_remaining=None)
@@ -165,6 +165,34 @@ def test_bomb_planted_or_low_alive_position_differs() -> None:
     r_low = compute_rails_cs2(frame_low_alive, config, state, bounds)
     assert 0 <= r_neutral[0] <= r_neutral[1] <= 1
     assert 0 <= r_low[0] <= r_low[1] <= 1
+
+
+def test_contract_rails_align_with_bounds_at_map_point_for_a() -> None:
+    """
+    When A is on map point (next-round win ends map), contract rail_high should equal series_high (within 1e-3).
+    """
+    config = _config()
+    state = _state()
+    frame = _frame(scores=(12, 5), series_score=(0, 0), alive_counts=(5, 5), loadout_totals=(15000.0, 15000.0))
+    bounds_result = compute_bounds(frame, config, state)
+    bounds = (bounds_result[0], bounds_result[1])
+    rail_lo, rail_hi, _ = compute_rails_cs2(frame, config, state, bounds)
+    series_hi = bounds[1]
+    assert abs(rail_hi - series_hi) <= 1e-3
+
+
+def test_contract_rails_align_with_bounds_at_map_point_for_b() -> None:
+    """
+    When B is on map point (next-round win ends map for B), contract rail_low should equal series_low (within 1e-3).
+    """
+    config = _config()
+    state = _state()
+    frame = _frame(scores=(5, 12), series_score=(0, 0), alive_counts=(5, 5), loadout_totals=(15000.0, 15000.0))
+    bounds_result = compute_bounds(frame, config, state)
+    bounds = (bounds_result[0], bounds_result[1])
+    rail_lo, rail_hi, _ = compute_rails_cs2(frame, config, state, bounds)
+    series_lo = bounds[0]
+    assert abs(rail_lo - series_lo) <= 1e-3
 
 
 class TestRailsCs2Basic(unittest.TestCase):
@@ -193,6 +221,12 @@ class TestRailsCs2Basic(unittest.TestCase):
 
     def test_bomb_planted_or_low_alive_adjusts(self) -> None:
         test_bomb_planted_or_low_alive_position_differs()
+
+    def test_contract_rails_align_with_bounds_at_map_point_for_a(self) -> None:
+        test_contract_rails_align_with_bounds_at_map_point_for_a()
+
+    def test_contract_rails_align_with_bounds_at_map_point_for_b(self) -> None:
+        test_contract_rails_align_with_bounds_at_map_point_for_b()
 
 
 if __name__ == "__main__":

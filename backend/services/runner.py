@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -30,6 +31,7 @@ _BO3_TICK_MONOTONIC_DEBUG = os.environ.get("BO3_TICK_MONOTONIC_DEBUG", "false").
 # Point-emit instrumentation: log each candidate and warn on discontinuities (teams/map/round/ts/corridor jump)
 _RUNNER_POINT_EMIT_DEBUG = os.environ.get("RUNNER_POINT_EMIT_DEBUG", "0").strip().lower() in ("1", "true", "yes")
 _POINT_JUMP_THRESHOLD = float(os.environ.get("POINT_JUMP_THRESHOLD", "0.25"))
+BO3_RATE_DEBUG = os.environ.get("BO3_RATE_DEBUG", "") == "1"
 
 
 def _minimal_explain(
@@ -51,6 +53,106 @@ def _minimal_explain(
         "micro_adj": {"alive_adj": 0.0, "hp_adj": 0.0, "econ_adj": 0.0},
         "rails": {"rail_low": rail_low, "rail_high": rail_high, "corridor_width": cw},
         "final": {"p_hat_final": p_hat, "clamp_reason": clamp_reason},
+    }
+
+
+def _compute_dominance_features(frame: Frame | None) -> dict[str, Any]:
+    """
+    Compute compact round dominance / win-quality features from Frame only.
+    No side effects; caller merges into debug (and optionally explain).
+    """
+    if frame is None:
+        return {}
+
+    def _logistic(x: float) -> float:
+        try:
+            return 1.0 / (1.0 + math.exp(-x))
+        except OverflowError:
+            return 0.0 if x < 0 else 1.0
+
+    # Alive dominance: difference in alive_counts (Team A - Team B)
+    alive = getattr(frame, "alive_counts", None)
+    dom_alive = None
+    if isinstance(alive, (tuple, list)) and len(alive) >= 2:
+        try:
+            da = float(alive[0]) if alive[0] is not None else 0.0
+            db = float(alive[1]) if alive[1] is not None else 0.0
+        except (TypeError, ValueError):
+            da = db = 0.0
+        # Scale: 2 players ~ strong edge; map to [0,1]
+        dom_alive = _logistic((da - db) / 2.0)
+
+    # HP dominance: total HP difference
+    hp = getattr(frame, "hp_totals", None)
+    dom_hp = None
+    if isinstance(hp, (tuple, list)) and len(hp) >= 2:
+        try:
+            ha = float(hp[0]) if hp[0] is not None else 0.0
+            hb_val = hp[1]
+            hb = float(hb_val) if hb_val is not None else 0.0
+        except (TypeError, ValueError):
+            ha = hb = 0.0
+        # Scale: 50 HP difference ~ noticeable edge
+        dom_hp = _logistic((ha - hb) / 50.0)
+
+    # Loadout dominance: loadout_totals difference
+    loadout = getattr(frame, "loadout_totals", None)
+    dom_loadout = None
+    if isinstance(loadout, (tuple, list)) and len(loadout) >= 2:
+        try:
+            la = float(loadout[0]) if loadout[0] is not None else 0.0
+            lb = float(loadout[1]) if loadout[1] is not None else 0.0
+        except (TypeError, ValueError):
+            la = lb = 0.0
+        # Scale: 5000 value difference ~ strong buy vs weak
+        dom_loadout = _logistic((la - lb) / 5000.0)
+
+    # Bomb dominance: planted flag / round time remaining (if normalized bomb_phase_time_remaining is present)
+    bomb = getattr(frame, "bomb_phase_time_remaining", None)
+    dom_bomb = None
+    if isinstance(bomb, dict):
+        is_planted = bomb.get("is_bomb_planted")
+        # Use normalized round_time_remaining seconds when available
+        rtr = bomb.get("round_time_remaining")
+        if isinstance(is_planted, bool) and rtr is not None:
+            try:
+                rtr_s = float(rtr)
+            except (TypeError, ValueError):
+                rtr_s = None
+            if rtr_s is not None:
+                # Early plant (more time left) -> higher dominance for T (Team A assumed offense on plant)
+                # Map rtr_s (0..40+) into [0,1] with gentle saturation.
+                dom_raw = max(0.0, min(1.0, rtr_s / 40.0))
+                dom_bomb = 0.5 + 0.5 * dom_raw if is_planted else 0.5 - 0.5 * dom_raw
+
+    # Combine into a single dominance_score in [0,1] (simple weighted average of present components).
+    components: list[float] = []
+    weights: list[float] = []
+    if dom_alive is not None:
+        components.append(dom_alive)
+        weights.append(1.5)
+    if dom_hp is not None:
+        components.append(dom_hp)
+        weights.append(1.0)
+    if dom_loadout is not None:
+        components.append(dom_loadout)
+        weights.append(1.0)
+    if dom_bomb is not None:
+        components.append(dom_bomb)
+        weights.append(1.0)
+
+    dominance_score = None
+    if components and weights:
+        w_sum = sum(weights)
+        if w_sum > 0:
+            dominance_score = sum(c * w for c, w in zip(components, weights)) / w_sum
+
+    return {
+        "dominance_alive": dom_alive,
+        "dominance_hp": dom_hp,
+        "dominance_loadout": dom_loadout,
+        "dominance_bomb": dom_bomb,
+        "dominance_score": dominance_score,
     }
 
 
@@ -295,6 +397,15 @@ def _bo3_snapshot_status(
 BO3_STALE_THRESHOLD_SEC = 30
 BO3_BUFFER_GOOD_AGE_SEC = 20  # GOOD if buffer_age_s <= this
 BO3_FETCH_RETRY_DELAYS = (0.5, 1.0)  # seconds between retries (2 retries after first attempt = 3 total)
+# Pinned mode: candidate list refresh vs validation probe cadence
+BO3_CANDIDATES_REFRESH_S = 120.0
+BO3_VALIDATION_PROBE_INTERVAL_S = 60.0   # low frequency (was 8s); no pointless re-probing
+BO3_VALIDATION_PROBE_BUDGET = 5
+# After 404, do not re-probe for 10 minutes (long cooldown)
+BO3_TELEM_RETRY_COOLDOWN_S = 600.0
+BO3_INVALID_BLACKLIST_TTL_S = BO3_TELEM_RETRY_COOLDOWN_S  # alias for 404 cooldown
+# Live-only: only consider candidates with status LIVE/current/in_progress or live_coverage
+BO3_PARSED_STATUS_LIVE = frozenset({"current", "live", "in_progress", "running", "in progress"})
 BO3_PAUSED_PHASES = frozenset({
     "TIMEOUT", "TECH_TIMEOUT", "PAUSED", "HALFTIME", "INTERMISSION",
     "POSTGAME", "MAP_END", "WARMUP", "FREEZETIME",
@@ -462,6 +573,8 @@ class Runner:
         self._sessions: dict[Any, Any] = {}
         # Sticky primary session (source, id) when primary_session_source/id not explicitly set
         self._last_primary_session: tuple[str, str] | None = None
+        # Last effective primary for change logging (pinned / sticky / fallback)
+        self._last_eff_primary_session: tuple[str, str] | None = None
         # GRID auto-track (runtime only; manual grid_series_ids overrides)
         self._grid_auto_last_refresh_ts: float = 0.0
         self._grid_auto_series_ids: list[str] = []
@@ -469,6 +582,11 @@ class Runner:
         self._bo3_auto_last_refresh_ts: float = 0.0
         self._bo3_auto_match_ids: list[int] = []
         self._bo3_readiness_cache: dict[int, dict[str, Any]] = {}
+        # Candidate discovery + validation: separate cadences; blacklist 404s
+        self._bo3_next_candidates_refresh_at: float = 0.0
+        self._bo3_next_validation_probe_at: float = 0.0
+        self._bo3_candidates_cache: list[dict[str, Any]] = []
+        self._bo3_invalid_snapshot_ids: dict[int, float] = {}  # match_id -> expires_at (unix)
         # ML-ready series-line-dislocation episode logger (paper only; emits setup_trigger, episode_start/end/outcome)
         self._trade_episode_manager = TradeEpisodeManager()
         # Per-session last emitted signature for point-emit discontinuity detection (key: (source, id))
@@ -810,6 +928,10 @@ class Runner:
         self._bo3_auto_last_refresh_ts = 0.0
         self._grid_auto_last_refresh_ts = 0.0
         self._bo3_readiness_cache.clear()
+        self._bo3_next_candidates_refresh_at = 0.0
+        self._bo3_next_validation_probe_at = 0.0
+        self._bo3_candidates_cache = []
+        self._bo3_invalid_snapshot_ids.clear()
         self._grid_next_fetch_ts.clear()
         self._grid_last_rate_limit_reason.clear()
 
@@ -846,59 +968,140 @@ class Runner:
         except Exception:
             pass
 
-    async def _maybe_refresh_bo3_auto_ids(self, config: Config, now_ts: float) -> None:
-        """Refresh _bo3_auto_match_ids from candidates + readiness probe when bo3_auto_track and interval elapsed."""
+    async def _maybe_refresh_bo3_candidates(self, config: Config, now_ts: float) -> None:
+        """Fetch candidate list only (no probing). Cadence: BO3_CANDIDATES_REFRESH_S (120s)."""
         if not getattr(config, "bo3_auto_track", False):
             return
-        refresh_s = max(10.0, float(getattr(config, "bo3_auto_track_refresh_s", 30.0)))
-        if now_ts - getattr(self, "_bo3_auto_last_refresh_ts", 0.0) < refresh_s:
+        if now_ts < getattr(self, "_bo3_next_candidates_refresh_at", 0.0):
             return
         try:
-            from engine.ingest.bo3_client import fetch_candidates, probe_snapshot_readiness
-            from engine.ingest.bo3_readiness_cache import (
-                DEFAULT_TTL_S,
-                filter_needs_probe,
-                select_telemetry_ready_match_ids,
-                update_cache_from_results,
-            )
+            from engine.ingest.bo3_client import fetch_candidates
             candidates = await fetch_candidates()
-            candidate_ids = [int(c["id"]) for c in candidates if c.get("id") is not None]
-            cache = self._bo3_readiness_cache
-            ttl_s = DEFAULT_TTL_S
-            budget = max(5, min(200, int(getattr(config, "bo3_auto_track_probe_budget", 40) or 40)))
-            to_probe = filter_needs_probe(candidate_ids, cache, now_ts, ttl_s=ttl_s, budget=budget)
-            if to_probe:
-                sem = asyncio.Semaphore(4)
-                async def probe_one(mid: int):
-                    async with sem:
-                        return await probe_snapshot_readiness(mid)
-                results = await asyncio.gather(*(probe_one(mid) for mid in to_probe), return_exceptions=True)
-                out_results: list[dict[str, Any]] = []
-                for i, r in enumerate(results):
-                    if isinstance(r, Exception):
-                        mid = to_probe[i] if i < len(to_probe) else 0
-                        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
-                        out_results.append({
-                            "match_id": mid,
-                            "telemetry_ready": False,
-                            "status_code": 502,
-                            "reason": "upstream_error",
-                            "last_probe_ts": ts,
-                        })
-                    else:
-                        out_results.append(r)
-                update_cache_from_results(cache, out_results, now_ts)
+            self._bo3_candidates_cache = candidates
+            self._bo3_next_candidates_refresh_at = now_ts + BO3_CANDIDATES_REFRESH_S
+            if BO3_RATE_DEBUG:
+                logger.info(
+                    "BO3 candidates refresh: count=%s next_refresh_in_s=%.0f",
+                    len(candidates),
+                    BO3_CANDIDATES_REFRESH_S,
+                )
+        except Exception:
+            self._bo3_next_candidates_refresh_at = now_ts + 60.0
+
+    def _is_bo3_candidate_live(self, c: dict[str, Any]) -> bool:
+        """True if candidate is labeled LIVE/current/in_progress or has live_coverage (no start_date window)."""
+        status = (c.get("parsed_status") or "").strip().lower()
+        if status in BO3_PARSED_STATUS_LIVE:
+            return True
+        if c.get("live_coverage"):
+            return True
+        return False
+
+    def _bo3_live_candidates(self) -> list[dict[str, Any]]:
+        """Candidates that are LIVE/current/in_progress or live_coverage; used for validation and sessions list."""
+        candidates = getattr(self, "_bo3_candidates_cache", [])
+        return [c for c in candidates if self._is_bo3_candidate_live(c)]
+
+    def _bo3_validation_probe_candidates(self, now_ts: float) -> tuple[list[int], int, int]:
+        """Ids to probe this cycle: live-only, skip cooldown, skip already telemetry_ready. Returns (to_probe, live_count, cooldown_skips)."""
+        next_probe_after = getattr(self, "_bo3_invalid_snapshot_ids", {})  # id -> timestamp after which we may probe again
+        live_candidates = self._bo3_live_candidates()
+        cache = self._bo3_readiness_cache
+        eligible: list[int] = []
+        cooldown_skips = 0
+        for c in live_candidates:
+            mid = c.get("id") or c.get("match_id")
+            if mid is None:
+                continue
+            try:
+                mid = int(mid)
+            except (TypeError, ValueError):
+                continue
+            if mid in next_probe_after and now_ts < next_probe_after[mid]:
+                cooldown_skips += 1
+                continue
+            entry = cache.get(mid)
+            if entry and entry.get("telemetry_ready"):
+                continue
+            eligible.append(mid)
+        to_probe = eligible[:BO3_VALIDATION_PROBE_BUDGET]
+        if BO3_RATE_DEBUG:
+            logger.info(
+                "BO3 probe: live_candidates_count=%s probes_attempted=%s cooldown_skips=%s",
+                len(live_candidates),
+                len(to_probe),
+                cooldown_skips,
+            )
+        return (to_probe, len(live_candidates), cooldown_skips)
+
+    async def _maybe_run_bo3_validation_probes(self, config: Config, now_ts: float) -> None:
+        """Probe at most N candidates (skip blacklisted). On 404 blacklist 600s; on 200 mark valid. No probes when pinned."""
+        if not getattr(config, "bo3_auto_track", False):
+            return
+        # Hard lock: if config has BO3 primary set, never run validation probes (avoid 404 storms)
+        cfg_src = (str(getattr(config, "primary_session_source", None) or "").strip().upper()) or None
+        cfg_id = (str(getattr(config, "primary_session_id", None) or "").strip() or None
+        if cfg_src == "BO3" and cfg_id:
+            return
+        if now_ts < getattr(self, "_bo3_next_validation_probe_at", 0.0):
+            return
+        try:
+            from engine.ingest.bo3_client import probe_snapshot_readiness
+            from engine.ingest.bo3_readiness_cache import select_telemetry_ready_match_ids, update_cache_from_results
+            to_probe, _live_count, _cooldown_skips = self._bo3_validation_probe_candidates(now_ts)
+            self._bo3_next_validation_probe_at = now_ts + BO3_VALIDATION_PROBE_INTERVAL_S
+            if not to_probe:
+                return
+            results: list[dict[str, Any]] = []
+            for mid in to_probe:
+                try:
+                    r = await probe_snapshot_readiness(mid)
+                    results.append(r)
+                    if not r.get("telemetry_ready") and r.get("status_code") == 404:
+                        self._bo3_invalid_snapshot_ids[mid] = now_ts + BO3_TELEM_RETRY_COOLDOWN_S
+                        if BO3_RATE_DEBUG:
+                            logger.info("BO3 validation 404 cooldown match_id=%s cooldown_s=%.0f", mid, BO3_TELEM_RETRY_COOLDOWN_S)
+                except Exception as e:
+                    results.append({
+                        "match_id": mid,
+                        "telemetry_ready": False,
+                        "status_code": 502,
+                        "reason": str(e),
+                        "last_probe_ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
+                    })
+            update_cache_from_results(self._bo3_readiness_cache, results, now_ts)
             limit = max(0, min(50, int(getattr(config, "bo3_auto_track_limit", 5) or 5)))
-            self._bo3_auto_match_ids = select_telemetry_ready_match_ids(candidates, cache, limit=limit)
+            live_candidates = self._bo3_live_candidates()
+            self._bo3_auto_match_ids = select_telemetry_ready_match_ids(live_candidates, self._bo3_readiness_cache, limit=limit)
             self._bo3_auto_last_refresh_ts = now_ts
         except Exception:
-            pass
+            self._bo3_next_validation_probe_at = now_ts + BO3_VALIDATION_PROBE_INTERVAL_S
 
-    def _effective_bo3_match_ids(self, config: Config) -> list[int]:
-        """BO3 match ids to tick: manual bo3_match_ids overrides; else auto-track list or single match_id."""
+    def _effective_bo3_match_ids(
+        self,
+        config: Config,
+        *,
+        primary_pinned: bool = False,
+        primary_src: str | None = None,
+        primary_id: str | None = None,
+    ) -> list[int]:
+        """BO3 match ids to tick. When primary is pinned to BO3, return only that id (single snapshot)."""
         manual = getattr(config, "bo3_match_ids", None) or []
         if manual and len(manual) > 0:
             return [int(x) for x in manual if x is not None]
+        # Hard lock: read from config so pinned BO3 always yields exactly one id
+        cfg_src = (str(getattr(config, "primary_session_source", None) or "").strip().upper()) or None
+        cfg_id = (str(getattr(config, "primary_session_id", None) or "").strip() or None
+        if cfg_src == "BO3" and cfg_id:
+            try:
+                return [int(cfg_id)]
+            except (TypeError, ValueError):
+                pass
+        if primary_pinned and primary_src == "BO3" and primary_id:
+            try:
+                return [int(primary_id)]
+            except (TypeError, ValueError):
+                pass
         if getattr(config, "bo3_auto_track", False):
             return list(getattr(self, "_bo3_auto_match_ids", []))
         mid = getattr(config, "match_id", None)
@@ -1002,9 +1205,14 @@ class Runner:
             session_runtime.bo3_buf_consecutive_failures += 1
             return
         last_err: str | None = None
+        backoff_so_far = 0.0
         for attempt in range(3):
             try:
-                snap = await get_snapshot(mid)
+                snap = await get_snapshot(
+                    mid,
+                    _rate_debug_retry_count=attempt,
+                    _rate_debug_backoff_s=backoff_so_far if backoff_so_far else None,
+                )
                 if snap and isinstance(snap, dict) and (snap.get("team_one") or snap.get("team_two")):
                     session_runtime.bo3_buf_raw = snap
                     session_runtime.bo3_buf_snapshot_ts = _bo3_extract_snapshot_ts(snap)
@@ -1019,6 +1227,7 @@ class Runner:
             if attempt < 2:
                 delay = BO3_FETCH_RETRY_DELAYS[attempt]
                 await asyncio.sleep(delay)
+                backoff_so_far += delay
         session_runtime.bo3_last_err = last_err
         session_runtime.bo3_buf_consecutive_failures += 1
 
@@ -1303,6 +1512,29 @@ class Runner:
             "bo3_buffer_snapshot_ts": session_runtime.bo3_buf_snapshot_ts,
             "bo3_buffer_last_success_epoch": session_runtime.bo3_buf_last_success_epoch,
         }
+
+    def _log_bo3_session_update(
+        self, match_id: int, session_runtime: Any, last_update_ts: float
+    ) -> None:
+        """When BO3_RATE_DEBUG=1, log SessionRuntime update: match_id, last_update_ts, provider_ts, age_s."""
+        if not BO3_RATE_DEBUG:
+            return
+        now = time.time()
+        provider_ts = getattr(session_runtime, "bo3_buf_snapshot_ts", None)
+        age_s = round(now - last_update_ts, 1) if last_update_ts else None
+        logger.info(
+            "BO3 session update match_id=%s last_update_ts=%.3f provider_ts=%s age_s=%s",
+            match_id,
+            last_update_ts,
+            provider_ts,
+            age_s,
+            extra={
+                "match_id": match_id,
+                "last_update_ts": last_update_ts,
+                "provider_ts": provider_ts,
+                "age_s": age_s,
+            },
+        )
 
     def _bo3_health_from_buffer(
         self, session_runtime: Any, frame: Frame | None, now: float
@@ -1609,6 +1841,7 @@ class Runner:
         session_runtime.last_state = new_state
         session_runtime.last_frame = asdict(frame)
         session_runtime.last_update_ts = t
+        self._log_bo3_session_update(mid, session_runtime, t)
         bounds_result = compute_bounds(frame, config, new_state)
         bound_low, bound_high = bounds_result[0], bounds_result[1]
         bounds_debug = bounds_result[2] if len(bounds_result) > 2 else {}
@@ -1670,6 +1903,7 @@ class Runner:
         from engine.diagnostics.fragility_cs2 import build_raw_debug, compute_fragility_debug
         dbg["raw"] = build_raw_debug(frame)
         dbg["fragility"] = compute_fragility_debug(frame)
+        dbg.update(_compute_dominance_features(frame))
         market_mid, market_dbg = self._get_market_for_point(config)
         dbg.update(market_dbg)
         # Breach detection: market vs corridors
@@ -1708,6 +1942,7 @@ class Runner:
                 session_runtime.last_frame = asdict(frame)
                 session_runtime.last_update_ts = t
                 session_runtime.last_error = "drv_invalid"
+                self._log_bo3_session_update(mid, session_runtime, t)
             teams_bo3 = getattr(frame, "teams", None) or ("", "")
             if isinstance(teams_bo3, (list, tuple)) and len(teams_bo3) >= 2:
                 teams_bo3 = (str(teams_bo3[0]), str(teams_bo3[1]))
@@ -1903,6 +2138,7 @@ class Runner:
             session_runtime.last_frame = asdict(frame)
             session_runtime.last_update_ts = t
             session_runtime.last_error = None
+            self._log_bo3_session_update(mid, session_runtime, t)
         clamp_reason_bo3 = "ok"
         if isinstance(explain, dict) and isinstance(explain.get("final"), dict):
             clamp_reason_bo3 = explain["final"].get("clamp_reason", "ok")
@@ -1938,6 +2174,11 @@ class Runner:
         self, match_id: int, config: Config, is_primary: bool
     ) -> bool:
         """Multi-session: tick one BO3 match; use session ctx; only primary writes to store."""
+        # Pinned BO3 hard lock: only allow snapshot for the pinned id
+        cfg_src = (str(getattr(config, "primary_session_source", None) or "").strip().upper()) or None
+        cfg_id = (str(getattr(config, "primary_session_id", None) or "").strip() or None
+        if cfg_src == "BO3" and cfg_id and str(match_id) != cfg_id:
+            return False
         from engine.telemetry import SessionKey, SourceKind
         key = SessionKey(source=SourceKind.BO3, id=str(match_id))
         session = self._get_or_create_session(key, match_id)
@@ -2131,6 +2372,7 @@ class Runner:
             dbg["match_context_diag"] = _match_context_diag(ctx, _sel_decision.to_diag() if _sel_decision else None)
         dbg["raw"] = build_raw_debug(frame)
         dbg["fragility"] = compute_fragility_debug(frame)
+        dbg.update(_compute_dominance_features(frame))
         market_mid, market_dbg = self._get_market_for_point(config)
         dbg.update(market_dbg)
         from engine.compute.breach import compute_breach_flags
@@ -2473,6 +2715,7 @@ class Runner:
         from engine.diagnostics.fragility_cs2 import build_raw_debug, compute_fragility_debug
         dbg["raw"] = build_raw_debug(frame)
         dbg["fragility"] = compute_fragility_debug(frame)
+        dbg.update(_compute_dominance_features(frame))
         market_mid, market_dbg = self._get_market_for_point(config)
         dbg.update(market_dbg)
         breach_map_hi, breach_map_lo, breach_series_hi, breach_series_lo, breach_mag, breach_type = compute_breach_flags(
@@ -2613,34 +2856,90 @@ class Runner:
                 sleep_interval = interval
                 did_tick = False
                 if self._is_multi_session(config):
+                    now_ts = time.time()
+                    # Normalized primary from config (needed for pinned-only BO3 and probe skip)
+                    _src = getattr(config, "primary_session_source", None)
+                    _id = getattr(config, "primary_session_id", None)
+                    primary_src = (str(_src).strip().upper() if _src else None) or None
+                    primary_id = (str(_id).strip() if _id is not None else None) or None
+                    primary_pinned = bool(primary_src and primary_id)
+                    # When pinned to BO3: do NOT run list refresh (protects primary snapshot cadence)
                     if getattr(config, "bo3_auto_track", False):
-                        await self._maybe_refresh_bo3_auto_ids(config, time.time())
-                    bo3_ids = self._effective_bo3_match_ids(config)
-                    grid_ids = self._effective_grid_series_ids(config, now_ts=time.time())
-                    primary_src_cfg = getattr(config, "primary_session_source", None)
-                    primary_id_cfg = getattr(config, "primary_session_id", None)
+                        if not (primary_pinned and primary_src == "BO3"):
+                            await self._maybe_run_bo3_validation_probes(config, now_ts)
+                        # Prune expired blacklist entries
+                        invalid = getattr(self, "_bo3_invalid_snapshot_ids", {})
+                        if invalid:
+                            self._bo3_invalid_snapshot_ids = {k: v for k, v in invalid.items() if v > now_ts}
+                    bo3_ids = self._effective_bo3_match_ids(
+                        config,
+                        primary_pinned=primary_pinned,
+                        primary_src=primary_src,
+                        primary_id=primary_id,
+                    )
+                    grid_ids = self._effective_grid_series_ids(config, now_ts=now_ts)
 
-                    # Determine effective primary session when not explicitly set in config.
+                    # Proof log: tick decision (BO3_RATE_DEBUG)
+                    if BO3_RATE_DEBUG:
+                        bo3_auto = getattr(config, "bo3_auto_track", False)
+                        validation_probes_this_tick = bo3_auto and not (primary_pinned and primary_src == "BO3")
+                        logger.info(
+                            "BO3 tick decision: primary_src=%s primary_id=%s primary_pinned=%s bo3_auto_track=%s effective_bo3_ids_count=%s bo3_ids_prefix=%s validation_probes_this_tick=%s",
+                            primary_src,
+                            primary_id,
+                            primary_pinned,
+                            bo3_auto,
+                            len(bo3_ids),
+                            bo3_ids[:5] if bo3_ids else [],
+                            validation_probes_this_tick,
+                        )
+
+                    # Determine effective primary: pinned from config, else sticky, else fallback. Do not rotate on reorder.
                     eff_primary_src: str | None
                     eff_primary_id: str | None
-                    if primary_src_cfg and primary_id_cfg is not None:
-                        eff_primary_src = str(primary_src_cfg)
-                        eff_primary_id = str(primary_id_cfg)
+                    reason: str
+                    if primary_pinned:
+                        eff_primary_src = primary_src
+                        eff_primary_id = primary_id
+                        reason = "pinned"
                     else:
                         eff_primary_src = None
                         eff_primary_id = None
+                        reason = "fallback"
                         sticky = getattr(self, "_last_primary_session", None)
                         if sticky is not None:
                             sticky_src, sticky_id = sticky
-                            if sticky_src == "BO3" and any(str(mid) == sticky_id for mid in bo3_ids):
+                            in_bo3 = sticky_src == "BO3" and any(str(mid) == sticky_id for mid in bo3_ids)
+                            in_grid = sticky_src == "GRID" and any(sid == sticky_id for sid in grid_ids)
+                            if in_bo3 or in_grid:
                                 eff_primary_src, eff_primary_id = sticky_src, sticky_id
-                            elif sticky_src == "GRID" and any(sid == sticky_id for sid in grid_ids):
-                                eff_primary_src, eff_primary_id = sticky_src, sticky_id
+                                reason = "sticky"
+                            else:
+                                reason = "sticky_gone"
                         if eff_primary_src is None:
                             if bo3_ids:
                                 eff_primary_src, eff_primary_id = "BO3", str(bo3_ids[0])
                             elif grid_ids:
                                 eff_primary_src, eff_primary_id = "GRID", grid_ids[0] if grid_ids else None
+                            if reason != "sticky_gone":
+                                reason = "fallback"
+
+                    # Low-volume log when effective primary changes
+                    last_eff = getattr(self, "_last_eff_primary_session", None)
+                    new_eff = (eff_primary_src, eff_primary_id) if (eff_primary_src and eff_primary_id) else None
+                    if last_eff != new_eff:
+                        logger.info(
+                            "primary_session change: old=%s new=%s reason=%s",
+                            last_eff,
+                            new_eff,
+                            reason,
+                            extra={"old": last_eff, "new": new_eff, "reason": reason},
+                        )
+                    self._last_eff_primary_session = new_eff
+
+                    # Keep sticky in sync: when pinned, remember so unpin stays stable
+                    if primary_pinned and new_eff:
+                        self._last_primary_session = new_eff
 
                     last_primary_this_tick: tuple[str, str] | None = None
 
@@ -2662,6 +2961,9 @@ class Runner:
 
                     if last_primary_this_tick is not None:
                         self._last_primary_session = last_primary_this_tick
+                    # List refresh only when NOT pinned to BO3, and after primary snapshot (protects cadence)
+                    if getattr(config, "bo3_auto_track", False) and not (primary_pinned and primary_src == "BO3"):
+                        await self._maybe_refresh_bo3_candidates(config, time.time())
                 else:
                     src = getattr(config, "source", None)
                     if src == "GRID":

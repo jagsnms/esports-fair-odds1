@@ -4,12 +4,18 @@ Public matches API (candidates) fetched via aiohttp; current + upcoming merged a
 """
 from __future__ import annotations
 
+import logging
+import os
+import time
 from typing import Any
 
 try:
     from cs2api import CS2
 except ImportError:
     CS2 = None  # type: ignore
+
+BO3_RATE_DEBUG = os.environ.get("BO3_RATE_DEBUG", "") == "1"
+logger = logging.getLogger(__name__)
 
 BO3_MATCHES_URL = "https://api.bo3.gg/api/v1/matches"
 BO3_MATCHES_HEADERS = {
@@ -71,12 +77,33 @@ async def fetch_candidates() -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for status_bucket in ("current", "upcoming"):
         params = {**BO3_MATCHES_PARAMS_BASE, "filter[matches.status][in]": status_bucket}
+        t0 = time.perf_counter()
+        status_code: int | None = None
+        retry_after: str | None = None
+        data: Any = None
         try:
             async with aiohttp.ClientSession(headers=BO3_MATCHES_HEADERS) as session:
                 async with session.get(BO3_MATCHES_URL, params=params) as resp:
+                    status_code = getattr(resp, "status", None)
+                    retry_after = resp.headers.get("Retry-After") if hasattr(resp, "headers") else None
                     resp.raise_for_status()
                     data = await resp.json()
         except Exception:
+            if status_code is None:
+                status_code = 0
+            data = None
+        receive_ts = time.time()
+        duration_ms = round((time.perf_counter() - t0) * 1000, 1)
+        if BO3_RATE_DEBUG:
+            logger.info(
+                "BO3 request endpoint_type=list status_code=%s duration_ms=%s retry_after=%s receive_ts=%.3f",
+                status_code,
+                duration_ms,
+                retry_after,
+                receive_ts,
+                extra={"endpoint_type": "list", "status_code": status_code, "duration_ms": duration_ms, "retry_after": retry_after, "receive_ts": receive_ts},
+            )
+        if data is None:
             continue
         if isinstance(data, list):
             items = data
@@ -104,8 +131,30 @@ async def list_live_matches() -> list[dict[str, Any]]:
     """Return list of live matches: id, team1_name, team2_name, bo_type."""
     if CS2 is None:
         raise ImportError("cs2api is not installed. pip install cs2api>=0.1.3")
-    async with CS2() as cs2:
-        raw = await cs2.get_live_matches()
+    t0 = time.perf_counter()
+    status_code = 200
+    try:
+        async with CS2() as cs2:
+            raw = await cs2.get_live_matches()
+    except Exception as e:
+        status_code = 0
+        msg = str(e).lower()
+        if "429" in msg or "rate" in msg:
+            status_code = 429
+        elif "404" in msg or "not found" in msg:
+            status_code = 404
+        raise
+    finally:
+        if BO3_RATE_DEBUG:
+            duration_ms = round((time.perf_counter() - t0) * 1000, 1)
+            receive_ts = time.time()
+            logger.info(
+                "BO3 request endpoint_type=list status_code=%s duration_ms=%s receive_ts=%.3f",
+                status_code,
+                duration_ms,
+                receive_ts,
+                extra={"endpoint_type": "list", "status_code": status_code, "duration_ms": duration_ms, "receive_ts": receive_ts},
+            )
     if isinstance(raw, list):
         items = raw
     elif isinstance(raw, dict):
@@ -142,13 +191,54 @@ async def list_live_matches() -> list[dict[str, Any]]:
     return out
 
 
-async def get_snapshot(match_id: int) -> dict[str, Any] | None:
-    """Fetch live match snapshot for match_id. Returns raw snapshot dict or None."""
+async def get_snapshot(
+    match_id: int,
+    *,
+    _rate_debug_retry_count: int = 0,
+    _rate_debug_backoff_s: float | None = None,
+) -> dict[str, Any] | None:
+    """Fetch live match snapshot for match_id. Returns raw snapshot dict or None.
+    Use candidate \"id\" from fetch_candidates() as match_id (same identifier)."""
     if CS2 is None:
         raise ImportError("cs2api is not installed. pip install cs2api>=0.1.3")
-    async with CS2() as cs2:
-        snap = await cs2.get_live_match_snapshot(match_id)
-    return snap if isinstance(snap, dict) else None
+    t0 = time.perf_counter()
+    status_code = 200
+    result: dict[str, Any] | None = None
+    try:
+        async with CS2() as cs2:
+            snap = await cs2.get_live_match_snapshot(match_id)
+        result = snap if isinstance(snap, dict) else None
+    except Exception as e:
+        status_code = 0
+        msg = str(e).lower()
+        if "429" in msg or "rate" in msg:
+            status_code = 429
+        elif "404" in msg or "not found" in msg:
+            status_code = 404
+        raise
+    finally:
+        if BO3_RATE_DEBUG:
+            duration_ms = round((time.perf_counter() - t0) * 1000, 1)
+            receive_ts = time.time()
+            logger.info(
+                "BO3 request endpoint_type=snapshot match_id=%s status_code=%s duration_ms=%s retry_count=%s backoff_s=%s receive_ts=%.3f",
+                match_id,
+                status_code,
+                duration_ms,
+                _rate_debug_retry_count,
+                _rate_debug_backoff_s,
+                receive_ts,
+                extra={
+                    "endpoint_type": "snapshot",
+                    "match_id": match_id,
+                    "status_code": status_code,
+                    "duration_ms": duration_ms,
+                    "retry_count": _rate_debug_retry_count,
+                    "backoff_s": _rate_debug_backoff_s,
+                    "receive_ts": receive_ts,
+                },
+            )
+    return result
 
 
 async def probe_snapshot_readiness(match_id: int) -> dict[str, Any]:

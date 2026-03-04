@@ -22,6 +22,14 @@ async def get_state_history(limit: int = 2000) -> list[dict]:
     return await store.get_history(limit=limit)
 
 
+@router.post("/clear")
+async def post_state_clear() -> dict:
+    """Clear in-memory history and reset current state/derived (chart + scoreboard). Keeps config. Returns new current."""
+    store = get_store()
+    await store.clear_display()
+    return await store.get_current()
+
+
 # Config update at /api/v1/config (not under /state)
 config_router = APIRouter(tags=["config"])
 

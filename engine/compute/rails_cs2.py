@@ -2,9 +2,15 @@
 CS2 map corridor: two counterfactual next-round endpoints -> envelope -> active points.
 Ported from app35_ml.py geometry. Contextual widening gated by config.context_widening_enabled (default OFF).
 No numpy; clamps rails inside series corridor and [0,1].
+
+This module now distinguishes:
+- contract rails: strict next-round counterfactuals, rail_low = P(series | lose next round),
+  rail_high = P(series | win next round), with only minimal safety post-processing.
+- heuristic rails: legacy envelope/active/context-widened map corridor, preserved in debug for comparison.
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from engine.models import Config, Frame, State
@@ -16,6 +22,8 @@ from engine.compute.map_corridor_cs2 import (
 from engine.compute.map_fair_cs2 import p_map_fair
 from engine.compute.series_iid import series_win_prob_live
 
+logger = logging.getLogger(__name__)
+
 # MR12: first to 13; overtime 16, 19, ...
 WIN_TARGET_REG = 13
 OT_BLOCK = 3
@@ -25,6 +33,9 @@ MAX_ROUNDS_MAP = 24
 CONTEXT_WIDEN_BETA = 0.25
 UNCERTAINTY_MULT_MAX = 1.35
 UNCERTAINTY_MULT_MIN = 1.0
+
+# Contract rails: tiny minimum width epsilon to avoid degenerate collapse.
+CONTRACT_MIN_WIDTH = 1e-4
 
 
 def _clip(x: float, lo: float, hi: float) -> float:
@@ -116,10 +127,16 @@ def compute_rails_cs2(
     bounds: tuple[float, float],
 ) -> tuple[float, float, dict[str, Any]]:
     """
-    Map corridor: canonical_if_a / canonical_if_b from series_win_prob_live; envelope around each;
-    active points from Frame microstate; map_low/high = min/max(active); clamp inside series.
-    When context_widening_enabled: apply context_risk widening + width cap. Else: no widening.
-    Returns (map_low, map_high, debug_dict).
+    Map corridor from strict next-round counterfactuals.
+
+    - Strict counterfactual (contract) rails:
+        cf_low  = P(series | lose next round)
+        cf_high = P(series | win  next round)
+      rail_low / rail_high returned from this function are the contract rails after only safe post-processing.
+
+    - Heuristic rails (legacy behavior):
+      envelope around each canonical endpoint -> active points from Frame microstate -> optional contextual widening.
+      These are preserved in debug as rails_heur_low / rails_heur_high (not used for p_hat clamp/invariants).
     """
     series_lo, series_hi = _clip(bounds[0], 0.0, 1.0), _clip(bounds[1], 0.0, 1.0)
     if series_hi < series_lo:
@@ -157,7 +174,15 @@ def compute_rails_cs2(
     canonical_if_a = _clip01(canonical_if_a)
     canonical_if_b = _clip01(canonical_if_b)
 
-    # Envelope around each branch
+    # Strict counterfactual endpoints before any envelope/active/context transforms.
+    cf_low = min(canonical_if_a, canonical_if_b)
+    cf_high = max(canonical_if_a, canonical_if_b)
+    cf_low = _clip(cf_low, series_lo, series_hi)
+    cf_high = _clip(cf_high, series_lo, series_hi)
+    cf_low = _clip01(cf_low)
+    cf_high = _clip01(cf_high)
+
+    # Envelope around each branch (heuristic rails).
     env = compute_cs2_branch_endpoint_envelope_debug(
         canonical_if_a,
         canonical_if_b,
@@ -173,131 +198,216 @@ def compute_rails_cs2(
         "canonical_if_b_round": canonical_if_b,
         "p_map_if_a": p_map_if_a_val,
         "p_map_if_b": p_map_if_b_val,
+        "rails_cf_low": cf_low,
+        "rails_cf_high": cf_high,
+        "rails_cf_map_score": (ra, rb),
+        "rails_cf_series_score": (ma, mb),
+        "rails_cf_series_fmt": series_fmt,
         "base_span": env.get("endpoint_base_span_abs"),
         "k": env.get("endpoint_env_fraction_k"),
     }
-    if not env.get("env_valid"):
-        # Fallback: use canonical endpoints as rails, clamped to series
-        rail_lo = _clip(min(canonical_if_a, canonical_if_b), series_lo, series_hi)
-        rail_hi = _clip(max(canonical_if_a, canonical_if_b), series_lo, series_hi)
-        rail_lo, rail_hi = _clip01(rail_lo), _clip01(rail_hi)
-        min_map_width = 0.01
-        if rail_hi - rail_lo < min_map_width:
-            mid = 0.5 * (rail_lo + rail_hi)
-            half = min_map_width / 2.0
-            rail_lo = _clip(mid - half, series_lo, series_hi)
-            rail_hi = _clip(mid + half, series_lo, series_hi)
-            rail_lo, rail_hi = _clip01(rail_lo), _clip01(rail_hi)
-        if rail_hi < rail_lo:
-            rail_hi = min(1.0, rail_lo + min_map_width)
+    env_valid = bool(env.get("env_valid"))
+
+    # Heuristic rails (legacy): envelope -> active points -> optional contextual widening.
+    # If envelope is invalid, fall back to canonical endpoints as the heuristic rails.
+    if not env_valid:
         debug["map_corridor_fallback"] = "invalid_envelope"
-        return (rail_lo, rail_hi, debug)
-
-    a_lo = env["endpoint_a_env_low"]
-    a_hi = env["endpoint_a_env_high"]
-    b_lo = env["endpoint_b_env_low"]
-    b_hi = env["endpoint_b_env_high"]
-    debug["envelope"] = {k: v for k, v in env.items() if k != "env_valid"}
-
-    # Microstate for position
-    alive = getattr(frame, "alive_counts", (5, 5))
-    alive_a = float(alive[0]) if isinstance(alive, (tuple, list)) and len(alive) > 0 and alive[0] is not None else 5.0
-    alive_b = float(alive[1]) if isinstance(alive, (tuple, list)) and len(alive) > 1 and alive[1] is not None else 5.0
-    loadout = getattr(frame, "loadout_totals", None)
-    if isinstance(loadout, (tuple, list)) and len(loadout) >= 2:
-        load_a = float(loadout[0]) if loadout[0] is not None else 0.0
-        load_b = float(loadout[1]) if loadout[1] is not None else 0.0
+        map_low_heur = min(canonical_if_a, canonical_if_b)
+        map_high_heur = max(canonical_if_a, canonical_if_b)
     else:
-        load_a = load_b = 0.0
-    armor = getattr(frame, "armor_totals", None)
-    if isinstance(armor, (tuple, list)) and len(armor) >= 2:
-        arm_a = float(armor[0]) if armor[0] is not None else 0.0
-        arm_b = float(armor[1]) if armor[1] is not None else 0.0
-    else:
-        arm_a = arm_b = 0.0
+        a_lo = env["endpoint_a_env_low"]
+        a_hi = env["endpoint_a_env_high"]
+        b_lo = env["endpoint_b_env_low"]
+        b_hi = env["endpoint_b_env_high"]
+        debug["envelope"] = {k: v for k, v in env.items() if k != "env_valid"}
 
-    pos = compute_cs2_branch_endpoint_position_debug(
-        a_lo, a_hi, b_lo, b_hi,
-        alive_a, alive_b,
-        load_a, load_b,
-        arm_a, arm_b,
-        branch_temp=0.40,
-    )
-    debug["quality_pos"] = {
-        "d_alive": pos.get("endpoint_pos_d_alive"),
-        "d_loadout": pos.get("endpoint_pos_d_loadout"),
-        "d_armor": pos.get("endpoint_pos_d_armor"),
-        "a_quality_pos": pos.get("endpoint_pos_a_quality_pos"),
-        "b_quality_pos": pos.get("endpoint_pos_b_quality_pos"),
-    }
-    debug["active_points"] = {
-        "a_active": pos.get("endpoint_pos_a_active_dbg"),
-        "b_active": pos.get("endpoint_pos_b_active_dbg"),
-    }
+        # Microstate for position
+        alive = getattr(frame, "alive_counts", (5, 5))
+        alive_a = (
+            float(alive[0])
+            if isinstance(alive, (tuple, list)) and len(alive) > 0 and alive[0] is not None
+            else 5.0
+        )
+        alive_b = (
+            float(alive[1])
+            if isinstance(alive, (tuple, list)) and len(alive) > 1 and alive[1] is not None
+            else 5.0
+        )
+        loadout = getattr(frame, "loadout_totals", None)
+        if isinstance(loadout, (tuple, list)) and len(loadout) >= 2:
+            load_a = float(loadout[0]) if loadout[0] is not None else 0.0
+            load_b = float(loadout[1]) if loadout[1] is not None else 0.0
+        else:
+            load_a = load_b = 0.0
+        armor = getattr(frame, "armor_totals", None)
+        if isinstance(armor, (tuple, list)) and len(armor) >= 2:
+            arm_a = float(armor[0]) if armor[0] is not None else 0.0
+            arm_b = float(armor[1]) if armor[1] is not None else 0.0
+        else:
+            arm_a = arm_b = 0.0
 
-    if pos.get("pos_valid") and pos.get("endpoint_pos_a_active_dbg") is not None and pos.get("endpoint_pos_b_active_dbg") is not None:
-        active_a = pos["endpoint_pos_a_active_dbg"]
-        active_b = pos["endpoint_pos_b_active_dbg"]
-        map_low = min(active_a, active_b)
-        map_high = max(active_a, active_b)
-    else:
-        map_low = min(canonical_if_a, canonical_if_b)
-        map_high = max(canonical_if_a, canonical_if_b)
+        pos = compute_cs2_branch_endpoint_position_debug(
+            a_lo,
+            a_hi,
+            b_lo,
+            b_hi,
+            alive_a,
+            alive_b,
+            load_a,
+            load_b,
+            arm_a,
+            arm_b,
+            branch_temp=0.40,
+        )
+        debug["quality_pos"] = {
+            "d_alive": pos.get("endpoint_pos_d_alive"),
+            "d_loadout": pos.get("endpoint_pos_d_loadout"),
+            "d_armor": pos.get("endpoint_pos_d_armor"),
+            "a_quality_pos": pos.get("endpoint_pos_a_quality_pos"),
+            "b_quality_pos": pos.get("endpoint_pos_b_quality_pos"),
+        }
+        debug["active_points"] = {
+            "a_active": pos.get("endpoint_pos_a_active_dbg"),
+            "b_active": pos.get("endpoint_pos_b_active_dbg"),
+        }
 
-    rail_lo = _clip(map_low, series_lo, series_hi)
-    rail_hi = _clip(map_high, series_lo, series_hi)
-    rail_lo = _clip01(rail_lo)
-    rail_hi = _clip01(rail_hi)
-    # Enforce minimum map corridor width to avoid degenerate collapse
+        if (
+            pos.get("pos_valid")
+            and pos.get("endpoint_pos_a_active_dbg") is not None
+            and pos.get("endpoint_pos_b_active_dbg") is not None
+        ):
+            active_a = pos["endpoint_pos_a_active_dbg"]
+            active_b = pos["endpoint_pos_b_active_dbg"]
+            map_low_heur = min(active_a, active_b)
+            map_high_heur = max(active_a, active_b)
+        else:
+            map_low_heur = min(canonical_if_a, canonical_if_b)
+            map_high_heur = max(canonical_if_a, canonical_if_b)
+
+    # Clamp heuristic rails inside series corridor and [0,1], with legacy min-width + optional contextual widening.
+    rail_lo_heur = _clip(map_low_heur, series_lo, series_hi)
+    rail_hi_heur = _clip(map_high_heur, series_lo, series_hi)
+    rail_lo_heur = _clip01(rail_lo_heur)
+    rail_hi_heur = _clip01(rail_hi_heur)
+    # Enforce minimum map corridor width (legacy behavior).
     min_map_width = 0.01
-    if rail_hi - rail_lo < min_map_width:
-        mid = 0.5 * (rail_lo + rail_hi)
-        half = min_map_width / 2.0
-        rail_lo = _clip(mid - half, series_lo, series_hi)
-        rail_hi = _clip(mid + half, series_lo, series_hi)
-        rail_lo, rail_hi = _clip01(rail_lo), _clip01(rail_hi)
-    if rail_hi < rail_lo:
-        rail_hi = min(1.0, rail_lo + min_map_width)
+    if rail_hi_heur - rail_lo_heur < min_map_width:
+        mid_h = 0.5 * (rail_lo_heur + rail_hi_heur)
+        half_h = min_map_width / 2.0
+        rail_lo_heur = _clip(mid_h - half_h, series_lo, series_hi)
+        rail_hi_heur = _clip(mid_h + half_h, series_lo, series_hi)
+        rail_lo_heur, rail_hi_heur = _clip01(rail_lo_heur), _clip01(rail_hi_heur)
+    if rail_hi_heur < rail_lo_heur:
+        rail_hi_heur = min(1.0, rail_lo_heur + min_map_width)
 
-    # Optional: context widening + width cap (gated)
+    # Optional: context widening + width cap (gated) – applied only to heuristic rails.
     if getattr(config, "context_widening_enabled", False):
         context_risk, risk_components = _compute_context_risk(frame)
         uncertainty_mult = UNCERTAINTY_MULT_MIN + context_risk * (UNCERTAINTY_MULT_MAX - UNCERTAINTY_MULT_MIN)
         uncertainty_mult = max(UNCERTAINTY_MULT_MIN, min(UNCERTAINTY_MULT_MAX, uncertainty_mult))
-        map_width_before = rail_hi - rail_lo
+        map_width_before = rail_hi_heur - rail_lo_heur
         current_halfwidth = map_width_before / 2.0
         widened_halfwidth = current_halfwidth * (1.0 + CONTEXT_WIDEN_BETA * context_risk)
-        mid = (rail_lo + rail_hi) / 2.0
-        rail_lo = mid - widened_halfwidth
-        rail_hi = mid + widened_halfwidth
-        rail_lo = _clip(rail_lo, series_lo, series_hi)
-        rail_hi = _clip(rail_hi, series_lo, series_hi)
-        rail_lo, rail_hi = _clip01(rail_lo), _clip01(rail_hi)
-        if rail_hi < rail_lo:
-            rail_hi = min(1.0, rail_lo + 0.01)
-        map_width_after_widen = rail_hi - rail_lo
+        mid_h = (rail_lo_heur + rail_hi_heur) / 2.0
+        rail_lo_heur = mid_h - widened_halfwidth
+        rail_hi_heur = mid_h + widened_halfwidth
+        rail_lo_heur = _clip(rail_lo_heur, series_lo, series_hi)
+        rail_hi_heur = _clip(rail_hi_heur, series_lo, series_hi)
+        rail_lo_heur, rail_hi_heur = _clip01(rail_lo_heur), _clip01(rail_hi_heur)
+        if rail_hi_heur < rail_lo_heur:
+            rail_hi_heur = min(1.0, rail_lo_heur + 0.01)
+        map_width_after_widen = rail_hi_heur - rail_lo_heur
         width_cap_val, cap_meta = _map_width_cap(scores)
         width_cap_used = min(series_width, width_cap_val)
         map_width_after_cap = max(map_width_before, min(map_width_after_widen, width_cap_used))
         if map_width_after_cap <= 0.0:
             map_width_after_cap = map_width_before
         half_capped = 0.5 * map_width_after_cap
-        rail_lo = mid - half_capped
-        rail_hi = mid + half_capped
-        rail_lo = _clip(rail_lo, series_lo, series_hi)
-        rail_hi = _clip(rail_hi, series_lo, series_hi)
-        rail_lo, rail_hi = _clip01(rail_lo), _clip01(rail_hi)
-        if rail_hi < rail_lo:
-            rail_hi = min(1.0, rail_lo + 0.01)
+        rail_lo_heur = mid_h - half_capped
+        rail_hi_heur = mid_h + half_capped
+        rail_lo_heur = _clip(rail_lo_heur, series_lo, series_hi)
+        rail_hi_heur = _clip(rail_hi_heur, series_lo, series_hi)
+        rail_lo_heur, rail_hi_heur = _clip01(rail_lo_heur), _clip01(rail_hi_heur)
+        if rail_hi_heur < rail_lo_heur:
+            rail_hi_heur = min(1.0, rail_lo_heur + 0.01)
         debug["context_risk"] = context_risk
         debug["context_risk_components"] = risk_components
         debug["uncertainty_multiplier"] = uncertainty_mult
         debug["map_width_before"] = map_width_before
         debug["map_width_after_widen"] = map_width_after_widen
-        debug["map_width_after_cap"] = rail_hi - rail_lo
+        debug["map_width_after_cap"] = rail_hi_heur - rail_lo_heur
         debug["width_cap_used"] = width_cap_used
         debug["width_cap_meta"] = cap_meta
     else:
         debug["context_widening_enabled"] = False
+
+    # Preserve heuristic rails and deltas vs contract rails in debug.
+    debug["rails_heur_low"] = rail_lo_heur
+    debug["rails_heur_high"] = rail_hi_heur
+    debug["rails_delta_low"] = rail_lo_heur - cf_low
+    debug["rails_delta_high"] = rail_hi_heur - cf_high
+
+    # Contract rails: use strict counterfactual endpoints with minimal safety post-processing.
+    rail_lo = cf_low
+    rail_hi = cf_high
+    rail_lo = _clip(rail_lo, series_lo, series_hi)
+    rail_hi = _clip(rail_hi, series_lo, series_hi)
+    rail_lo = _clip01(rail_lo)
+    rail_hi = _clip01(rail_hi)
+
+    # Tiny minimum width epsilon to avoid degenerate collapse.
+    applied_eps = False
+    if rail_hi - rail_lo < CONTRACT_MIN_WIDTH:
+        applied_eps = True
+        mid_c = 0.5 * (rail_lo + rail_hi)
+        half_c = CONTRACT_MIN_WIDTH / 2.0
+        rail_lo = _clip(mid_c - half_c, series_lo, series_hi)
+        rail_hi = _clip(mid_c + half_c, series_lo, series_hi)
+        rail_lo, rail_hi = _clip01(rail_lo), _clip01(rail_hi)
+        if rail_hi < rail_lo:
+            rail_hi = min(1.0, rail_lo + CONTRACT_MIN_WIDTH)
+    debug["contract_min_width_eps"] = CONTRACT_MIN_WIDTH
+    debug["contract_min_width_applied"] = applied_eps
+
+    # Map-point assertions (debug-only): at map point, contract rails should touch series bounds.
+    a_on_map_point = (ra + 1) >= wt
+    b_on_map_point = (rb + 1) >= wt
+    debug["map_point_a_on_point"] = a_on_map_point
+    debug["map_point_b_on_point"] = b_on_map_point
+    if a_on_map_point:
+        delta_hi = rail_hi - series_hi
+        debug["map_point_a_delta_hi"] = delta_hi
+        if abs(delta_hi) > 1e-3:
+            logger.warning(
+                "contract rails map-point mismatch for A",
+                extra={
+                    "scores": (ra, rb),
+                    "series_score": (ma, mb),
+                    "series_bounds": (series_lo, series_hi),
+                    "rail_hi": rail_hi,
+                    "delta_hi": delta_hi,
+                    "bo": bo,
+                    "win_target": wt,
+                },
+            )
+    if b_on_map_point:
+        delta_lo = rail_lo - series_lo
+        debug["map_point_b_delta_lo"] = delta_lo
+        if abs(delta_lo) > 1e-3:
+            logger.warning(
+                "contract rails map-point mismatch for B",
+                extra={
+                    "scores": (ra, rb),
+                    "series_score": (ma, mb),
+                    "series_bounds": (series_lo, series_hi),
+                    "rail_lo": rail_lo,
+                    "delta_lo": delta_lo,
+                    "bo": bo,
+                    "win_target": wt,
+                },
+            )
+
+    debug["rail_low_contract"] = rail_lo
+    debug["rail_high_contract"] = rail_hi
 
     return (rail_lo, rail_hi, debug)
