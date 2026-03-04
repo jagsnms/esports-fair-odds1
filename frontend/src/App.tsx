@@ -251,6 +251,9 @@ function App() {
   const episodeMarkersByIdRef = useRef<Map<string, { entry?: EpisodeMarker; resolution?: EpisodeMarker }>>(new Map())
   const liveMatchesRef = useRef<Bo3Match[]>([])
   liveMatchesRef.current = liveMatches
+  /** Latest config (primary_session_*) so BO3 readiness poll can gate fanout when pinned (avoids 404 storms). */
+  const configRef = useRef<{ primary_session_source?: string; primary_session_id?: string } | null>(null)
+  configRef.current = (current?.state as { config?: { primary_session_source?: string; primary_session_id?: string } } | undefined)?.config ?? null
 
   // Sync midround V2 weight profile from server state when available (e.g. after fetch/WS)
   useEffect(() => {
@@ -259,7 +262,7 @@ function App() {
     if (profile === 'current' || profile === 'learned_v1' || profile === 'learned_v2' || profile === 'learned_fit') setMidroundV2WeightProfile(profile)
   }, [current?.state])
 
-  // BO3 candidates: refresh every 10s while panel is open and list has been loaded (non-fatal: keep previous on error)
+  // BO3 candidates: refresh every 60s while panel is open (reduced from 10s; backend discovery handles the rest)
   useEffect(() => {
     if (activePanel !== 'bo3' || !bo3ListLoaded) return
     const refresh = async () => {
@@ -271,15 +274,19 @@ function App() {
         // keep previous list on error
       }
     }
-    const id = setInterval(refresh, 10_000)
+    const id = setInterval(refresh, 60_000)
     return () => clearInterval(id)
   }, [activePanel, bo3ListLoaded])
 
-  // BO3 readiness: poll every 10s for currently listed candidate ids (merge into state; non-fatal)
+  // BO3 readiness: poll every 60s; when primary is pinned to BO3, only probe pinned id (stops 404 fanout storms)
   useEffect(() => {
     if (activePanel !== 'bo3' || !bo3ListLoaded || liveMatches.length === 0) return
     const poll = async () => {
-      const ids = liveMatchesRef.current.map((m) => m.id)
+      const cfg = configRef.current
+      const pinnedBo3 = cfg?.primary_session_source === 'BO3' && cfg?.primary_session_id
+      const ids = pinnedBo3
+        ? [Number(cfg!.primary_session_id)].filter(Number.isInteger)
+        : liveMatchesRef.current.map((m) => m.id)
       if (ids.length === 0) return
       try {
         const r = await fetch(`${API_BASE}/api/v1/bo3/readiness`, {
@@ -300,7 +307,7 @@ function App() {
       }
     }
     poll()
-    const id = setInterval(poll, 10_000)
+    const id = setInterval(poll, 60_000)
     return () => clearInterval(id)
   }, [activePanel, bo3ListLoaded, liveMatches.length])
 
@@ -823,7 +830,7 @@ function App() {
         </button>
         {bo3ListLoaded && (
           <span style={{ marginLeft: 8, fontSize: 11, color: '#9ca3af' }}>
-            Candidates + readiness every 10s
+            Candidates + readiness every 60s (pinned: only pinned id probed)
           </span>
         )}
       </p>
