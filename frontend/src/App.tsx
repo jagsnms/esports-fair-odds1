@@ -75,6 +75,7 @@ type TelemetrySessionRow = {
     last_accepted_key?: string | null
     last_env?: { key_display?: string } | null
     per_source_health?: Record<string, { ok_count?: number; err_count?: number; last_reason?: string | null }>
+    last_frame?: { teams?: [string, string] | string[] }
   }
   grid_schedule?: { next_fetch_in_s?: number; last_rate_limit_reason?: string }
   last_error?: string | null
@@ -1445,7 +1446,7 @@ function App() {
             {sessionsFiltered.length === 0 && (
               <tr><td colSpan={12} style={{ padding: 12, color: '#9ca3af' }}>No sessions (or none match filters).</td></tr>
             )}
-            {sessionsFiltered.map((row, idx) => {
+            {sessionsFiltered.map((row) => {
               const status = sessionStatusBadge(row)
               const badgeColor = status === 'LIVE' ? '#22c55e' : status === 'STALE' ? '#f59e0b' : '#ef4444'
               const ctx = row.ctx ?? {}
@@ -1465,7 +1466,7 @@ function App() {
                   : String(row.session_key ?? '').slice(0, 20) || row.id || row.source || 'Session'
               return (
                 <tr
-                  key={row.session_key + row.id + String(idx)}
+                  key={`${row.source}:${row.id}`}
                   style={{ borderBottom: '1px solid #374151', cursor: 'pointer', background: isSelected ? 'rgba(59, 130, 246, 0.15)' : isRunning ? 'rgba(34, 197, 94, 0.08)' : undefined }}
                   onClick={() => setSelectedSession({ source: row.source, id: row.id })}
                 >

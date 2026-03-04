@@ -457,6 +457,8 @@ class Runner:
         self._grid_last_rate_limit_reason: dict[str, str] = {}
         # Multi-session registry (Patch 5A): SessionKey -> SessionRuntime
         self._sessions: dict[Any, Any] = {}
+        # Sticky primary session (source, id) when primary_session_source/id not explicitly set
+        self._last_primary_session: tuple[str, str] | None = None
         # GRID auto-track (runtime only; manual grid_series_ids overrides)
         self._grid_auto_last_refresh_ts: float = 0.0
         self._grid_auto_series_ids: list[str] = []
@@ -675,6 +677,20 @@ class Runner:
             last_ts = getattr(runtime, "last_update_ts", None)
             age_s = round(now - last_ts, 1) if last_ts is not None else None
             ctx_diag = _match_context_diag(getattr(runtime, "ctx", None), None)
+            # Optional: expose last_frame teams for UI match label (defensive).
+            try:
+                last_frame = getattr(runtime, "last_frame", None)
+                teams = None
+                if isinstance(last_frame, dict):
+                    teams = last_frame.get("teams")
+                else:
+                    teams = getattr(last_frame, "teams", None)
+                if isinstance(teams, (list, tuple)) and len(teams) == 2 and all(isinstance(t, str) for t in teams):
+                    ctx_diag = dict(ctx_diag or {})
+                    ctx_diag["last_frame"] = {"teams": [teams[0], teams[1]]}
+            except Exception:
+                # Never let diagnostics break the endpoint.
+                pass
             row: dict[str, Any] = {
                 "session_key": display,
                 "source": source_name,
@@ -2438,22 +2454,51 @@ class Runner:
                         await self._maybe_refresh_bo3_auto_ids(config, time.time())
                     bo3_ids = self._effective_bo3_match_ids(config)
                     grid_ids = self._effective_grid_series_ids(config, now_ts=time.time())
-                    primary_src = getattr(config, "primary_session_source", None)
-                    primary_id = getattr(config, "primary_session_id", None)
-                    for i, mid in enumerate(bo3_ids):
-                        if primary_src and primary_id is not None:
-                            is_primary = primary_src == "BO3" and primary_id == str(mid)
-                        else:
-                            is_primary = i == 0 and len(bo3_ids) > 0
-                        did_tick = await self._tick_bo3_for_match(mid, config, is_primary) or did_tick
-                        if did_tick and getattr(self, "_bo3_buf_consecutive_failures", 0) >= 3:
+                    primary_src_cfg = getattr(config, "primary_session_source", None)
+                    primary_id_cfg = getattr(config, "primary_session_id", None)
+
+                    # Determine effective primary session when not explicitly set in config.
+                    eff_primary_src: str | None
+                    eff_primary_id: str | None
+                    if primary_src_cfg and primary_id_cfg is not None:
+                        eff_primary_src = str(primary_src_cfg)
+                        eff_primary_id = str(primary_id_cfg)
+                    else:
+                        eff_primary_src = None
+                        eff_primary_id = None
+                        sticky = getattr(self, "_last_primary_session", None)
+                        if sticky is not None:
+                            sticky_src, sticky_id = sticky
+                            if sticky_src == "BO3" and any(str(mid) == sticky_id for mid in bo3_ids):
+                                eff_primary_src, eff_primary_id = sticky_src, sticky_id
+                            elif sticky_src == "GRID" and any(sid == sticky_id for sid in grid_ids):
+                                eff_primary_src, eff_primary_id = sticky_src, sticky_id
+                        if eff_primary_src is None:
+                            if bo3_ids:
+                                eff_primary_src, eff_primary_id = "BO3", str(bo3_ids[0])
+                            elif grid_ids:
+                                eff_primary_src, eff_primary_id = "GRID", grid_ids[0] if grid_ids else None
+
+                    last_primary_this_tick: tuple[str, str] | None = None
+
+                    for mid in bo3_ids:
+                        is_primary = eff_primary_src == "BO3" and eff_primary_id == str(mid)
+                        did = await self._tick_bo3_for_match(mid, config, is_primary)
+                        if did and is_primary:
+                            last_primary_this_tick = ("BO3", str(mid))
+                        did_tick = did or did_tick
+                        if did and getattr(self, "_bo3_buf_consecutive_failures", 0) >= 3:
                             sleep_interval += 5.0
-                    for i, sid in enumerate(grid_ids):
-                        if primary_src and primary_id is not None:
-                            is_primary = primary_src == "GRID" and primary_id == sid
-                        else:
-                            is_primary = len(bo3_ids) == 0 and i == 0
-                        did_tick = await self._tick_grid_for_series(sid, config, is_primary) or did_tick
+
+                    for sid in grid_ids:
+                        is_primary = eff_primary_src == "GRID" and eff_primary_id == sid
+                        did = await self._tick_grid_for_series(sid, config, is_primary)
+                        if did and is_primary:
+                            last_primary_this_tick = ("GRID", sid)
+                        did_tick = did or did_tick
+
+                    if last_primary_this_tick is not None:
+                        self._last_primary_session = last_primary_this_tick
                 else:
                     src = getattr(config, "source", None)
                     if src == "GRID":
