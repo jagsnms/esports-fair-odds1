@@ -393,6 +393,22 @@ def _bo3_snapshot_status(
     return ("live", None, snapshot_ts, False)
 
 
+def _bo3_telemetry_ok(snap: dict[str, Any] | None, frame: Frame) -> tuple[bool, str | None]:
+    """
+    Same criteria as readiness: teams present + required fields (microstate, clock).
+    Returns (telemetry_ok, telemetry_reason). reason is set when ok is False.
+    """
+    if not snap or not (snap.get("team_one") or snap.get("team_two")):
+        return (False, "missing_teams")
+    from engine.diagnostics.fragility_cs2 import compute_fragility_debug
+    fragility = compute_fragility_debug(frame)
+    if fragility.get("missing_microstate_flag"):
+        return (False, "missing_microstate")
+    if fragility.get("clock_invalid_flag"):
+        return (False, "clock_invalid")
+    return (True, None)
+
+
 # BO3 health: label-only observability (no gating).
 BO3_STALE_THRESHOLD_SEC = 30
 BO3_BUFFER_GOOD_AGE_SEC = 20  # GOOD if buffer_age_s <= this
@@ -867,6 +883,12 @@ class Runner:
             id_str = getattr(key, "id", "")
             last_ts = getattr(runtime, "last_update_ts", None)
             age_s = round(now - last_ts, 1) if last_ts is not None else None
+            last_fetch_ts = getattr(runtime, "last_fetch_ts", None)
+            last_good_ts = getattr(runtime, "last_good_ts", None)
+            fetch_age_s = round(now - last_fetch_ts, 1) if last_fetch_ts is not None else (age_s if last_ts is not None else None)
+            good_age_s = round(now - last_good_ts, 1) if last_good_ts is not None else None
+            telemetry_ok = getattr(runtime, "telemetry_ok", True)
+            telemetry_reason = getattr(runtime, "telemetry_reason", None)
             ctx_diag = _match_context_diag(getattr(runtime, "ctx", None), None)
             # Optional: expose last_frame teams for UI match label (defensive).
             try:
@@ -888,6 +910,10 @@ class Runner:
                 "id": id_str,
                 "last_update_ts": last_ts,
                 "age_s": age_s,
+                "fetch_age_s": fetch_age_s,
+                "good_age_s": good_age_s,
+                "telemetry_ok": telemetry_ok,
+                "telemetry_reason": telemetry_reason,
                 "ctx": ctx_diag,
             }
             if source_name == "GRID" and id_str:
@@ -917,8 +943,9 @@ class Runner:
 
     def clear_sessions(self) -> None:
         """
-        Runtime-only cleanup: clear session registry, auto-track lists, readiness cache, grid schedule.
-        Does NOT modify persistent config. Used by POST /debug/telemetry/clear_sessions.
+        Runtime-only cleanup: clear session registry, auto-track lists, readiness cache, grid schedule,
+        and pinned primary state so the app behaves like a fresh launch.
+        Does NOT modify persistent config. Used by POST /debug/telemetry/clear_sessions and POST /debug/reset.
         """
         self._sessions.clear()
         if hasattr(self, "_session_points") and isinstance(getattr(self, "_session_points"), dict):
@@ -934,6 +961,8 @@ class Runner:
         self._bo3_invalid_snapshot_ids.clear()
         self._grid_next_fetch_ts.clear()
         self._grid_last_rate_limit_reason.clear()
+        self._last_primary_session = None
+        self._last_breach_type = None
 
     def _is_multi_session(self, config: Config) -> bool:
         """True if bo3_match_ids, grid_series_ids (manual), or bo3/grid auto_track is used."""
@@ -1040,7 +1069,7 @@ class Runner:
             return
         # Hard lock: if config has BO3 primary set, never run validation probes (avoid 404 storms)
         cfg_src = (str(getattr(config, "primary_session_source", None) or "").strip().upper()) or None
-        cfg_id = (str(getattr(config, "primary_session_id", None) or "").strip() or None
+        cfg_id = (str(getattr(config, "primary_session_id", None) or "").strip()) or None
         if cfg_src == "BO3" and cfg_id:
             return
         if now_ts < getattr(self, "_bo3_next_validation_probe_at", 0.0):
@@ -1091,7 +1120,7 @@ class Runner:
             return [int(x) for x in manual if x is not None]
         # Hard lock: read from config so pinned BO3 always yields exactly one id
         cfg_src = (str(getattr(config, "primary_session_source", None) or "").strip().upper()) or None
-        cfg_id = (str(getattr(config, "primary_session_id", None) or "").strip() or None
+        cfg_id = (str(getattr(config, "primary_session_id", None) or "").strip()) or None
         if cfg_src == "BO3" and cfg_id:
             try:
                 return [int(cfg_id)]
@@ -1676,6 +1705,7 @@ class Runner:
             await self._store.set_current(state, fail_derived)
             self._bo3_buf_consecutive_failures = session_runtime.bo3_buf_consecutive_failures
             return True
+        session_runtime.last_fetch_ts = now
         if isinstance(snap, dict):
             session_runtime.bo3_last_raw_snapshot = snap
             self._maybe_record_raw_bo3_snapshot(snap, mid, team_a_is_team_one, session_runtime=session_runtime)
@@ -1712,6 +1742,11 @@ class Runner:
             from engine.diagnostics.fragility_cs2 import build_raw_debug, compute_fragility_debug
             new_debug["raw"] = build_raw_debug(frame)
             new_debug["fragility"] = compute_fragility_debug(frame)
+            telem_ok, telem_reason = _bo3_telemetry_ok(snap if isinstance(snap, dict) else None, frame)
+            session_runtime.telemetry_ok = telem_ok
+            session_runtime.telemetry_reason = telem_reason
+            if telem_ok:
+                session_runtime.last_good_ts = now
             fail_derived = Derived(
                 p_hat=p_hat,
                 bound_low=bound_low,
@@ -1841,6 +1876,9 @@ class Runner:
         session_runtime.last_state = new_state
         session_runtime.last_frame = asdict(frame)
         session_runtime.last_update_ts = t
+        session_runtime.telemetry_ok = True
+        session_runtime.last_good_ts = t
+        session_runtime.telemetry_reason = None
         self._log_bo3_session_update(mid, session_runtime, t)
         bounds_result = compute_bounds(frame, config, new_state)
         bound_low, bound_high = bounds_result[0], bounds_result[1]
@@ -1942,6 +1980,10 @@ class Runner:
                 session_runtime.last_frame = asdict(frame)
                 session_runtime.last_update_ts = t
                 session_runtime.last_error = "drv_invalid"
+                session_runtime.telemetry_ok = False
+                session_runtime.telemetry_reason = (
+                    "missing_microstate" if not drv_valid_microstate else "clock_invalid"
+                )
                 self._log_bo3_session_update(mid, session_runtime, t)
             teams_bo3 = getattr(frame, "teams", None) or ("", "")
             if isinstance(teams_bo3, (list, tuple)) and len(teams_bo3) >= 2:
@@ -2138,6 +2180,9 @@ class Runner:
             session_runtime.last_frame = asdict(frame)
             session_runtime.last_update_ts = t
             session_runtime.last_error = None
+            session_runtime.telemetry_ok = True
+            session_runtime.last_good_ts = t
+            session_runtime.telemetry_reason = None
             self._log_bo3_session_update(mid, session_runtime, t)
         clamp_reason_bo3 = "ok"
         if isinstance(explain, dict) and isinstance(explain.get("final"), dict):
@@ -2176,7 +2221,7 @@ class Runner:
         """Multi-session: tick one BO3 match; use session ctx; only primary writes to store."""
         # Pinned BO3 hard lock: only allow snapshot for the pinned id
         cfg_src = (str(getattr(config, "primary_session_source", None) or "").strip().upper()) or None
-        cfg_id = (str(getattr(config, "primary_session_id", None) or "").strip() or None
+        cfg_id = (str(getattr(config, "primary_session_id", None) or "").strip()) or None
         if cfg_src == "BO3" and cfg_id and str(match_id) != cfg_id:
             return False
         from engine.telemetry import SessionKey, SourceKind

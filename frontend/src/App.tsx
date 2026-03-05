@@ -69,6 +69,10 @@ type TelemetrySessionRow = {
   id: string
   last_update_ts: number | null
   age_s: number | null
+  fetch_age_s?: number | null
+  good_age_s?: number | null
+  telemetry_ok?: boolean
+  telemetry_reason?: string | null
   ctx?: {
     active_source?: string | null
     selector_decision?: { chosen_source?: string | null; reason?: string; considered?: unknown[] }
@@ -159,7 +163,7 @@ function App() {
   const [hudFrame, setHudFrame] = useState<LastFrame | null>(null)
   const [snapshotHistory, setSnapshotHistory] = useState<Point[]>([])
   const [chartReady, setChartReady] = useState(false)
-  const [isPaused, setIsPaused] = useState(false)
+  const [isPaused] = useState(false)
   const [wsReconnectTrigger, setWsReconnectTrigger] = useState(0)
 
   const [liveMatches, setLiveMatches] = useState<Bo3Match[]>([])
@@ -169,6 +173,7 @@ function App() {
   const [selectedMatchId, setSelectedMatchId] = useState<string>('')
   const [teamAIsTeamOne, setTeamAIsTeamOne] = useState(true)
   const [configError, setConfigError] = useState<string | null>(null)
+  const [resetStatus, setResetStatus] = useState<string | null>(null)
 
   const [replaySources, setReplaySources] = useState<
     Array<{ label: string; path: string; kind: string; mtime: number; size: number }>
@@ -182,7 +187,7 @@ function App() {
     Array<{ match_id: number; team1: string; team2: string; count: number; path?: string }>
   >([])
 
-  const [crosshairT, setCrosshairT] = useState<string | number | null>(null)
+  const [, setCrosshairT] = useState<string | number | null>(null)
 
   const [kalshiUrl, setKalshiUrl] = useState('')
   const [marketOptions, setMarketOptions] = useState<Array<{ key: string; label: string; ticker_yes: string }>>([])
@@ -645,7 +650,7 @@ function App() {
     })
     setChartReady(true)
 
-    const unsubCrosshair = chart.subscribeCrosshairMove((param) => {
+    const onCrosshair = (param: { time?: unknown }) => {
       if (param.time === undefined) {
         setCrosshairT(null)
         return
@@ -659,7 +664,8 @@ function App() {
         return
       }
       setCrosshairT(String(param.time))
-    })
+    }
+    chart.subscribeCrosshairMove(onCrosshair)
 
     const handleResize = () => {
       if (chartRef.current && chartInstanceRef.current)
@@ -672,7 +678,7 @@ function App() {
     return () => {
       window.removeEventListener('resize', handleResize)
       try {
-        unsubCrosshair()
+        chart.unsubscribeCrosshairMove(onCrosshair)
       } catch {
         // ignore
       }
@@ -755,7 +761,7 @@ function App() {
           const seg = (msg.current as { state?: { segment_id?: number; last_frame?: LastFrame } })?.state?.segment_id ?? 0
           currentSegRef.current = seg
           const rawHist = Array.isArray(msg.history) ? msg.history : []
-          const hist = rawHist.filter((pt): pt is Point => isValidPoint(pt))
+          const hist = rawHist.filter((pt: unknown): pt is Point => isValidPoint(pt))
           const visibleHistory = showFullMatchRef.current ? hist : filterHistoryToSeg(hist, seg)
           setSnapshotHistory(visibleHistory)
           if (pSeriesRef.current && visibleHistory.length > 0) setDataFromHistory(visibleHistory)
@@ -1285,13 +1291,16 @@ function App() {
     </section>
   )
 
-  const sessionStatusBadge = (row: TelemetrySessionRow): 'LIVE' | 'STALE' | 'DEAD' => {
-    const age = row.age_s
+  const DEAD_S = 90
+  const STALE_S = 60
+  const sessionStatusBadge = (row: TelemetrySessionRow): 'LIVE' | 'STALE' | 'DEAD' | 'TELEM LOST' => {
+    const fetchAge = row.fetch_age_s ?? row.age_s ?? 9999
     if (row.last_error) return 'DEAD'
-    if (age == null) return 'DEAD'
-    if (age <= 15) return 'LIVE'
-    if (age <= 60) return 'STALE'
-    return 'DEAD'
+    if (fetchAge >= DEAD_S) return 'DEAD'
+    if (row.telemetry_ok === false) return 'TELEM LOST'
+    const goodAge = row.good_age_s ?? row.age_s ?? 9999
+    if (goodAge >= STALE_S) return 'STALE'
+    return 'LIVE'
   }
 
   const sessionsFiltered = ((): TelemetrySessionRow[] => {
@@ -1409,10 +1418,11 @@ function App() {
         </label>
         <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <span style={{ fontSize: 12, color: '#9ca3af' }}>Status</span>
-          <select value={telemetryFilterStatus} onChange={(e) => setTelemetryFilterStatus(e.target.value as 'all' | 'LIVE' | 'STALE' | 'DEAD')} style={{ padding: '2px 6px', fontSize: 12 }}>
+          <select value={telemetryFilterStatus} onChange={(e) => setTelemetryFilterStatus(e.target.value as 'all' | 'LIVE' | 'STALE' | 'DEAD' | 'TELEM LOST')} style={{ padding: '2px 6px', fontSize: 12 }}>
             <option value="all">All</option>
             <option value="LIVE">LIVE</option>
             <option value="STALE">STALE</option>
+            <option value="TELEM LOST">TELEM LOST</option>
             <option value="DEAD">DEAD</option>
           </select>
         </label>
@@ -1510,7 +1520,7 @@ function App() {
                     {matchLabel}
                     {isRunning ? <span style={{ marginLeft: 4, fontSize: 10, color: '#22c55e', fontWeight: 600 }} title="Pinned primary">● Pinned</span> : ''}
                   </td>
-                  <td style={{ padding: '4px 4px' }}><span style={{ background: badgeColor, color: '#fff', padding: '1px 6px', borderRadius: 4, fontSize: 10 }}>{status}</span></td>
+                  <td style={{ padding: '4px 4px' }}><span style={{ background: badgeColor, color: '#fff', padding: '1px 6px', borderRadius: 4, fontSize: 10 }} title={statusTitle}>{status}</span></td>
                   <td style={{ padding: '4px 4px' }}>{row.source ?? '—'}</td>
                   <td style={{ padding: '4px 4px' }}>{row.age_s != null ? row.age_s : '—'}</td>
                   <td style={{ padding: '4px 4px' }}>{row.last_update_ts != null ? new Date(row.last_update_ts * 1000).toISOString().slice(11, 19) : '—'}</td>
@@ -1574,7 +1584,7 @@ function App() {
             type="number"
             min={0}
             max={50}
-            value={typeof cfg.bo3_auto_track_limit === 'number' ? cfg.bo3_auto_track_limit : (cfg.bo3_auto_track_limit ?? 5)}
+            value={(() => { const v = Number(cfg.bo3_auto_track_limit ?? 5); return Number.isFinite(v) ? v : 5; })()}
             onChange={(e) => postConfigPartial({ bo3_auto_track_limit: clampLimit(Number(e.target.value) || 0) })}
             style={{ marginLeft: 8, width: 56, padding: '2px 4px' }}
           />
@@ -1585,7 +1595,7 @@ function App() {
             type="number"
             min={10}
             step={1}
-            value={typeof cfg.bo3_auto_track_refresh_s === 'number' ? cfg.bo3_auto_track_refresh_s : (cfg.bo3_auto_track_refresh_s ?? 30)}
+            value={(() => { const v = Number(cfg.bo3_auto_track_refresh_s ?? 30); return Number.isFinite(v) ? v : 30; })()}
             onChange={(e) => postConfigPartial({ bo3_auto_track_refresh_s: clampRefreshS(Number(e.target.value) || 10) })}
             style={{ marginLeft: 8, width: 56, padding: '2px 4px' }}
           />
@@ -1596,7 +1606,7 @@ function App() {
             type="number"
             min={5}
             max={200}
-            value={typeof cfg.bo3_auto_track_probe_budget === 'number' ? cfg.bo3_auto_track_probe_budget : (cfg.bo3_auto_track_probe_budget ?? 40)}
+            value={(() => { const v = Number(cfg.bo3_auto_track_probe_budget ?? 40); return Number.isFinite(v) ? v : 40; })()}
             onChange={(e) => postConfigPartial({ bo3_auto_track_probe_budget: clampProbeBudget(Number(e.target.value) || 40) })}
             style={{ marginLeft: 8, width: 56, padding: '2px 4px' }}
           />
@@ -1690,7 +1700,7 @@ function App() {
             type="number"
             min={0}
             max={50}
-            value={typeof cfg.grid_auto_track_limit === 'number' ? cfg.grid_auto_track_limit : (cfg.grid_auto_track_limit ?? 5)}
+            value={(() => { const v = Number(cfg.grid_auto_track_limit ?? 5); return Number.isFinite(v) ? v : 5; })()}
             onChange={(e) => postConfigPartial({ grid_auto_track_limit: clampLimit(Number(e.target.value) || 0) })}
             style={{ marginLeft: 8, width: 56, padding: '2px 4px' }}
           />
@@ -1701,7 +1711,7 @@ function App() {
             type="number"
             min={10}
             step={1}
-            value={typeof cfg.grid_auto_track_refresh_s === 'number' ? cfg.grid_auto_track_refresh_s : (cfg.grid_auto_track_refresh_s ?? 60)}
+            value={(() => { const v = Number(cfg.grid_auto_track_refresh_s ?? 60); return Number.isFinite(v) ? v : 60; })()}
             onChange={(e) => postConfigPartial({ grid_auto_track_refresh_s: clampRefreshS(Number(e.target.value) || 10) })}
             style={{ marginLeft: 8, width: 56, padding: '2px 4px' }}
           />
@@ -1775,6 +1785,38 @@ function App() {
         >
           Clear chart
         </button>
+        <button
+          type="button"
+          onClick={async () => {
+            setResetStatus('Resetting...')
+            setConfigError(null)
+            try {
+              const r = await fetch(`${API_BASE}/api/v1/debug/reset`, { method: 'POST' })
+              if (!r.ok) {
+                const body = await r.json().catch(() => ({}))
+                const msg = String((body as { detail?: string })?.detail ?? r.statusText)
+                setResetStatus(`Failed: ${msg}`)
+                console.error('Reset failed:', msg)
+                return
+              }
+              localStorage.clear()
+              sessionStorage.clear()
+              location.reload()
+            } catch (e) {
+              const msg = e instanceof Error ? e.message : String(e)
+              setResetStatus(`Failed: ${msg}`)
+              console.error('Reset failed:', msg)
+            }
+          }}
+          style={{ padding: '8px 12px', fontSize: 12, background: '#78350f', color: '#fef3c7', border: '1px solid #92400e', borderRadius: 6, cursor: 'pointer', marginTop: 4 }}
+        >
+          Reset App
+        </button>
+        {resetStatus && (
+          <span style={{ fontSize: 11, color: resetStatus.startsWith('Failed') ? '#ef4444' : '#9ca3af', marginTop: 4 }}>
+            {resetStatus}
+          </span>
+        )}
       </div>
 
       {/* GRID candidate picker */}

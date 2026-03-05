@@ -7,6 +7,9 @@ emits history points; exposes REST and WebSocket for the frontend.
 import logging
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
+
+from fastapi.staticfiles import StaticFiles
 
 # Ensure app/module logs (e.g. BO3_RATE_DEBUG, runner) appear in console
 _level = os.getenv("LOG_LEVEL", "INFO").upper()
@@ -17,6 +20,9 @@ logging.basicConfig(
 )
 logging.getLogger("engine").setLevel(getattr(logging, _level, logging.INFO))
 logging.getLogger("backend").setLevel(getattr(logging, _level, logging.INFO))
+
+# Use mode: serve built frontend from frontend/dist at / (API routes take precedence)
+_FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,6 +43,10 @@ from backend.store.memory_store import MemoryStore
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if _FRONTEND_DIST.is_dir():
+        logging.getLogger("backend").info("Use mode: serving frontend/dist")
+    else:
+        logging.getLogger("backend").info("Dev mode: dist not found")
     store = MemoryStore(max_history=2000)
     broadcaster = Broadcaster()
     runner = Runner(store=store, broadcaster=broadcaster)
@@ -72,6 +82,9 @@ app.include_router(market_router, prefix="/api/v1")
 app.include_router(prematch_router, prefix="/api/v1")
 app.include_router(replay_router, prefix="/api/v1")
 app.include_router(ws_router, prefix="/api/v1")
+
+if _FRONTEND_DIST.is_dir():
+    app.mount("/", StaticFiles(directory=str(_FRONTEND_DIST), html=True), name="frontend")
 
 
 @app.get("/health")

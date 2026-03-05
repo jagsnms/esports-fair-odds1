@@ -7,11 +7,15 @@ from __future__ import annotations
 import asyncio
 import copy
 import json
+import logging
 import time
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Query
 
 from backend.deps import get_runner, get_store
+
+logger = logging.getLogger(__name__)
 
 BO3_WS_PROBE_WAIT_S = 3.0
 BO3_WS_FIRST_NON_PING_MAX_CHARS = 500
@@ -214,3 +218,48 @@ async def post_debug_telemetry_clear_sessions() -> dict:
     runner = get_runner()
     getattr(runner, "clear_sessions", lambda: None)()
     return {"ok": True}
+
+
+@router.get("/reset")
+async def get_debug_reset() -> dict:
+    """
+    Report current key runtime state (counts). Does not clear anything.
+    Use POST /reset to perform a full reset.
+    """
+    runner = get_runner()
+    store = get_store()
+    config = await store.get_config()
+    diag = getattr(runner, "get_sessions_diag", lambda c=None: {"now_ts": time.time(), "sessions": []})(config)
+    sessions = diag.get("sessions") or []
+    breach_events = await store.get_breach_events(limit=10_000)
+    return {
+        "sessions_count": len(sessions),
+        "bo3_auto_match_ids_count": len(getattr(runner, "_bo3_auto_match_ids", [])),
+        "grid_auto_series_ids_count": len(getattr(runner, "_grid_auto_series_ids", [])),
+        "readiness_cache_size": len(getattr(runner, "_bo3_readiness_cache", {})),
+        "breach_events_count": len(breach_events),
+        "now_ts": time.time(),
+    }
+
+
+@router.post("/reset")
+async def post_debug_reset() -> dict:
+    """
+    Full reset of backend runtime state: sessions, BO3/GRID caches, readiness, cooldowns,
+    pinned primary state, and breach event cache. App behaves like a fresh launch.
+    Does NOT modify persistent config.
+    """
+    runner = get_runner()
+    store = get_store()
+    runner.clear_sessions()
+    await store.clear_breach_events()
+    cleared = [
+        "sessions",
+        "bo3_caches",
+        "grid_caches",
+        "primary_pin",
+        "breach_events",
+    ]
+    ts = datetime.now(timezone.utc).isoformat()
+    logger.info("POST /api/v1/debug/reset invoked: cleared=%s", cleared)
+    return {"ok": True, "cleared": cleared, "ts": ts}

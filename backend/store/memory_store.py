@@ -314,3 +314,8 @@ class MemoryStore:
         async with self._lock:
             events = list(self._breach_events)[-limit:]
             return events
+
+    async def clear_breach_events(self) -> None:
+        """Clear the breach events ring-buffer. Used by POST /debug/reset."""
+        async with self._lock:
+            self._breach_events.clear()

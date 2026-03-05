@@ -37,6 +37,12 @@ class SessionRuntime:
     last_error: str | None = None
     grid_state: Any | None = None  # GRID only: GridState for this series
 
+    # Feed vs telemetry distinction (BO3): fetch_ts = last successful HTTP 200; good_ts = last time telemetry was valid
+    last_fetch_ts: float | None = None
+    last_good_ts: float | None = None
+    telemetry_ok: bool = True
+    telemetry_reason: str | None = None  # e.g. "missing_teams", "missing_microstate", "clock_invalid"
+
     # --- BO3 buffer (per-session to avoid cross-session leakage) ---
     bo3_buf_raw: dict | None = None
     bo3_buf_frame: dict | None = None
