@@ -51,3 +51,13 @@
 - **Engine:** `engine/models.py`, `engine/config.py`, `engine/diagnostics/invariants.py` — minimal stubs.
 - **Backend:** `backend/main.py` (FastAPI, `/health`, `/api/v1/state/current`, `/api/v1/stream` WebSocket stub), `backend/api/routes_state.py`, `backend/api/ws.py`.
 - **Frontend:** Vite React TS app under `frontend/` with `lightweight-charts`, placeholder page that connects to the stream WebSocket and renders a dummy line series.
+
+## Sessions diagnostics: telemetry_status (tri-state)
+
+GET `/api/v1/debug/telemetry/sessions` returns a `telemetry_status` field per session row (backend-derived, no client logic):
+
+- **`FEED_ALIVE`** — Fresh updates coming in; last fetch and last good telemetry are within thresholds.
+- **`TELEMETRY_LOST`** — Feed exists but updates stopped or stalled, or last snapshot had invalid telemetry (e.g. missing_teams, missing_microstate, clock_invalid). Also used when no fetch for `TELEMETRY_FEED_DEAD_S` (90s) or no good telemetry for `TELEMETRY_STALLED_S` (60s).
+- **`NO_DATA`** — Session created but no frame ever received (`last_update_ts` is null).
+
+`telemetry_reason` is a short string (e.g. `no_update_yet`, `feed_stalled_95s`, `missing_microstate`) and may include `last_error` or GRID rate-limit reason. Thresholds are in `backend.services.runner` (`TELEMETRY_FEED_DEAD_S`, `TELEMETRY_STALLED_S`). The frontend maps these to badge label and color (LIVE / TELEMETRY LOST / NO DATA) and uses `telemetry_status` for filtering when present; older responses without `telemetry_status` still work via fallback logic.

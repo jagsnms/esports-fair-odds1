@@ -62,6 +62,9 @@ type Bo3Readiness = {
   last_probe_ts: string
 }
 
+/** Backend-derived tri-state per session (GET /api/v1/debug/telemetry/sessions) */
+type TelemetryStatus = 'FEED_ALIVE' | 'TELEMETRY_LOST' | 'NO_DATA'
+
 /** Session row from GET /api/v1/debug/telemetry/sessions */
 type TelemetrySessionRow = {
   session_key: string
@@ -73,6 +76,8 @@ type TelemetrySessionRow = {
   good_age_s?: number | null
   telemetry_ok?: boolean
   telemetry_reason?: string | null
+  /** Explicit tri-state from backend: FEED_ALIVE | TELEMETRY_LOST | NO_DATA */
+  telemetry_status?: TelemetryStatus | null
   ctx?: {
     active_source?: string | null
     selector_decision?: { chosen_source?: string | null; reason?: string; considered?: unknown[] }
@@ -224,7 +229,7 @@ function App() {
   const [telemetrySessions, setTelemetrySessions] = useState<TelemetrySessionsResponse | null>(null)
   const [selectedSession, setSelectedSession] = useState<{ source: string; id: string } | null>(null)
   const [telemetryFilterSource, setTelemetryFilterSource] = useState<'all' | 'BO3' | 'GRID'>('all')
-  const [telemetryFilterStatus, setTelemetryFilterStatus] = useState<'all' | 'LIVE' | 'STALE' | 'DEAD'>('all')
+  const [telemetryFilterStatus, setTelemetryFilterStatus] = useState<'all' | 'LIVE' | 'TELEMETRY LOST' | 'NO DATA'>('all')
   const [telemetrySearch, setTelemetrySearch] = useState('')
   const [telemetrySortColumn, setTelemetrySortColumn] = useState<string>('age_s')
   const [telemetrySortDir, setTelemetrySortDir] = useState<'asc' | 'desc'>('asc')
@@ -1293,14 +1298,38 @@ function App() {
 
   const DEAD_S = 90
   const STALE_S = 60
-  const sessionStatusBadge = (row: TelemetrySessionRow): 'LIVE' | 'STALE' | 'DEAD' | 'TELEM LOST' => {
+  /** Display label from backend telemetry_status (tri-state); fallback for older API. */
+  const sessionStatusLabel = (row: TelemetrySessionRow): string => {
+    const status = row.telemetry_status
+    if (status === 'FEED_ALIVE') return 'LIVE'
+    if (status === 'TELEMETRY_LOST') return 'TELEMETRY LOST'
+    if (status === 'NO_DATA') return 'NO DATA'
     const fetchAge = row.fetch_age_s ?? row.age_s ?? 9999
-    if (row.last_error) return 'DEAD'
-    if (fetchAge >= DEAD_S) return 'DEAD'
-    if (row.telemetry_ok === false) return 'TELEM LOST'
+    if (row.last_error || fetchAge >= DEAD_S) return 'TELEMETRY LOST'
+    if (row.telemetry_ok === false) return 'TELEMETRY LOST'
     const goodAge = row.good_age_s ?? row.age_s ?? 9999
-    if (goodAge >= STALE_S) return 'STALE'
+    if (goodAge >= STALE_S) return 'TELEMETRY LOST'
     return 'LIVE'
+  }
+  /** Badge color from status (backend tri-state or fallback). */
+  const sessionStatusColor = (row: TelemetrySessionRow): string => {
+    const status = row.telemetry_status
+    if (status === 'FEED_ALIVE') return '#22c55e'
+    if (status === 'TELEMETRY_LOST') return '#a855f7'
+    if (status === 'NO_DATA') return '#6b7280'
+    const label = sessionStatusLabel(row)
+    return label === 'LIVE' ? '#22c55e' : label === 'NO DATA' ? '#6b7280' : '#a855f7'
+  }
+  const sessionMatchesFilter = (row: TelemetrySessionRow, filter: string): boolean => {
+    if (filter === 'all') return true
+    const status = row.telemetry_status
+    if (status != null) {
+      if (filter === 'LIVE') return status === 'FEED_ALIVE'
+      if (filter === 'TELEMETRY LOST') return status === 'TELEMETRY_LOST'
+      if (filter === 'NO DATA') return status === 'NO_DATA'
+    }
+    const label = sessionStatusLabel(row)
+    return label === filter
   }
 
   const sessionsFiltered = ((): TelemetrySessionRow[] => {
@@ -1310,7 +1339,7 @@ function App() {
       list = list.filter((s) => s.source === telemetryFilterSource)
     }
     if (telemetryFilterStatus !== 'all') {
-      list = list.filter((s) => sessionStatusBadge(s) === telemetryFilterStatus)
+      list = list.filter((s) => sessionMatchesFilter(s, telemetryFilterStatus))
     }
     if (telemetrySearch.trim()) {
       const q = telemetrySearch.trim().toLowerCase()
@@ -1418,12 +1447,11 @@ function App() {
         </label>
         <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <span style={{ fontSize: 12, color: '#9ca3af' }}>Status</span>
-          <select value={telemetryFilterStatus} onChange={(e) => setTelemetryFilterStatus(e.target.value as 'all' | 'LIVE' | 'STALE' | 'DEAD' | 'TELEM LOST')} style={{ padding: '2px 6px', fontSize: 12 }}>
+          <select value={telemetryFilterStatus} onChange={(e) => setTelemetryFilterStatus(e.target.value as 'all' | 'LIVE' | 'TELEMETRY LOST' | 'NO DATA')} style={{ padding: '2px 6px', fontSize: 12 }}>
             <option value="all">All</option>
             <option value="LIVE">LIVE</option>
-            <option value="STALE">STALE</option>
-            <option value="TELEM LOST">TELEM LOST</option>
-            <option value="DEAD">DEAD</option>
+            <option value="TELEMETRY LOST">TELEMETRY LOST</option>
+            <option value="NO DATA">NO DATA</option>
           </select>
         </label>
         <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -1476,8 +1504,9 @@ function App() {
               <tr><td colSpan={12} style={{ padding: 12, color: '#9ca3af' }}>No sessions (or none match filters).</td></tr>
             )}
             {sessionsFiltered.map((row) => {
-              const status = sessionStatusBadge(row)
-              const badgeColor = status === 'LIVE' ? '#22c55e' : status === 'STALE' ? '#f59e0b' : '#ef4444'
+              const statusLabel = sessionStatusLabel(row)
+              const badgeColor = sessionStatusColor(row)
+              const statusTitle = [row.fetch_age_s != null && `fetch ${row.fetch_age_s}s ago`, row.good_age_s != null && `good ${row.good_age_s}s ago`, row.telemetry_reason].filter(Boolean).join(' · ') || undefined
               const ctx = row.ctx ?? {}
               const sel = ctx.selector_decision
               const chosen = sel && typeof sel === 'object' && 'chosen_source' in sel ? (sel as { chosen_source?: string }).chosen_source : null
@@ -1520,7 +1549,7 @@ function App() {
                     {matchLabel}
                     {isRunning ? <span style={{ marginLeft: 4, fontSize: 10, color: '#22c55e', fontWeight: 600 }} title="Pinned primary">● Pinned</span> : ''}
                   </td>
-                  <td style={{ padding: '4px 4px' }}><span style={{ background: badgeColor, color: '#fff', padding: '1px 6px', borderRadius: 4, fontSize: 10 }} title={statusTitle}>{status}</span></td>
+                  <td style={{ padding: '4px 4px' }}><span style={{ background: badgeColor, color: '#fff', padding: '1px 6px', borderRadius: 4, fontSize: 10 }} title={statusTitle}>{statusLabel}</span></td>
                   <td style={{ padding: '4px 4px' }}>{row.source ?? '—'}</td>
                   <td style={{ padding: '4px 4px' }}>{row.age_s != null ? row.age_s : '—'}</td>
                   <td style={{ padding: '4px 4px' }}>{row.last_update_ts != null ? new Date(row.last_update_ts * 1000).toISOString().slice(11, 19) : '—'}</td>

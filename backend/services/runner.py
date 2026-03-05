@@ -427,6 +427,76 @@ BO3_PAUSED_PHASES = frozenset({
     "POSTGAME", "MAP_END", "WARMUP", "FREEZETIME",
 })
 
+# Telemetry status tri-state: thresholds and derivation (sessions diagnostics)
+TELEMETRY_FEED_DEAD_S = 90.0   # no fetch/update for this long -> feed considered dead (TELEMETRY_LOST)
+TELEMETRY_STALLED_S = 60.0     # no good telemetry for this long -> stalled (TELEMETRY_LOST)
+
+
+def derive_telemetry_status(
+    now: float,
+    last_update_ts: float | None,
+    last_fetch_ts: float | None,
+    last_good_ts: float | None,
+    telemetry_ok: bool,
+    telemetry_reason: str | None,
+    *,
+    last_error: str | None = None,
+    grid_rate_limit_reason: str | None = None,
+) -> dict[str, Any]:
+    """
+    Pure helper: derive telemetry_status (FEED_ALIVE | TELEMETRY_LOST | NO_DATA), combined reason, and ages.
+    Used by get_sessions_diag. Does not mutate any state.
+    """
+    age_s = round(now - last_update_ts, 1) if last_update_ts is not None else None
+    fetch_age_s = round(now - last_fetch_ts, 1) if last_fetch_ts is not None else age_s
+    good_age_s = round(now - last_good_ts, 1) if last_good_ts is not None else None
+
+    reasons: list[str] = []
+    if last_error:
+        reasons.append(last_error)
+    if telemetry_reason:
+        reasons.append(telemetry_reason)
+    if grid_rate_limit_reason:
+        reasons.append(f"grid:{grid_rate_limit_reason}")
+    combined_reason = "; ".join(reasons) if reasons else None
+
+    if last_update_ts is None:
+        return {
+            "telemetry_status": "NO_DATA",
+            "telemetry_reason": combined_reason or "no_update_yet",
+            "age_s": age_s,
+            "fetch_age_s": fetch_age_s,
+            "good_age_s": good_age_s,
+        }
+
+    fetch_age = (now - last_fetch_ts) if last_fetch_ts is not None else (now - last_update_ts)
+    good_age = (now - last_good_ts) if last_good_ts is not None else float("inf")
+
+    if fetch_age >= TELEMETRY_FEED_DEAD_S:
+        return {
+            "telemetry_status": "TELEMETRY_LOST",
+            "telemetry_reason": combined_reason or f"feed_stalled_{int(fetch_age)}s",
+            "age_s": age_s,
+            "fetch_age_s": fetch_age_s,
+            "good_age_s": good_age_s,
+        }
+    if not telemetry_ok or good_age >= TELEMETRY_STALLED_S:
+        return {
+            "telemetry_status": "TELEMETRY_LOST",
+            "telemetry_reason": combined_reason or (telemetry_reason or f"telem_stalled_{int(good_age)}s"),
+            "age_s": age_s,
+            "fetch_age_s": fetch_age_s,
+            "good_age_s": good_age_s,
+        }
+
+    return {
+        "telemetry_status": "FEED_ALIVE",
+        "telemetry_reason": combined_reason,
+        "age_s": age_s,
+        "fetch_age_s": fetch_age_s,
+        "good_age_s": good_age_s,
+    }
+
 
 def _bo3_health(
     snap: dict[str, Any] | None,
@@ -924,6 +994,23 @@ class Runner:
                 last_reason = getattr(self, "_grid_last_rate_limit_reason", {}).get(id_str)
                 if last_reason:
                     row["grid_schedule"]["last_rate_limit_reason"] = last_reason
+            last_error = getattr(runtime, "last_error", None)
+            grid_reason = row.get("grid_schedule", {}).get("last_rate_limit_reason") if isinstance(row.get("grid_schedule"), dict) else None
+            derived = derive_telemetry_status(
+                now,
+                last_ts,
+                last_fetch_ts,
+                last_good_ts,
+                telemetry_ok,
+                telemetry_reason,
+                last_error=last_error,
+                grid_rate_limit_reason=grid_reason,
+            )
+            row["telemetry_status"] = derived["telemetry_status"]
+            row["telemetry_reason"] = derived["telemetry_reason"]
+            row["age_s"] = derived["age_s"]
+            row["fetch_age_s"] = derived["fetch_age_s"]
+            row["good_age_s"] = derived["good_age_s"]
             sessions_out.append(row)
         out: dict[str, Any] = {"now_ts": now, "sessions": sessions_out}
         if config is not None and getattr(config, "bo3_auto_track", False):

@@ -1,8 +1,9 @@
 """Path constants and schema definitions."""
 from pathlib import Path
 
-# Project root: repo root (three levels up from legacy/fair_odds/paths.py)
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
+# Project root: repo root (two levels up from legacy/fair_odds/paths.py)
+# .../esports-fair-odds/legacy/fair_odds/paths.py -> parents[2] == repo root
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 # Historical app directory (repo root, where config/ and ML/ live)
 APP_DIR = PROJECT_ROOT
 
