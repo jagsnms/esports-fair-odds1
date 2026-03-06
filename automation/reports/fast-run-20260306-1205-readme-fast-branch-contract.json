@@ -1,0 +1,87 @@
+{
+  "branch": "fast/run-20260306-1205-readme-fast-branch-contract",
+  "base_branch": "agent-base",
+  "lane": "fast",
+  "run_type": "maintenance",
+  "status": "implemented",
+  "_status_allowed_values": [
+    "proposed",
+    "implemented",
+    "promoted",
+    "held"
+  ],
+  "selected_issue": {
+    "issue": "Automation branch-name contract mismatch in automation/README.md",
+    "title": "README prescribed agent/run naming while active fast-lane contract requires fast/run-YYYYMMDD-HHMM-short-slug"
+  },
+  "why_it_outranked_alternatives": "Current evidence on agent-base showed no unresolved rank 1-6 issues: canonical tests passed, replay assessment reported zero structural/behavioral/invariant totals, no replay-mode mismatches, and no active diagnostics completeness blocker. The highest unresolved bounded issue was rank 7 documentation/contract consistency in automation/README.md branch naming.",
+  "baseline_evidence": {
+    "branch": "agent-base",
+    "commit": "624c1bf087b6a5903b73bc90418366c0ad766df8",
+    "checks": [
+      {
+        "command": "python3 -m pytest -q",
+        "result": "369 passed in 7.67s"
+      },
+      {
+        "command": "python3 tools/replay_verification_assess.py",
+        "result": "structural_violations_total=0, behavioral_violations_total=0, invariant_violations_total=0"
+      },
+      {
+        "command": "rg \"agent/run-YYYYMMDD-issue-slug\" automation/README.md",
+        "result": "match present"
+      },
+      {
+        "command": "rg \"fast/run-YYYYMMDD-HHMM-short-slug\" automation/templates/promotion_report_template.md",
+        "result": "match present"
+      }
+    ]
+  },
+  "files_changed": [
+    {
+      "path": "automation/README.md",
+      "change": "Updated run-branch naming format and example from agent/run-* to fast/run-YYYYMMDD-HHMM-short-slug."
+    },
+    {
+      "path": "automation/reports/fast-run-20260306-1205-readme-fast-branch-contract.md",
+      "change": "Added human-readable run report."
+    },
+    {
+      "path": "automation/reports/fast-run-20260306-1205-readme-fast-branch-contract.json",
+      "change": "Added machine-readable run report artifact."
+    }
+  ],
+  "validation_performed": [
+    {
+      "command": "rg \"agent/run-YYYYMMDD-issue-slug\" automation/README.md",
+      "result": "no matches"
+    },
+    {
+      "command": "rg \"fast/run-YYYYMMDD-HHMM-short-slug\" automation/README.md",
+      "result": "1 match"
+    },
+    {
+      "command": "python3 -m pytest -q",
+      "result": "369 passed in 7.31s"
+    },
+    {
+      "command": "python3 tools/replay_verification_assess.py",
+      "result": "structural_violations_total=0, behavioral_violations_total=0, invariant_violations_total=0"
+    }
+  ],
+  "before_after_evidence": {
+    "before": "automation/README.md specified agent/run-YYYYMMDD-issue-slug, conflicting with active fast-lane branch/report template contract.",
+    "after": "automation/README.md now specifies fast/run-YYYYMMDD-HHMM-short-slug with an aligned fast-lane example."
+  },
+  "unresolved_risks": [
+    "Other non-canonical docs still reference agent/run-* naming outside the selected issue scope.",
+    "This is a documentation alignment change and does not add code-enforced branch-name validation."
+  ],
+  "stop_reason": "Selected rank-7 documentation contract mismatch was fixed with a minimal single-file code change and validated; further documentation harmonization was outside this single-issue bounded run.",
+  "recommendation": "promote",
+  "_recommendation_allowed_values": [
+    "promote",
+    "hold",
+    "discard"
+  ]
+}
