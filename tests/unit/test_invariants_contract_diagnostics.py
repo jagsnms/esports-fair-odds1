@@ -100,3 +100,59 @@ def test_contract_diagnostics_emits_core_state_fields() -> None:
     assert diag["loadout_totals"] == (9000.0, 7000.0)
     assert diag["round_phase"] == "IN_PROGRESS"
     assert diag["round_number"] == 10
+
+
+def test_contract_diagnostics_emits_timer_contract_keys() -> None:
+    diag = compute_phat_contract_diagnostics(
+        q_intra_total=0.6,
+        rail_low=0.3,
+        rail_high=0.7,
+        p_hat_prev=0.4,
+        p_hat_final=0.5,
+        movement_confidence=0.25,
+        phase="IN_PROGRESS",
+        round_time_remaining_s=30.0,
+        is_bomb_planted=False,
+        alive_counts=(4, 3),
+        hp_totals=(300.0, 220.0),
+        loadout_totals=(9000.0, 7000.0),
+        round_phase="IN_PROGRESS",
+        round_number=10,
+        testing_mode=True,
+        timer_contract={
+            "timer_contract_version": "timer_contract.v1",
+            "timer_state": "PRE_PLANT",
+            "timer_source_class": "bo3_live_normalized",
+            "timer_remaining_s": 30.0,
+            "timer_valid": True,
+            "a_side_used": "CT",
+            "timer_direction_expected": "FAVOR_CT",
+            "timer_direction_applied": True,
+            "timer_direction_term": 0.02,
+            "timer_direction_reason_code": "PREPLANT_CT_FAVOR_APPLIED",
+            "defuse_time_s": None,
+            "defuse_time_source": "UNAVAILABLE",
+            "hard_boundary_active": False,
+            "hard_boundary_reason_code": "HARD_BOUNDARY_SKIPPED_NOT_POSTPLANT",
+        },
+    )
+    required = (
+        "timer_contract_version",
+        "timer_state",
+        "timer_source_class",
+        "timer_remaining_s",
+        "timer_valid",
+        "a_side_used",
+        "timer_direction_expected",
+        "timer_direction_applied",
+        "timer_direction_term",
+        "timer_direction_reason_code",
+        "defuse_time_s",
+        "defuse_time_source",
+        "hard_boundary_active",
+        "hard_boundary_reason_code",
+    )
+    for key in required:
+        assert key in diag
+    assert diag["timer_contract_version"] == "timer_contract.v1"
+    assert diag["timer_direction_reason_code"] == "PREPLANT_CT_FAVOR_APPLIED"

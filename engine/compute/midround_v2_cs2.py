@@ -22,6 +22,43 @@ ARMOR_WEIGHT = 0.008    # per-100 (optional)
 URGENCY_FLOOR = 0.15
 URGENCY_SCALE = 0.85
 EPS = 1e-6
+TIMER_CONTRACT_VERSION = "timer_contract.v1"
+
+TIMER_STATE_PRE_PLANT = "PRE_PLANT"
+TIMER_STATE_POST_PLANT = "POST_PLANT"
+TIMER_STATE_UNKNOWN = "UNKNOWN"
+
+TIMER_SOURCE_CANONICAL_REPLAY_RAW = "canonical_replay_raw"
+TIMER_SOURCE_BO3_LIVE_NORMALIZED = "bo3_live_normalized"
+TIMER_SOURCE_GRID_REDUCED = "grid_reduced"
+TIMER_SOURCE_UNKNOWN = "unknown"
+
+TIMER_DIRECTION_FAVOR_CT = "FAVOR_CT"
+TIMER_DIRECTION_FAVOR_T = "FAVOR_T"
+TIMER_DIRECTION_NONE = "NONE"
+
+PREPLANT_CT_FAVOR_APPLIED = "PREPLANT_CT_FAVOR_APPLIED"
+POSTPLANT_T_FAVOR_APPLIED = "POSTPLANT_T_FAVOR_APPLIED"
+TIMER_DIRECTION_SKIPPED_TIMER_MISSING = "TIMER_DIRECTION_SKIPPED_TIMER_MISSING"
+TIMER_DIRECTION_SKIPPED_TIMER_INVALID = "TIMER_DIRECTION_SKIPPED_TIMER_INVALID"
+TIMER_DIRECTION_SKIPPED_PLANT_STATE_UNKNOWN = "TIMER_DIRECTION_SKIPPED_PLANT_STATE_UNKNOWN"
+TIMER_DIRECTION_SKIPPED_A_SIDE_UNKNOWN = "TIMER_DIRECTION_SKIPPED_A_SIDE_UNKNOWN"
+TIMER_DIRECTION_SKIPPED_UNSUPPORTED_SOURCE = "TIMER_DIRECTION_SKIPPED_UNSUPPORTED_SOURCE"
+
+HARD_BOUNDARY_ACTIVE_CT_IMPOSSIBLE = "HARD_BOUNDARY_ACTIVE_CT_IMPOSSIBLE"
+HARD_BOUNDARY_NOT_ACTIVE_ABOVE_THRESHOLD = "HARD_BOUNDARY_NOT_ACTIVE_ABOVE_THRESHOLD"
+HARD_BOUNDARY_SKIPPED_NOT_POSTPLANT = "HARD_BOUNDARY_SKIPPED_NOT_POSTPLANT"
+HARD_BOUNDARY_SKIPPED_TIMER_MISSING = "HARD_BOUNDARY_SKIPPED_TIMER_MISSING"
+HARD_BOUNDARY_SKIPPED_TIMER_INVALID = "HARD_BOUNDARY_SKIPPED_TIMER_INVALID"
+HARD_BOUNDARY_SKIPPED_UNSUPPORTED_SOURCE = "HARD_BOUNDARY_SKIPPED_UNSUPPORTED_SOURCE"
+
+DEFUSE_SOURCE_KIT_5S = "KIT_5S"
+DEFUSE_SOURCE_NO_KIT_10S = "NO_KIT_10S"
+DEFUSE_SOURCE_UNKNOWN_FLOOR_5S = "UNKNOWN_FLOOR_5S"
+DEFUSE_SOURCE_UNAVAILABLE = "UNAVAILABLE"
+
+# Timer directional pressure strength inside q-score space.
+TIMER_DIRECTION_WEIGHT = 0.06
 
 # Weight profiles for A/B testing (current, learned_v1, learned_v2 converged calibration)
 WEIGHTS_CURRENT = {
@@ -88,6 +125,79 @@ def _normalize_side(side: Any) -> str | None:
         return None
     s = str(side).strip().upper()
     return s if s in ("T", "CT") else None
+
+
+def _classify_timer_source(config: Any = None) -> str:
+    source = str(getattr(config, "source", "") or "").strip().upper()
+    if source == "REPLAY":
+        return TIMER_SOURCE_CANONICAL_REPLAY_RAW
+    if source == "BO3":
+        return TIMER_SOURCE_BO3_LIVE_NORMALIZED
+    if source == "GRID":
+        return TIMER_SOURCE_GRID_REDUCED
+    return TIMER_SOURCE_UNKNOWN
+
+
+def _coerce_timer_remaining_seconds(value: Any) -> tuple[float | None, bool, bool, bool]:
+    """
+    Return (seconds, valid, missing, invalid).
+    Valid timer is finite and non-negative, in canonical seconds.
+    """
+    if value is None:
+        return None, False, True, False
+    try:
+        t = float(value)
+    except (TypeError, ValueError):
+        return None, False, False, True
+    if not math.isfinite(t) or t < 0.0:
+        return None, False, False, True
+    return t, True, False, False
+
+
+def _timer_state_from_bomb_planted(bomb_planted: Any) -> str:
+    if isinstance(bomb_planted, bool):
+        return TIMER_STATE_POST_PLANT if bomb_planted else TIMER_STATE_PRE_PLANT
+    return TIMER_STATE_UNKNOWN
+
+
+def _player_field(player: Any, key: str) -> Any:
+    if isinstance(player, dict):
+        return player.get(key)
+    return getattr(player, key, None)
+
+
+def _resolve_ct_defuse_time(frame: Frame | None, a_side: str | None) -> tuple[float, str, bool]:
+    """
+    Resolve CT effective defuse threshold under frozen Stage 0 contract.
+    Returns (defuse_time_s, defuse_time_source, confident_signal).
+    """
+    if frame is None or a_side not in ("T", "CT"):
+        return 5.0, DEFUSE_SOURCE_UNKNOWN_FLOOR_5S, False
+    ct_players = getattr(frame, "players_b", []) if a_side == "T" else getattr(frame, "players_a", [])
+    if not isinstance(ct_players, list) or not ct_players:
+        return 5.0, DEFUSE_SOURCE_UNKNOWN_FLOOR_5S, False
+
+    alive_players: list[Any] = []
+    for p in ct_players:
+        alive = _player_field(p, "alive")
+        if alive is True:
+            alive_players.append(p)
+    considered = alive_players if alive_players else ct_players
+
+    known_kits: list[bool] = []
+    has_unknown = False
+    for p in considered:
+        hk = _player_field(p, "has_kit")
+        if isinstance(hk, bool):
+            known_kits.append(hk)
+        else:
+            has_unknown = True
+
+    if any(known_kits):
+        return 5.0, DEFUSE_SOURCE_KIT_5S, True
+    if known_kits and not has_unknown and all(v is False for v in known_kits):
+        return 10.0, DEFUSE_SOURCE_NO_KIT_10S, True
+    return 5.0, DEFUSE_SOURCE_UNKNOWN_FLOOR_5S, False
 
 
 def compute_cs2_midround_features(frame: Frame, *, config: Any = None) -> dict[str, Any]:
@@ -214,12 +324,118 @@ def compute_cs2_midround_features(frame: Frame, *, config: Any = None) -> dict[s
     }
 
 
+def _compute_timer_contract(
+    *,
+    features: dict[str, Any],
+    frame: Frame | None,
+    config: Any,
+    max_round_s: float,
+) -> dict[str, Any]:
+    source_class = _classify_timer_source(config)
+    a_side = _normalize_side(features.get("a_side"))
+    bomb_planted_bool = features.get("bomb_planted_bool")
+    timer_state = _timer_state_from_bomb_planted(bomb_planted_bool)
+    timer_remaining_s, timer_valid, timer_missing, timer_invalid = _coerce_timer_remaining_seconds(
+        features.get("time_remaining_s")
+    )
+
+    if timer_state == TIMER_STATE_PRE_PLANT:
+        timer_direction_expected = TIMER_DIRECTION_FAVOR_CT
+    elif timer_state == TIMER_STATE_POST_PLANT:
+        timer_direction_expected = TIMER_DIRECTION_FAVOR_T
+    else:
+        timer_direction_expected = TIMER_DIRECTION_NONE
+
+    defuse_time_s: float | None = None
+    defuse_time_source = DEFUSE_SOURCE_UNAVAILABLE
+    defuse_confident = False
+    if timer_state == TIMER_STATE_POST_PLANT:
+        defuse_time_s, defuse_time_source, defuse_confident = _resolve_ct_defuse_time(frame, a_side)
+
+    unsupported_source = source_class == TIMER_SOURCE_UNKNOWN
+    if (
+        not unsupported_source
+        and source_class == TIMER_SOURCE_GRID_REDUCED
+        and timer_state == TIMER_STATE_POST_PLANT
+        and not defuse_confident
+    ):
+        unsupported_source = True
+
+    timer_direction_applied = False
+    timer_direction_term = 0.0
+    if timer_state == TIMER_STATE_UNKNOWN:
+        timer_direction_reason_code = TIMER_DIRECTION_SKIPPED_PLANT_STATE_UNKNOWN
+    elif timer_missing:
+        timer_direction_reason_code = TIMER_DIRECTION_SKIPPED_TIMER_MISSING
+    elif timer_invalid:
+        timer_direction_reason_code = TIMER_DIRECTION_SKIPPED_TIMER_INVALID
+    elif unsupported_source:
+        timer_direction_reason_code = TIMER_DIRECTION_SKIPPED_UNSUPPORTED_SOURCE
+    elif a_side not in ("T", "CT"):
+        timer_direction_reason_code = TIMER_DIRECTION_SKIPPED_A_SIDE_UNKNOWN
+    else:
+        timer_direction_applied = True
+        horizon = max(max_round_s, 1.0)
+        timer_pressure = max(0.0, min(1.0, 1.0 - (float(timer_remaining_s) / horizon)))
+        if timer_direction_expected == TIMER_DIRECTION_FAVOR_CT:
+            sign = 1.0 if a_side == "CT" else -1.0
+            timer_direction_reason_code = PREPLANT_CT_FAVOR_APPLIED
+        else:
+            sign = 1.0 if a_side == "T" else -1.0
+            timer_direction_reason_code = POSTPLANT_T_FAVOR_APPLIED
+        timer_direction_term = sign * TIMER_DIRECTION_WEIGHT * timer_pressure
+
+    hard_boundary_active = False
+    hard_boundary_q_a_override: float | None = None
+    if timer_state != TIMER_STATE_POST_PLANT:
+        hard_boundary_reason_code = HARD_BOUNDARY_SKIPPED_NOT_POSTPLANT
+        defuse_time_s = None
+        defuse_time_source = DEFUSE_SOURCE_UNAVAILABLE
+    elif timer_missing:
+        hard_boundary_reason_code = HARD_BOUNDARY_SKIPPED_TIMER_MISSING
+        defuse_time_s = None
+        defuse_time_source = DEFUSE_SOURCE_UNAVAILABLE
+    elif timer_invalid:
+        hard_boundary_reason_code = HARD_BOUNDARY_SKIPPED_TIMER_INVALID
+        defuse_time_s = None
+        defuse_time_source = DEFUSE_SOURCE_UNAVAILABLE
+    elif unsupported_source or a_side not in ("T", "CT"):
+        hard_boundary_reason_code = HARD_BOUNDARY_SKIPPED_UNSUPPORTED_SOURCE
+        defuse_time_s = None
+        defuse_time_source = DEFUSE_SOURCE_UNAVAILABLE
+    elif float(timer_remaining_s) < float(defuse_time_s):
+        hard_boundary_active = True
+        hard_boundary_reason_code = HARD_BOUNDARY_ACTIVE_CT_IMPOSSIBLE
+        hard_boundary_q_a_override = 0.0 if a_side == "CT" else 1.0
+    else:
+        hard_boundary_reason_code = HARD_BOUNDARY_NOT_ACTIVE_ABOVE_THRESHOLD
+
+    return {
+        "timer_contract_version": TIMER_CONTRACT_VERSION,
+        "timer_state": timer_state,
+        "timer_source_class": source_class,
+        "timer_remaining_s": timer_remaining_s,
+        "timer_valid": timer_valid,
+        "a_side_used": a_side or "UNKNOWN",
+        "timer_direction_expected": timer_direction_expected,
+        "timer_direction_applied": timer_direction_applied,
+        "timer_direction_term": timer_direction_term,
+        "timer_direction_reason_code": timer_direction_reason_code,
+        "defuse_time_s": defuse_time_s,
+        "defuse_time_source": defuse_time_source,
+        "hard_boundary_active": hard_boundary_active,
+        "hard_boundary_reason_code": hard_boundary_reason_code,
+        "hard_boundary_q_a_override": hard_boundary_q_a_override,
+    }
+
+
 def apply_cs2_midround_adjustment_v2_mixture(
     *,
     frozen_a: float,
     frozen_b: float,
     features: dict[str, Any],
     config: Any = None,
+    frame: Frame | None = None,
 ) -> dict[str, Any]:
     """
     V2 mixture: q_intra from alive/hp/loadout/bomb (and optional armor); urgency from time.
@@ -274,69 +490,37 @@ def apply_cs2_midround_adjustment_v2_mixture(
     has_hp = hp_sum > 0 or (hp_a != 0 or hp_b != 0)
     key_microstate_ok = has_alive or has_hp or has_loadout
 
-    if not key_microstate_ok:
-        mid = (frozen_a + frozen_b) / 2.0
-        term_coef_early = {
-            "alive": active["alive"],
-            "hp": active["hp"],
-            "loadout": active["loadout"],
-            "bomb": active["bomb"],
-            "cash": active["cash"],
-        }
-        return {
-            "q_intra": 0.5,
-            "raw_score": 0.0,
-            "raw_score_pre_urgency": 0.0,
-            "raw_score_post_urgency": 0.0,
-            "urgency": 0.5,
-            "time_progress": 0.5,
-            "p_mid": mid,
-            "p_mid_clamped": mid,
-            "alive_delta": 0.0,
-            "hp_delta": 0.0,
-            "hp_a": hp_a,
-            "hp_b": hp_b,
-            "hp_frac_a": hp_frac_a,
-            "hp_asym": None if (hp_a == 0 and hp_b == 0) else hp_asym,
-            "term_alive": 0.0,
-            "term_hp": 0.0,
-            "term_loadout": 0.0,
-            "term_bomb": 0.0,
-            "term_cash": 0.0,
-            "loadout_delta": 0.0,
-            "armor_delta": None,
-            "score_alive": 0.0,
-            "score_hp": 0.0,
-            "score_loadout": 0.0,
-            "score_armor": 0.0,
-            "score_bomb": 0.0,
-            "used_time": False,
-            "used_loadout": False,
-            "used_bomb_direction": False,
-            "used_armor": False,
-            "reason": "missing_microstate",
-            "temp": MIXTURE_TEMP,
-            "term_raw": {"alive": 0.0, "hp": 0.0, "loadout": 0.0, "bomb": 0.0, "cash": 0.0},
-            "term_coef": term_coef_early,
-            "weight_profile": profile,
-        }
+    # Timer contract semantics (direction + post-plant hard boundary) are q-path only.
+    max_round_s = MAX_ROUND_TIME_S
+    if config is not None and hasattr(config, "max_round_time_s") and getattr(config, "max_round_time_s") is not None:
+        try:
+            max_round_s = float(getattr(config, "max_round_time_s"))
+        except (TypeError, ValueError):
+            pass
+    timer_contract = _compute_timer_contract(
+        features=features,
+        frame=frame,
+        config=config,
+        max_round_s=max_round_s,
+    )
+    timer_direction_term = float(timer_contract.get("timer_direction_term", 0.0) or 0.0)
 
     # Score components (oracle formula; weights from active profile)
     w_alive = active["alive"]
     w_hp = active["hp"]
     w_loadout = active["loadout"]
     w_bomb = active["bomb"]
-    score_alive = (alive_delta / 5.0) * w_alive if has_alive else 0.0
-    term_hp = w_hp * (hp_frac_a - 0.5)
+    score_alive = (alive_delta / 5.0) * w_alive if key_microstate_ok and has_alive else 0.0
+    term_hp = w_hp * (hp_frac_a - 0.5) if key_microstate_ok else 0.0
     load_sum = load_a + load_b
-    if load_sum > 0:
+    if key_microstate_ok and load_sum > 0:
         score_loadout = (load_delta / load_sum) * 1000.0 * w_loadout if has_loadout else 0.0
     else:
-        score_loadout = (load_delta / 1000.0) * w_loadout if has_loadout else 0.0
+        score_loadout = (load_delta / 1000.0) * w_loadout if (key_microstate_ok and has_loadout) else 0.0
     score_armor = 0.0
-    if armor_delta is not None:
+    if key_microstate_ok and armor_delta is not None:
         score_armor = (armor_delta / 100.0) * ARMOR_WEIGHT
-    if bomb:
+    if key_microstate_ok and bomb:
         if a_side == "T":
             score_bomb = w_bomb
         elif a_side == "CT":
@@ -351,22 +535,25 @@ def apply_cs2_midround_adjustment_v2_mixture(
     term_loadout = score_loadout
     term_bomb = score_bomb
     term_cash = 0.0  # no cash term in current formula
-    raw_score_pre_urgency = score_alive + term_hp + score_loadout + score_armor + score_bomb
+    raw_score_pre_urgency = score_alive + term_hp + score_loadout + score_armor + score_bomb + timer_direction_term
     urgency = URGENCY_FLOOR + URGENCY_SCALE * time_progress
     raw_score_post_urgency = raw_score_pre_urgency * urgency
     raw_score = raw_score_post_urgency
     q_intra = _sigmoid(raw_score, MIXTURE_TEMP)
+    hard_boundary_override = timer_contract.get("hard_boundary_q_a_override")
+    if hard_boundary_override is not None:
+        q_intra = float(hard_boundary_override)
 
     # Pre-weight raw signals and coefficients for score_diag (learn true weights)
-    alive_raw = (alive_delta / 5.0) if has_alive else 0.0
-    hp_raw = (hp_frac_a - 0.5) if hp_frac_a is not None else 0.0
-    if load_sum > 0:
+    alive_raw = (alive_delta / 5.0) if (key_microstate_ok and has_alive) else 0.0
+    hp_raw = (hp_frac_a - 0.5) if (key_microstate_ok and hp_frac_a is not None) else 0.0
+    if key_microstate_ok and load_sum > 0:
         loadout_raw = (load_delta / load_sum) * 1000.0 if has_loadout else 0.0
     else:
-        loadout_raw = (load_delta / 1000.0) if has_loadout else 0.0
-    if bomb and a_side == "T":
+        loadout_raw = (load_delta / 1000.0) if (key_microstate_ok and has_loadout) else 0.0
+    if key_microstate_ok and bomb and a_side == "T":
         bomb_raw = 1.0
-    elif bomb and a_side == "CT":
+    elif key_microstate_ok and bomb and a_side == "CT":
         bomb_raw = -1.0
     else:
         bomb_raw = 0.0
@@ -417,6 +604,7 @@ def apply_cs2_midround_adjustment_v2_mixture(
     out["term_loadout"] = term_loadout
     out["term_bomb"] = term_bomb
     out["term_cash"] = term_cash
+    out["timer_direction_term"] = timer_direction_term
     out["loadout_delta"] = load_delta
     out["armor_delta"] = armor_delta
     out["score_alive"] = score_alive
@@ -424,7 +612,7 @@ def apply_cs2_midround_adjustment_v2_mixture(
     out["score_loadout"] = score_loadout
     out["score_armor"] = score_armor
     out["score_bomb"] = score_bomb
-    out["used_time"] = features.get("time_remaining_s") is not None
+    out["used_time"] = bool(timer_contract.get("timer_valid"))
     out["used_loadout"] = has_loadout
     out["used_bomb_direction"] = bool(bomb and a_side in ("T", "CT"))
     out["used_armor"] = armor_delta is not None
@@ -432,4 +620,19 @@ def apply_cs2_midround_adjustment_v2_mixture(
     out["term_raw"] = term_raw
     out["term_coef"] = term_coef
     out["weight_profile"] = profile
+    out["timer_contract_version"] = timer_contract.get("timer_contract_version")
+    out["timer_state"] = timer_contract.get("timer_state")
+    out["timer_source_class"] = timer_contract.get("timer_source_class")
+    out["timer_remaining_s"] = timer_contract.get("timer_remaining_s")
+    out["timer_valid"] = timer_contract.get("timer_valid")
+    out["a_side_used"] = timer_contract.get("a_side_used")
+    out["timer_direction_expected"] = timer_contract.get("timer_direction_expected")
+    out["timer_direction_applied"] = timer_contract.get("timer_direction_applied")
+    out["timer_direction_reason_code"] = timer_contract.get("timer_direction_reason_code")
+    out["defuse_time_s"] = timer_contract.get("defuse_time_s")
+    out["defuse_time_source"] = timer_contract.get("defuse_time_source")
+    out["hard_boundary_active"] = timer_contract.get("hard_boundary_active")
+    out["hard_boundary_reason_code"] = timer_contract.get("hard_boundary_reason_code")
+    if not key_microstate_ok:
+        out["reason"] = "missing_microstate"
     return out

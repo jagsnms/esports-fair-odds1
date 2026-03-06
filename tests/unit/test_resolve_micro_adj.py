@@ -17,6 +17,10 @@ def _frame(
     loadout_totals: tuple[float, float] | None = None,
     cash_loadout_totals: tuple[float, float] = (0.0, 0.0),  # legacy; should not affect CS2 compute
     bomb_phase_time_remaining: Any = None,
+    round_time_remaining_s: float | None = None,
+    a_side: str | None = None,
+    players_a: list[Any] | None = None,
+    players_b: list[Any] | None = None,
 ) -> Frame:
     return Frame(
         timestamp=0.0,
@@ -27,6 +31,10 @@ def _frame(
         cash_loadout_totals=cash_loadout_totals,
         loadout_totals=loadout_totals,
         bomb_phase_time_remaining=bomb_phase_time_remaining,
+        round_time_remaining_s=round_time_remaining_s,
+        a_side=a_side,
+        players_a=players_a or [],
+        players_b=players_b or [],
     )
 
 
@@ -220,6 +228,23 @@ REQUIRED_EXPLAIN_KEYS = (
     "final",
 )
 
+REQUIRED_TIMER_DIAG_KEYS = (
+    "timer_contract_version",
+    "timer_state",
+    "timer_source_class",
+    "timer_remaining_s",
+    "timer_valid",
+    "a_side_used",
+    "timer_direction_expected",
+    "timer_direction_applied",
+    "timer_direction_term",
+    "timer_direction_reason_code",
+    "defuse_time_s",
+    "defuse_time_source",
+    "hard_boundary_active",
+    "hard_boundary_reason_code",
+)
+
 
 def test_resolve_debug_contains_explain_with_required_keys() -> None:
     """HistoryPoint is built from resolve debug; debug must contain explain with required keys."""
@@ -245,6 +270,69 @@ def test_resolve_debug_contains_explain_with_required_keys() -> None:
     assert "corridor_width" in explain["rails"]
     assert "p_hat_final" in explain["final"]
     assert "clamp_reason" in explain["final"]
+
+
+def test_resolve_contract_diagnostics_emits_required_timer_keys() -> None:
+    frame = _frame(
+        alive_counts=(4, 3),
+        hp_totals=(320.0, 280.0),
+        loadout_totals=(8500.0, 8000.0),
+        bomb_phase_time_remaining={"round_phase": "IN_PROGRESS", "is_bomb_planted": False},
+        round_time_remaining_s=42.0,
+        a_side="CT",
+    )
+    config = _config(prematch_map=0.55)
+    config.source = "BO3"
+    state = _state()
+    _, dbg = resolve_p_hat(frame, config, state, (0.2, 0.8))
+    diag = dbg["contract_diagnostics"]
+    for key in REQUIRED_TIMER_DIAG_KEYS:
+        assert key in diag, f"contract_diagnostics missing timer key {key!r}"
+    assert diag["timer_contract_version"] == "timer_contract.v1"
+
+
+def test_resolve_boundary_ct_sets_q_contract_to_zero() -> None:
+    frame = _frame(
+        alive_counts=(3, 3),
+        hp_totals=(260.0, 260.0),
+        loadout_totals=(7000.0, 7000.0),
+        bomb_phase_time_remaining={"round_phase": "IN_PROGRESS", "is_bomb_planted": True},
+        round_time_remaining_s=4.0,
+        a_side="CT",
+        players_a=[{"alive": True, "has_kit": True}],
+        players_b=[{"alive": True, "has_kit": None}],
+    )
+    config = _config(prematch_map=0.5)
+    config.source = "BO3"
+    setattr(config, "contract_testing_mode", True)
+    state = _state()
+    _, dbg = resolve_p_hat(frame, config, state, (0.2, 0.8))
+    diag = dbg["contract_diagnostics"]
+    assert diag["hard_boundary_active"] is True
+    assert diag["hard_boundary_reason_code"] == "HARD_BOUNDARY_ACTIVE_CT_IMPOSSIBLE"
+    assert diag["q_intra_total"] == 0.0
+
+
+def test_resolve_boundary_t_sets_q_contract_to_one() -> None:
+    frame = _frame(
+        alive_counts=(3, 3),
+        hp_totals=(260.0, 260.0),
+        loadout_totals=(7000.0, 7000.0),
+        bomb_phase_time_remaining={"round_phase": "IN_PROGRESS", "is_bomb_planted": True},
+        round_time_remaining_s=4.0,
+        a_side="T",
+        players_a=[{"alive": True, "has_kit": None}],
+        players_b=[{"alive": True, "has_kit": True}],
+    )
+    config = _config(prematch_map=0.5)
+    config.source = "BO3"
+    setattr(config, "contract_testing_mode", True)
+    state = _state()
+    _, dbg = resolve_p_hat(frame, config, state, (0.2, 0.8))
+    diag = dbg["contract_diagnostics"]
+    assert diag["hard_boundary_active"] is True
+    assert diag["hard_boundary_reason_code"] == "HARD_BOUNDARY_ACTIVE_CT_IMPOSSIBLE"
+    assert diag["q_intra_total"] == 1.0
 
 
 def test_contract_target_matches_bible_formula() -> None:

@@ -8,6 +8,17 @@ import unittest
 from types import SimpleNamespace
 
 from engine.compute.midround_v2_cs2 import (
+    HARD_BOUNDARY_ACTIVE_CT_IMPOSSIBLE,
+    HARD_BOUNDARY_NOT_ACTIVE_ABOVE_THRESHOLD,
+    HARD_BOUNDARY_SKIPPED_TIMER_INVALID,
+    HARD_BOUNDARY_SKIPPED_TIMER_MISSING,
+    HARD_BOUNDARY_SKIPPED_UNSUPPORTED_SOURCE,
+    POSTPLANT_T_FAVOR_APPLIED,
+    PREPLANT_CT_FAVOR_APPLIED,
+    TIMER_CONTRACT_VERSION,
+    TIMER_DIRECTION_SKIPPED_TIMER_INVALID,
+    TIMER_DIRECTION_SKIPPED_TIMER_MISSING,
+    TIMER_DIRECTION_SKIPPED_UNSUPPORTED_SOURCE,
     HP_FRAC_WEIGHT,
     WEIGHTS_LEARNED_FIT,
     apply_cs2_midround_adjustment_v2_mixture,
@@ -62,6 +73,43 @@ def _features(
     if armor_delta is not None:
         d["armor_diff_alive"] = armor_delta
     return d
+
+
+def _timer_frame(
+    *,
+    a_side: str,
+    is_bomb_planted: bool,
+    round_time_remaining_s: float | None,
+    ct_kit_state: str = "unknown",
+) -> Frame:
+    """
+    Build a Frame for timer-direction and hard-boundary scenarios.
+    ct_kit_state: "has_kit" | "no_kit" | "unknown"
+    """
+    if a_side == "CT":
+        players_a = [{"alive": True, "has_kit": True if ct_kit_state == "has_kit" else (False if ct_kit_state == "no_kit" else None)}]
+        players_b = [{"alive": True, "has_kit": None}]
+    else:
+        players_a = [{"alive": True, "has_kit": None}]
+        players_b = [{"alive": True, "has_kit": True if ct_kit_state == "has_kit" else (False if ct_kit_state == "no_kit" else None)}]
+    return Frame(
+        timestamp=0.0,
+        teams=("A", "B"),
+        scores=(7, 7),
+        alive_counts=(3, 3),
+        hp_totals=(300.0, 300.0),
+        loadout_totals=(8000.0, 8000.0),
+        armor_totals=(100.0, 100.0),
+        a_side=a_side,
+        round_time_remaining_s=round_time_remaining_s,
+        bomb_phase_time_remaining={
+            "is_bomb_planted": is_bomb_planted,
+            "round_phase": "IN_PROGRESS",
+            "round_time_remaining": round_time_remaining_s,
+        },
+        players_a=players_a,
+        players_b=players_b,
+    )
 
 
 def test_clamps_between_endpoints() -> None:
@@ -346,6 +394,112 @@ def test_weight_profile_learned_v1_and_current() -> None:
             os.environ["MIDROUND_V2_WEIGHT_PROFILE"] = saved
         else:
             os.environ.pop("MIDROUND_V2_WEIGHT_PROFILE", None)
+
+
+def _run_timer_case(frame: Frame, *, source: str = "BO3") -> dict:
+    config = SimpleNamespace(midround_v2_weight_profile="current", source=source)
+    features = compute_cs2_midround_features(frame, config=config)
+    return apply_cs2_midround_adjustment_v2_mixture(
+        frozen_a=0.7,
+        frozen_b=0.3,
+        features=features,
+        config=config,
+        frame=frame,
+    )
+
+
+def test_s1_pre_a_ct_directionality() -> None:
+    high_t = _run_timer_case(_timer_frame(a_side="CT", is_bomb_planted=False, round_time_remaining_s=90.0))
+    low_t = _run_timer_case(_timer_frame(a_side="CT", is_bomb_planted=False, round_time_remaining_s=20.0))
+    assert low_t["q_intra"] >= high_t["q_intra"]
+    assert low_t["timer_contract_version"] == TIMER_CONTRACT_VERSION
+    assert low_t["timer_direction_reason_code"] == PREPLANT_CT_FAVOR_APPLIED
+
+
+def test_s2_pre_a_t_directionality() -> None:
+    high_t = _run_timer_case(_timer_frame(a_side="T", is_bomb_planted=False, round_time_remaining_s=90.0))
+    low_t = _run_timer_case(_timer_frame(a_side="T", is_bomb_planted=False, round_time_remaining_s=20.0))
+    assert low_t["q_intra"] <= high_t["q_intra"]
+    assert low_t["timer_direction_reason_code"] == PREPLANT_CT_FAVOR_APPLIED
+
+
+def test_s3_post_a_t_nonboundary_directionality() -> None:
+    high_t = _run_timer_case(_timer_frame(a_side="T", is_bomb_planted=True, round_time_remaining_s=30.0, ct_kit_state="has_kit"))
+    low_t = _run_timer_case(_timer_frame(a_side="T", is_bomb_planted=True, round_time_remaining_s=10.0, ct_kit_state="has_kit"))
+    assert low_t["q_intra"] >= high_t["q_intra"]
+    assert low_t["timer_direction_reason_code"] == POSTPLANT_T_FAVOR_APPLIED
+    assert low_t["hard_boundary_reason_code"] == HARD_BOUNDARY_NOT_ACTIVE_ABOVE_THRESHOLD
+
+
+def test_s4_post_a_ct_nonboundary_directionality() -> None:
+    high_t = _run_timer_case(_timer_frame(a_side="CT", is_bomb_planted=True, round_time_remaining_s=30.0, ct_kit_state="has_kit"))
+    low_t = _run_timer_case(_timer_frame(a_side="CT", is_bomb_planted=True, round_time_remaining_s=10.0, ct_kit_state="has_kit"))
+    assert low_t["q_intra"] <= high_t["q_intra"]
+    assert low_t["timer_direction_reason_code"] == POSTPLANT_T_FAVOR_APPLIED
+    assert low_t["hard_boundary_reason_code"] == HARD_BOUNDARY_NOT_ACTIVE_ABOVE_THRESHOLD
+
+
+def test_s5_boundary_a_ct_sets_strict_zero() -> None:
+    r = _run_timer_case(_timer_frame(a_side="CT", is_bomb_planted=True, round_time_remaining_s=4.0, ct_kit_state="has_kit"))
+    assert r["hard_boundary_active"] is True
+    assert r["hard_boundary_reason_code"] == HARD_BOUNDARY_ACTIVE_CT_IMPOSSIBLE
+    assert r["q_intra"] == 0.0
+
+
+def test_s6_boundary_a_t_sets_strict_one() -> None:
+    r = _run_timer_case(_timer_frame(a_side="T", is_bomb_planted=True, round_time_remaining_s=4.0, ct_kit_state="has_kit"))
+    assert r["hard_boundary_active"] is True
+    assert r["hard_boundary_reason_code"] == HARD_BOUNDARY_ACTIVE_CT_IMPOSSIBLE
+    assert r["q_intra"] == 1.0
+
+
+def test_s7_post_above_threshold_not_active() -> None:
+    r = _run_timer_case(_timer_frame(a_side="CT", is_bomb_planted=True, round_time_remaining_s=7.0, ct_kit_state="has_kit"))
+    assert r["hard_boundary_active"] is False
+    assert r["hard_boundary_reason_code"] == HARD_BOUNDARY_NOT_ACTIVE_ABOVE_THRESHOLD
+
+
+def test_s8_timer_missing_reason_codes() -> None:
+    r = _run_timer_case(_timer_frame(a_side="CT", is_bomb_planted=True, round_time_remaining_s=None, ct_kit_state="has_kit"))
+    assert r["timer_valid"] is False
+    assert r["timer_direction_reason_code"] == TIMER_DIRECTION_SKIPPED_TIMER_MISSING
+    assert r["hard_boundary_reason_code"] == HARD_BOUNDARY_SKIPPED_TIMER_MISSING
+
+
+def test_s9_timer_invalid_reason_codes() -> None:
+    r = _run_timer_case(_timer_frame(a_side="CT", is_bomb_planted=True, round_time_remaining_s=-1.0, ct_kit_state="has_kit"))
+    assert r["timer_valid"] is False
+    assert r["timer_direction_reason_code"] == TIMER_DIRECTION_SKIPPED_TIMER_INVALID
+    assert r["hard_boundary_reason_code"] == HARD_BOUNDARY_SKIPPED_TIMER_INVALID
+
+
+def test_s10_grid_postplant_unsupported() -> None:
+    r = _run_timer_case(
+        _timer_frame(a_side="T", is_bomb_planted=True, round_time_remaining_s=20.0, ct_kit_state="unknown"),
+        source="GRID",
+    )
+    assert r["timer_direction_reason_code"] == TIMER_DIRECTION_SKIPPED_UNSUPPORTED_SOURCE
+    assert r["hard_boundary_reason_code"] == HARD_BOUNDARY_SKIPPED_UNSUPPORTED_SOURCE
+
+
+def test_forbidden_wrong_direction_response_fails() -> None:
+    high_t = _run_timer_case(_timer_frame(a_side="CT", is_bomb_planted=False, round_time_remaining_s=90.0))
+    low_t = _run_timer_case(_timer_frame(a_side="CT", is_bomb_planted=False, round_time_remaining_s=20.0))
+    assert not (low_t["q_intra"] < high_t["q_intra"])
+
+
+def test_forbidden_boundary_leakage_fails() -> None:
+    r = _run_timer_case(_timer_frame(a_side="CT", is_bomb_planted=True, round_time_remaining_s=4.0, ct_kit_state="has_kit"))
+    assert r["hard_boundary_active"] is True
+    assert not (r["q_intra"] > 0.0)
+
+
+def test_forbidden_silent_fallback_without_reason_code_fails() -> None:
+    r = _run_timer_case(_timer_frame(a_side="CT", is_bomb_planted=True, round_time_remaining_s=None))
+    assert isinstance(r.get("timer_direction_reason_code"), str) and r["timer_direction_reason_code"]
+    assert isinstance(r.get("hard_boundary_reason_code"), str) and r["hard_boundary_reason_code"]
+    assert r["timer_direction_reason_code"] == TIMER_DIRECTION_SKIPPED_TIMER_MISSING
+    assert r["hard_boundary_reason_code"] == HARD_BOUNDARY_SKIPPED_TIMER_MISSING
 
 
 if __name__ == "__main__":

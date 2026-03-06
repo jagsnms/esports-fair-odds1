@@ -116,6 +116,7 @@ def compute_phat_contract_diagnostics(
     round_phase: str | None,
     round_number: int | None,
     testing_mode: bool,
+    timer_contract: dict[str, Any] | None = None,
     eps: float = 1e-9,
 ) -> dict[str, Any]:
     """
@@ -157,6 +158,24 @@ def compute_phat_contract_diagnostics(
         if testing_mode and (phase or "").strip().upper() == "IN_PROGRESS" and movement_gap > 0.02:
             behavioral_violations.append("movement_contract_gap")
 
+    timer_contract = timer_contract or {}
+    timer_contract_version = timer_contract.get("timer_contract_version") or "timer_contract.v1"
+    timer_state = timer_contract.get("timer_state") or "UNKNOWN"
+    timer_source_class = timer_contract.get("timer_source_class") or "unknown"
+    timer_remaining_s = timer_contract.get("timer_remaining_s")
+    timer_valid = bool(timer_contract.get("timer_valid", False))
+    a_side_used = timer_contract.get("a_side_used") or "UNKNOWN"
+    timer_direction_expected = timer_contract.get("timer_direction_expected") or "NONE"
+    timer_direction_applied = bool(timer_contract.get("timer_direction_applied", False))
+    timer_direction_term = float(timer_contract.get("timer_direction_term") or 0.0)
+    timer_direction_reason_code = (
+        timer_contract.get("timer_direction_reason_code") or "TIMER_DIRECTION_SKIPPED_PLANT_STATE_UNKNOWN"
+    )
+    defuse_time_s = timer_contract.get("defuse_time_s")
+    defuse_time_source = timer_contract.get("defuse_time_source") or "UNAVAILABLE"
+    hard_boundary_active = bool(timer_contract.get("hard_boundary_active", False))
+    hard_boundary_reason_code = timer_contract.get("hard_boundary_reason_code") or "HARD_BOUNDARY_SKIPPED_NOT_POSTPLANT"
+
     return {
         "contract_testing_mode": bool(testing_mode),
         "phase": phase,
@@ -180,4 +199,18 @@ def compute_phat_contract_diagnostics(
         "behavioral_violations": behavioral_violations,
         "structural_ok": len(structural_violations) == 0,
         "behavioral_ok": len(behavioral_violations) == 0,
+        "timer_contract_version": timer_contract_version,
+        "timer_state": timer_state,
+        "timer_source_class": timer_source_class,
+        "timer_remaining_s": timer_remaining_s,
+        "timer_valid": timer_valid,
+        "a_side_used": a_side_used,
+        "timer_direction_expected": timer_direction_expected,
+        "timer_direction_applied": timer_direction_applied,
+        "timer_direction_term": timer_direction_term,
+        "timer_direction_reason_code": timer_direction_reason_code,
+        "defuse_time_s": defuse_time_s,
+        "defuse_time_source": defuse_time_source,
+        "hard_boundary_active": hard_boundary_active,
+        "hard_boundary_reason_code": hard_boundary_reason_code,
     }

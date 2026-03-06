@@ -166,6 +166,22 @@ def _contract_diag(
         round_phase=round_phase,
         round_number=round_number,
         testing_mode=testing_mode,
+        timer_contract={
+            "timer_contract_version": midround_v2_result.get("timer_contract_version"),
+            "timer_state": midround_v2_result.get("timer_state"),
+            "timer_source_class": midround_v2_result.get("timer_source_class"),
+            "timer_remaining_s": midround_v2_result.get("timer_remaining_s"),
+            "timer_valid": midround_v2_result.get("timer_valid"),
+            "a_side_used": midround_v2_result.get("a_side_used"),
+            "timer_direction_expected": midround_v2_result.get("timer_direction_expected"),
+            "timer_direction_applied": midround_v2_result.get("timer_direction_applied"),
+            "timer_direction_term": midround_v2_result.get("timer_direction_term"),
+            "timer_direction_reason_code": midround_v2_result.get("timer_direction_reason_code"),
+            "defuse_time_s": midround_v2_result.get("defuse_time_s"),
+            "defuse_time_source": midround_v2_result.get("defuse_time_source"),
+            "hard_boundary_active": midround_v2_result.get("hard_boundary_active"),
+            "hard_boundary_reason_code": midround_v2_result.get("hard_boundary_reason_code"),
+        },
     )
 
 
@@ -271,6 +287,7 @@ def resolve_p_hat(
             frozen_b=rail_low,
             features=features,
             config=config,
+            frame=frame,
         )
         midround_v2_result = result
         # Stage 2: movement toward target (Bible Ch 6 Step 8), then clamp to rails.
