@@ -112,9 +112,44 @@ def _contract_diag(
         round_time_remaining_s = None
     bomb_phase = getattr(frame, "bomb_phase_time_remaining", None)
     is_bomb_planted = None
+    round_phase = None
+    round_number = None
     if isinstance(bomb_phase, dict) and "is_bomb_planted" in bomb_phase:
         bp = bomb_phase.get("is_bomb_planted")
         is_bomb_planted = bool(bp) if bp is not None else None
+    if isinstance(bomb_phase, dict):
+        if isinstance(bomb_phase.get("round_phase"), str):
+            round_phase = bomb_phase.get("round_phase")
+        rn = bomb_phase.get("round_number")
+        if isinstance(rn, int):
+            round_number = rn
+    alive_counts = getattr(frame, "alive_counts", None)
+    if (
+        not isinstance(alive_counts, (tuple, list))
+        or len(alive_counts) != 2
+        or not all(isinstance(v, int) for v in alive_counts)
+    ):
+        alive_counts = None
+    else:
+        alive_counts = (int(alive_counts[0]), int(alive_counts[1]))
+    hp_totals = getattr(frame, "hp_totals", None)
+    if (
+        not isinstance(hp_totals, (tuple, list))
+        or len(hp_totals) != 2
+        or not all(isinstance(v, (int, float)) for v in hp_totals)
+    ):
+        hp_totals = None
+    else:
+        hp_totals = (float(hp_totals[0]), float(hp_totals[1]))
+    loadout_totals = getattr(frame, "loadout_totals", None)
+    if (
+        not isinstance(loadout_totals, (tuple, list))
+        or len(loadout_totals) != 2
+        or not all(isinstance(v, (int, float)) for v in loadout_totals)
+    ):
+        loadout_totals = None
+    else:
+        loadout_totals = (float(loadout_totals[0]), float(loadout_totals[1]))
     return compute_phat_contract_diagnostics(
         q_intra_total=q_intra_total,
         rail_low=rail_low,
@@ -125,6 +160,11 @@ def _contract_diag(
         phase=phase,
         round_time_remaining_s=float(round_time_remaining_s) if round_time_remaining_s is not None else None,
         is_bomb_planted=is_bomb_planted,
+        alive_counts=alive_counts,
+        hp_totals=hp_totals,
+        loadout_totals=loadout_totals,
+        round_phase=round_phase,
+        round_number=round_number,
         testing_mode=testing_mode,
     )
 

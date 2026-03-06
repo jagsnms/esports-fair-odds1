@@ -16,6 +16,11 @@ def test_contract_diagnostics_structural_q_out_of_bounds() -> None:
         phase="IN_PROGRESS",
         round_time_remaining_s=88.0,
         is_bomb_planted=False,
+        alive_counts=(5, 4),
+        hp_totals=(400.0, 320.0),
+        loadout_totals=(12000.0, 9000.0),
+        round_phase="IN_PROGRESS",
+        round_number=12,
         testing_mode=True,
     )
     assert "q_out_of_bounds" in diag["structural_violations"]
@@ -33,6 +38,11 @@ def test_contract_diagnostics_structural_rail_order_invalid() -> None:
         phase="IN_PROGRESS",
         round_time_remaining_s=42.0,
         is_bomb_planted=True,
+        alive_counts=(2, 5),
+        hp_totals=(180.0, 420.0),
+        loadout_totals=(5000.0, 11000.0),
+        round_phase="IN_PROGRESS",
+        round_number=21,
         testing_mode=True,
     )
     assert "rail_order_invalid" in diag["structural_violations"]
@@ -49,6 +59,11 @@ def test_contract_diagnostics_behavioral_gap_testing_only() -> None:
         phase="IN_PROGRESS",
         round_time_remaining_s=15.0,
         is_bomb_planted=True,
+        alive_counts=(3, 1),
+        hp_totals=(250.0, 100.0),
+        loadout_totals=(8000.0, 3000.0),
+        round_phase="IN_PROGRESS",
+        round_number=28,
     )
     diag_testing = compute_phat_contract_diagnostics(testing_mode=True, **common)
     diag_production = compute_phat_contract_diagnostics(testing_mode=False, **common)
@@ -67,6 +82,11 @@ def test_contract_diagnostics_emits_core_state_fields() -> None:
         phase="IN_PROGRESS",
         round_time_remaining_s=30.0,
         is_bomb_planted=False,
+        alive_counts=(4, 3),
+        hp_totals=(300.0, 220.0),
+        loadout_totals=(9000.0, 7000.0),
+        round_phase="IN_PROGRESS",
+        round_number=10,
         testing_mode=True,
     )
     assert diag["rail_low"] == 0.3
@@ -75,3 +95,8 @@ def test_contract_diagnostics_emits_core_state_fields() -> None:
     assert diag["p_hat_final"] == 0.5
     assert diag["round_time_remaining_s"] == 30.0
     assert diag["is_bomb_planted"] is False
+    assert diag["alive_counts"] == (4, 3)
+    assert diag["hp_totals"] == (300.0, 220.0)
+    assert diag["loadout_totals"] == (9000.0, 7000.0)
+    assert diag["round_phase"] == "IN_PROGRESS"
+    assert diag["round_number"] == 10

@@ -33,3 +33,8 @@ def test_invariant_diagnostics_wired_to_contract_diagnostics() -> None:
     assert contract_diag.get("p_hat_prev") is not None
     assert contract_diag.get("p_hat_final") == p_hat
     assert contract_diag.get("round_time_remaining_s") is None
+    assert contract_diag.get("alive_counts") == (5, 4)
+    assert contract_diag.get("hp_totals") == (400.0, 300.0)
+    assert contract_diag.get("loadout_totals") == (8000.0, 6000.0)
+    assert contract_diag.get("round_phase") == "IN_PROGRESS"
+    assert contract_diag.get("round_number") is None

@@ -28,6 +28,11 @@ from engine.replay.bo3_jsonl import load_bo3_jsonl_entries, iter_payloads, load_
 
 SCHEMA_VERSION = "replay_validation_summary.v1"
 CONTRACT_DIAGNOSTIC_REQUIRED_KEYS = [
+    "alive_counts",
+    "hp_totals",
+    "loadout_totals",
+    "round_phase",
+    "round_number",
     "q_intra_total",
     "rail_low",
     "rail_high",
