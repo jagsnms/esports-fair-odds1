@@ -1,0 +1,104 @@
+STAGE 0 DECISION MEMO
+- Activation contract by source/mode:
+  - BO3 normalized snapshots (`bo3_snapshot_to_frame` output):
+    - carryover-complete:
+      - `frame.cash_totals`, `frame.loadout_totals`, `frame.armor_totals` are present as length-2 numeric tuples/lists (finite values) sourced from the same snapshot (direct player/team values or deterministic same-snapshot aggregation only).
+      - `frame.scores`, `frame.series_score`, `frame.series_fmt` are valid.
+      - `config.prematch_map` is present and valid.
+    - carryover-incomplete but valid-for-fallback:
+      - any required carryover field is missing/unknown (`None`/absent), while core snapshot remains processable.
+      - expected outcome: v1 semantics with deterministic missing-field reason.
+    - invalid / unsupported:
+      - required field is present but malformed/out-of-contract (wrong shape/type, non-finite numeric, invalid `prematch_map`, empty/invalid series format).
+      - expected outcome: deterministic invalid reason or source rejection per mode policy.
+  - GRID-reduced inputs (`grid_state_to_frame` output):
+    - carryover-complete:
+      - same required field validity as BO3.
+      - carryover totals are accepted only when they come from explicit GRID values or deterministic per-player aggregation from the same snapshot; implicit default zeros from absent data are not activation-eligible.
+    - carryover-incomplete but valid-for-fallback:
+      - any carryover component unknown/unobserved for current snapshot.
+    - invalid / unsupported:
+      - malformed required fields or unsupported series/score primitives.
+  - Replay raw fixture inputs (canonical raw-contract replay path):
+    - carryover-complete:
+      - fixture lines normalize to a Frame meeting required-field validity contract, and assessment run supplies valid `prematch_map`.
+    - carryover-incomplete but valid-for-fallback:
+      - intentionally sparse raw fixtures lacking required carryover components.
+    - invalid / unsupported:
+      - malformed payload lines, bad required-field types, or non-raw payload class under raw contract path.
+  - Sparse point-like replay class (non-canonical):
+    - under `reject_point_like` policy: rejected before compute, excluded from activation denominator.
+    - under explicit transition passthrough: allowed only as quarantined non-canonical class, still excluded from v2 activation expectations.
+- Required field contract:
+  - Frozen activation-required fields:
+    - `frame.cash_totals`: length-2 numeric tuple/list, finite, per-team current-snapshot carryover cash totals.
+    - `frame.loadout_totals`: length-2 numeric tuple/list, finite, per-team current-snapshot carryover loadout totals.
+    - `frame.armor_totals`: length-2 numeric tuple/list, finite, per-team current-snapshot carryover armor totals.
+    - `frame.scores`: length-2 integer tuple/list.
+    - `frame.series_score`: length-2 integer tuple/list.
+    - `frame.series_fmt`: non-empty canonical BO string (`bo1|bo3|bo5` after normalization).
+    - `config.prematch_map`: finite float in (0,1).
+  - Missingness semantics:
+    - missing (`None`/absent/unknown provenance) => carryover-incomplete, fallback-eligible, not invalid.
+    - present-but-malformed => invalid.
+  - Proxy derivation policy (frozen):
+    - allowed (bounded): deterministic same-snapshot aggregation from explicit raw fields (e.g., player/team money/loadout/armor); existing deterministic weapon-price estimation is allowed only when explicit weapon fields are present in that snapshot.
+    - forbidden: cross-tick carry-forward imputation, opponent mirroring, league-average fill, deriving armor from cash/loadout, deriving cash from loadout, or using absent-field default zeros as activation-eligible evidence.
+  - `player_states` requirement:
+    - `player_states` are not globally mandatory if an equivalent mapped field is explicitly present from source.
+    - equivalent mapped fields are acceptable only when provenance is explicit and non-lossy under the bounded rules above.
+- Fallback-only classes:
+  - Intentionally fallback-v1 classes:
+    - `tools/fixtures/raw_replay_sample.jsonl` (current sparse raw class).
+    - `tools/fixtures/replay_multimatch_small_v1.jsonl` (current sparse multi-match class).
+    - point-like replay class (rejected or quarantined passthrough), excluded from activation denominator.
+  - Must demonstrate non-zero v2 activation:
+    - at least one dedicated carryover-complete raw replay fixture class (new class, bounded size) must show non-zero activation.
+  - Stage sequencing:
+    - Stage 1 requires non-zero activation for replay raw carryover-complete class only.
+    - BO3/GRID live-source activation parity evidence is deferred to the next parity-focused stage, not forced into Stage 1.
+- Synthetic fixture policy:
+  - Acceptable synthetic completion:
+    - synthetic fixtures may be used to provide carryover-complete replay evidence if every required field is explicitly encoded or deterministically derivable from explicit same-line fields.
+    - fixture size must stay bounded (small deterministic corpus; no broad fixture explosion).
+  - Realism constraints:
+    - values must be plausible CS2 ranges and internally coherent per line (team totals align with provided player-level fields when both exist).
+    - no hidden labels/outcomes may be used to backfill carryover inputs.
+  - Explicitly forbidden:
+    - weak or lossy proxy inference that fabricates precision from missing carryover data.
+    - synthetic backfill rules that cannot be traced to explicit per-line source fields.
+- Validation evidence gate:
+  - Minimum before/after pack required before implementation approval:
+    - baseline and candidate runs of replay assessment per fixture class with:
+      - `total_points_captured`
+      - `rail_input_v2_activated_points`
+      - `rail_input_v1_fallback_points`
+      - `rail_input_reason_code_counts`
+      - `structural_violations_total`
+      - `behavioral_violations_total`
+      - `invariant_violations_total`
+    - fixture-class expectation table:
+      - sparse fallback classes: activation = 0, deterministic missing-field fallback reasons.
+      - carryover-complete class: activation > 0, no structural invariant regressions.
+      - point-like class: rejected/quarantined counts reported separately; excluded from activation denominator.
+    - parity checks:
+      - source parity tests for required-field classification determinism (BO3/GRID/REPLAY where applicable to stage scope).
+      - canonical suite remains green.
+- Narrowest safe Stage 1:
+  - Approve only this bounded scope:
+    - add one carryover-complete raw replay fixture class (single bounded class).
+    - add the minimum replay-assessment plumbing needed to run that class with valid `prematch_map` and report class-specific activation/fallback evidence.
+    - add/adjust focused tests for fixture-class-specific expectations (activation class vs fallback-only classes).
+  - Stage 1 must NOT include:
+    - rail formula/weight/PHAT movement changes.
+    - replay policy redesign, conversion pipelines, or runner architecture rewrites.
+    - GRID reducer redesign or broad cross-source refactors.
+    - reopening banked replay+simulation architecture work.
+    - broad fixture proliferation beyond one bounded activation class plus existing sparse classes.
+- Risks:
+  - false-activation risk if implicit zeros are treated as observed carryover values.
+  - fixture realism drift if synthetic examples exceed bounded, traceable construction rules.
+  - scope creep into replay architecture redesign if Stage 1 boundaries are not enforced.
+- Recommendation:
+  - Freeze this Stage 0 contract as the gate for all follow-on work.
+  - Approve only the narrow Stage 1 scope above after baseline evidence is recorded against this memo.
