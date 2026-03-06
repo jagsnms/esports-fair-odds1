@@ -1,4 +1,15 @@
 {
+  "branch": "fast/run-YYYYMMDD-HHMM-short-slug",
+  "base_branch": "agent-base",
+  "lane": "fast",
+  "run_type": "maintenance",
+  "status": "proposed",
+  "_status_allowed_values": [
+    "proposed",
+    "implemented",
+    "promoted",
+    "held"
+  ],
   "selected_issue": {
     "issue": "",
     "title": ""
@@ -27,5 +38,10 @@
   },
   "unresolved_risks": [],
   "stop_reason": "",
-  "recommendation": "hold"
+  "recommendation": "hold",
+  "_recommendation_allowed_values": [
+    "promote",
+    "hold",
+    "discard"
+  ]
 }
