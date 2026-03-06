@@ -57,4 +57,9 @@ Do not continue past clear diminishing returns. Document the stop reason in the 
 
 ## Report requirement
 
-Every run must leave a promotion report (e.g. in `automation/reports/`) using `automation/templates/promotion_report_template.md`. Include: baseline evidence, files changed, validation performed, before/after evidence, unresolved risks, stop reason, and recommendation (promote / hold / discard).
+Every run must leave both report artifacts in `automation/reports/`:
+
+- A human-readable markdown promotion report using `automation/templates/promotion_report_template.md`
+- A machine-readable JSON promotion report using `automation/templates/promotion_report_template.json`
+
+Both artifacts must include: baseline evidence, files changed, validation performed, before/after evidence, unresolved risks, stop reason, and recommendation (promote / hold / discard).

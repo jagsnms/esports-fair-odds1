@@ -1,0 +1,31 @@
+{
+  "selected_issue": {
+    "issue": "",
+    "title": ""
+  },
+  "why_it_outranked_alternatives": "",
+  "baseline_evidence": {
+    "branch": "",
+    "commit": "",
+    "checks": []
+  },
+  "files_changed": [
+    {
+      "path": "",
+      "change": ""
+    }
+  ],
+  "validation_performed": [
+    {
+      "command": "",
+      "result": ""
+    }
+  ],
+  "before_after_evidence": {
+    "before": "",
+    "after": ""
+  },
+  "unresolved_risks": [],
+  "stop_reason": "",
+  "recommendation": "hold"
+}

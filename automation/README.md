@@ -23,4 +23,9 @@ Example: `agent/run-20250305-add-validation`.
 
 ## Promotion report
 
-Each run must produce a promotion report and leave it in the run branch (e.g. under `automation/reports/`). The report provides baseline evidence, files changed, validation performed, before/after results, unresolved risks, and stop reason. Use `automation/templates/promotion_report_template.md` as the starting point.
+Each run must produce promotion report artifacts and leave them in the run branch (e.g. under `automation/reports/`):
+
+- human-readable markdown via `automation/templates/promotion_report_template.md`
+- machine-readable JSON via `automation/templates/promotion_report_template.json`
+
+Reports provide baseline evidence, files changed, validation performed, before/after results, unresolved risks, and stop reason.

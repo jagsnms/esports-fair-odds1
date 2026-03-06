@@ -1,0 +1,71 @@
+{
+  "selected_issue": {
+    "issue": "missing machine-readable promotion report artifact (automation/reports/*.json)",
+    "title": "Add canonical machine-readable promotion report template and policy wiring"
+  },
+  "why_it_outranked_alternatives": "No unresolved rank 1-4 issues were evidenced in this run (structural invariants, failing canonical tests, replay mismatches, or high-frequency diagnostic failures). The highest unresolved issue was rank 5: missing instrumentation, specifically absence of machine-readable promotion reports required by Chapter 11.",
+  "baseline_evidence": {
+    "branch": "agent-base",
+    "commit": "46b9a27",
+    "checks": [
+      {
+        "command": "python3 -m pytest -q",
+        "result": "341 passed in 7.19s"
+      },
+      {
+        "command": "count automation/reports/*.json",
+        "result": "0"
+      }
+    ]
+  },
+  "files_changed": [
+    {
+      "path": "automation/AUTOMATION_RUN_POLICY.md",
+      "change": "Require both markdown and JSON promotion report artifacts."
+    },
+    {
+      "path": "automation/README.md",
+      "change": "Document both markdown and JSON report outputs."
+    },
+    {
+      "path": "automation/templates/promotion_report_template.json",
+      "change": "Add machine-readable promotion report template."
+    },
+    {
+      "path": "automation/reports/report-20260306-machine-readable-promotion-report.md",
+      "change": "Add human-readable report for this run."
+    },
+    {
+      "path": "automation/reports/report-20260306-machine-readable-promotion-report.json",
+      "change": "Add machine-readable report for this run."
+    }
+  ],
+  "validation_performed": [
+    {
+      "command": "python3 -m json.tool automation/templates/promotion_report_template.json",
+      "result": "pass"
+    },
+    {
+      "command": "python3 -m json.tool automation/reports/report-20260306-machine-readable-promotion-report.json",
+      "result": "pass"
+    },
+    {
+      "command": "python3 -m pytest -q",
+      "result": "341 passed"
+    },
+    {
+      "command": "count automation/reports/*.json",
+      "result": "1"
+    }
+  ],
+  "before_after_evidence": {
+    "before": "Reports were markdown-only and automation/reports contained 0 JSON report artifacts.",
+    "after": "A canonical JSON template and a run JSON report artifact now exist, and policy/docs require both markdown and JSON reports."
+  },
+  "unresolved_risks": [
+    "Historical markdown-only reports were not backfilled.",
+    "Downstream automated consumers may still need integration work."
+  ],
+  "stop_reason": "Selected rank-5 instrumentation issue fixed with minimal bounded changes; further work would expand scope.",
+  "recommendation": "promote"
+}
