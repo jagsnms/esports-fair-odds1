@@ -48,6 +48,80 @@ CONTRACT_DIAGNOSTIC_REQUIRED_KEYS = [
     "behavioral_violations",
 ]
 
+CONTRACT_DIAGNOSTIC_EXPECTED_TYPES = {
+    "alive_counts": ["sequence_len2_int", "null"],
+    "hp_totals": ["sequence_len2_number", "null"],
+    "loadout_totals": ["sequence_len2_number", "null"],
+    "round_phase": ["string", "null"],
+    "round_number": ["integer", "null"],
+    "q_intra_total": ["number", "null"],
+    "rail_low": ["number"],
+    "rail_high": ["number"],
+    "p_hat_prev": ["number"],
+    "p_hat_final": ["number"],
+    "round_time_remaining_s": ["number", "null"],
+    "is_bomb_planted": ["boolean", "null"],
+    "movement_confidence": ["number"],
+    "target_p_hat": ["number", "null"],
+    "expected_p_hat_after_movement": ["number", "null"],
+    "movement_gap_abs": ["number", "null"],
+    "structural_violations": ["array"],
+    "behavioral_violations": ["array"],
+}
+
+
+def _is_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _is_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _is_sequence_len2_int(value: Any) -> bool:
+    return (
+        isinstance(value, (list, tuple))
+        and len(value) == 2
+        and all(_is_int(v) for v in value)
+    )
+
+
+def _is_sequence_len2_number(value: Any) -> bool:
+    return (
+        isinstance(value, (list, tuple))
+        and len(value) == 2
+        and all(_is_number(v) for v in value)
+    )
+
+
+def _contract_diag_type_valid(key: str, value: Any) -> bool:
+    if key == "alive_counts":
+        return value is None or _is_sequence_len2_int(value)
+    if key in {"hp_totals", "loadout_totals"}:
+        return value is None or _is_sequence_len2_number(value)
+    if key == "round_phase":
+        return value is None or isinstance(value, str)
+    if key == "round_number":
+        return value is None or _is_int(value)
+    if key in {
+        "q_intra_total",
+        "rail_low",
+        "rail_high",
+        "p_hat_prev",
+        "p_hat_final",
+        "round_time_remaining_s",
+        "movement_confidence",
+        "target_p_hat",
+        "expected_p_hat_after_movement",
+        "movement_gap_abs",
+    }:
+        return value is None or _is_number(value)
+    if key == "is_bomb_planted":
+        return value is None or isinstance(value, bool)
+    if key in {"structural_violations", "behavioral_violations"}:
+        return isinstance(value, list)
+    return True
+
 
 def _fixture_class_from_path(replay_path_str: str) -> str:
     """Derive deterministic fixture class from replay file stem."""
@@ -147,6 +221,12 @@ async def run_assessment(replay_path: str) -> dict[str, Any]:
     contract_diagnostics_key_presence_counts = {
         key: 0 for key in CONTRACT_DIAGNOSTIC_REQUIRED_KEYS
     }
+    contract_diagnostics_key_type_valid_counts = {
+        key: 0 for key in CONTRACT_DIAGNOSTIC_REQUIRED_KEYS
+    }
+    contract_diagnostics_key_type_invalid_counts = {
+        key: 0 for key in CONTRACT_DIAGNOSTIC_REQUIRED_KEYS
+    }
     contract_diagnostics_missing_key_counts = {
         key: 0 for key in CONTRACT_DIAGNOSTIC_REQUIRED_KEYS
     }
@@ -176,6 +256,10 @@ async def run_assessment(replay_path: str) -> dict[str, Any]:
             for key in CONTRACT_DIAGNOSTIC_REQUIRED_KEYS:
                 if key in cd:
                     contract_diagnostics_key_presence_counts[key] += 1
+                    if _contract_diag_type_valid(key, cd.get(key)):
+                        contract_diagnostics_key_type_valid_counts[key] += 1
+                    else:
+                        contract_diagnostics_key_type_invalid_counts[key] += 1
                 else:
                     contract_diagnostics_missing_key_counts[key] += 1
             sv = cd.get("structural_violations") or []
@@ -204,6 +288,14 @@ async def run_assessment(replay_path: str) -> dict[str, Any]:
         key: (
             contract_diagnostics_key_presence_counts[key] / points_with_contract_diagnostics
             if points_with_contract_diagnostics > 0
+            else 0.0
+        )
+        for key in CONTRACT_DIAGNOSTIC_REQUIRED_KEYS
+    }
+    contract_diagnostics_key_type_valid_rates = {
+        key: (
+            contract_diagnostics_key_type_valid_counts[key] / contract_diagnostics_key_presence_counts[key]
+            if contract_diagnostics_key_presence_counts[key] > 0
             else 0.0
         )
         for key in CONTRACT_DIAGNOSTIC_REQUIRED_KEYS
@@ -241,9 +333,13 @@ async def run_assessment(replay_path: str) -> dict[str, Any]:
         "raw_mode_point_like_skipped": int(replay_contract_status.get("raw_mode_point_like_skipped", 0)),
         "points_with_contract_diagnostics": points_with_contract_diagnostics,
         "contract_diagnostics_required_keys": CONTRACT_DIAGNOSTIC_REQUIRED_KEYS,
+        "contract_diagnostics_expected_types": CONTRACT_DIAGNOSTIC_EXPECTED_TYPES,
         "contract_diagnostics_key_presence_counts": contract_diagnostics_key_presence_counts,
         "contract_diagnostics_missing_key_counts": contract_diagnostics_missing_key_counts,
         "contract_diagnostics_key_presence_rates": contract_diagnostics_key_presence_rates,
+        "contract_diagnostics_key_type_valid_counts": contract_diagnostics_key_type_valid_counts,
+        "contract_diagnostics_key_type_invalid_counts": contract_diagnostics_key_type_invalid_counts,
+        "contract_diagnostics_key_type_valid_rates": contract_diagnostics_key_type_valid_rates,
         "structural_violations_total": structural_violations_total,
         "behavioral_violations_total": behavioral_violations_total,
         "invariant_violations_total": invariant_violations_total,

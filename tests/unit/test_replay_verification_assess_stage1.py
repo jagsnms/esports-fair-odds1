@@ -71,6 +71,11 @@ def test_replay_verification_assess_stage1_deterministic_and_schema_conformant()
     assert isinstance(required_keys, list)
     assert len(required_keys) > 0
     for key in required_keys:
+        assert key in first["contract_diagnostics_expected_types"]
+        assert len(first["contract_diagnostics_expected_types"][key]) > 0
         assert first["contract_diagnostics_key_presence_counts"][key] == first["points_with_contract_diagnostics"]
         assert first["contract_diagnostics_missing_key_counts"][key] == 0
         assert first["contract_diagnostics_key_presence_rates"][key] == 1.0
+        assert first["contract_diagnostics_key_type_valid_counts"][key] == first["points_with_contract_diagnostics"]
+        assert first["contract_diagnostics_key_type_invalid_counts"][key] == 0
+        assert first["contract_diagnostics_key_type_valid_rates"][key] == 1.0
