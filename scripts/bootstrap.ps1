@@ -44,12 +44,17 @@ pip install pip-tools
 
 $ReqIn = Join-Path $RepoRoot "requirements.in"
 $ReqTxt = Join-Path $RepoRoot "requirements.txt"
+$ReqDev = Join-Path $RepoRoot "requirements-dev.txt"
 if (-not (Test-Path $ReqIn)) {
     Write-Host "ERROR: requirements.in not found at $ReqIn" -ForegroundColor Red
     exit 1
 }
+if (-not (Test-Path $ReqDev)) {
+    Write-Host "ERROR: requirements-dev.txt not found at $ReqDev" -ForegroundColor Red
+    exit 1
+}
 pip-compile $ReqIn -o $ReqTxt
-pip install -r $ReqTxt
+pip install -r $ReqDev
 
 try {
     python -m playwright install
