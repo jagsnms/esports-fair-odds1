@@ -21,9 +21,12 @@
     "point_like_reject_reason_counts",
     "points_with_contract_diagnostics",
     "contract_diagnostics_required_keys",
+    "contract_diagnostics_required_key_type_contract",
     "contract_diagnostics_key_presence_counts",
     "contract_diagnostics_missing_key_counts",
     "contract_diagnostics_key_presence_rates",
+    "contract_diagnostics_type_mismatch_counts",
+    "contract_diagnostics_type_mismatch_rates",
     "structural_violations_total",
     "behavioral_violations_total",
     "invariant_violations_total"
@@ -109,6 +112,13 @@
         "minLength": 1
       }
     },
+    "contract_diagnostics_required_key_type_contract": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
     "contract_diagnostics_key_presence_counts": {
       "type": "object",
       "additionalProperties": {
@@ -124,6 +134,21 @@
       }
     },
     "contract_diagnostics_key_presence_rates": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      }
+    },
+    "contract_diagnostics_type_mismatch_counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "contract_diagnostics_type_mismatch_rates": {
       "type": "object",
       "additionalProperties": {
         "type": "number",

@@ -1,0 +1,86 @@
+{
+  "branch": "fast/run-20260306-1515-contract-diag-type-coverage",
+  "base_branch": "agent-base",
+  "lane": "fast",
+  "run_type": "maintenance",
+  "status": "implemented",
+  "_status_allowed_values": [
+    "proposed",
+    "implemented",
+    "promoted",
+    "held"
+  ],
+  "selected_issue": {
+    "issue": "Missing per-key contract diagnostics type/shape coverage metrics in replay assessment",
+    "title": "tools/replay_verification_assess.py only measured key presence, not value type/shape conformance for required diagnostics fields"
+  },
+  "why_it_outranked_alternatives": "Rank 1-4 evidence was clear on agent-base (no structural violations, canonical tests passing, no replay mismatch signal, no high-frequency diagnostic invariant failures). The highest unresolved bounded issue was rank 5 instrumentation: replay summary lacked per-key type/shape conformance metrics for required contract diagnostics fields.",
+  "baseline_evidence": {
+    "branch": "agent-base",
+    "commit": "6458ba6bdc5c9df6ed975cc29bdb2befca1dabd4",
+    "checks": [
+      "python3 -m pytest -q -> 375 passed in 7.79s",
+      "python3 tools/replay_verification_assess.py -> structural_violations_total=0, behavioral_violations_total=0, invariant_violations_total=0",
+      "type-coverage probe -> {'contract_diagnostics_required_key_type_contract': False, 'contract_diagnostics_type_mismatch_counts': False, 'contract_diagnostics_type_mismatch_rates': False}"
+    ]
+  },
+  "files_changed": [
+    {
+      "path": "tools/replay_verification_assess.py",
+      "change": "Added required key type contract and emitted type mismatch counts/rates."
+    },
+    {
+      "path": "tools/schemas/replay_validation_summary.schema.json",
+      "change": "Added required schema properties for contract diagnostics type coverage metrics."
+    },
+    {
+      "path": "tests/unit/test_replay_verification_assess_stage1.py",
+      "change": "Added assertions for type contract presence and zero mismatch metrics."
+    },
+    {
+      "path": "automation/reports/fast-run-20260306-1515-contract-diag-type-coverage.md",
+      "change": "Added human-readable report."
+    },
+    {
+      "path": "automation/reports/fast-run-20260306-1515-contract-diag-type-coverage.json",
+      "change": "Added machine-readable report."
+    }
+  ],
+  "validation_performed": [
+    {
+      "command": "python3 -m pytest -q tests/unit/test_replay_verification_assess_stage1.py",
+      "result": "1 passed"
+    },
+    {
+      "command": "python3 tools/replay_verification_assess.py tools/fixtures/replay_multimatch_small_v1.jsonl",
+      "result": "All required contract diagnostics keys present and type mismatch counts/rates are zero for canonical multimatch fixture."
+    },
+    {
+      "command": "python3 tools/replay_verification_assess.py",
+      "result": "Default raw fixture summary includes new type coverage fields with zero mismatches."
+    },
+    {
+      "command": "python3 -m pytest -q",
+      "result": "375 passed in 7.21s"
+    },
+    {
+      "command": "post-change type-coverage probe",
+      "result": "{'contract_diagnostics_required_key_type_contract': True, 'contract_diagnostics_type_mismatch_counts': True, 'contract_diagnostics_type_mismatch_rates': True}"
+    }
+  ],
+  "before_after_evidence": {
+    "before": "Replay summary had diagnostics key presence/missing metrics only; no required type contract or per-key type mismatch metrics.",
+    "after": "Replay summary now includes required per-key type contract metadata and type mismatch counts/rates; canonical fixtures currently show zero mismatches."
+  },
+  "unresolved_risks": [
+    "Type/shape checks do not yet enforce deeper semantic constraints such as value ranges and inter-field relationships.",
+    "Type contract mapping is maintained in code and must be kept in sync with future diagnostics contract changes."
+  ],
+  "stop_reason": "Stopped after selected rank-5 instrumentation gap was fixed with minimal bounded edits and repeated validation; further semantic-quality expansion is out of single-issue scope.",
+  "recommendation": "promote",
+  "_recommendation_allowed_values": [
+    "promote",
+    "hold",
+    "discard"
+  ]
+}

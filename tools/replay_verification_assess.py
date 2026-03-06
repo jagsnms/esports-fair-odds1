@@ -47,6 +47,57 @@ CONTRACT_DIAGNOSTIC_REQUIRED_KEYS = [
     "structural_violations",
     "behavioral_violations",
 ]
+CONTRACT_DIAGNOSTIC_REQUIRED_KEY_TYPE_CONTRACT = {
+    "alive_counts": "pair[number,number]|tuple|list|null",
+    "hp_totals": "pair[number,number]|tuple|list|null",
+    "loadout_totals": "pair[number,number]|tuple|list|null",
+    "round_phase": "string|null",
+    "round_number": "integer|null",
+    "q_intra_total": "number|null",
+    "rail_low": "number",
+    "rail_high": "number",
+    "p_hat_prev": "number",
+    "p_hat_final": "number",
+    "round_time_remaining_s": "number|null",
+    "is_bomb_planted": "boolean|null",
+    "movement_confidence": "number",
+    "target_p_hat": "number|null",
+    "expected_p_hat_after_movement": "number|null",
+    "movement_gap_abs": "number|null",
+    "structural_violations": "array",
+    "behavioral_violations": "array",
+}
+
+
+def _is_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _is_number_pair(value: Any) -> bool:
+    return (
+        isinstance(value, (tuple, list))
+        and len(value) == 2
+        and _is_number(value[0])
+        and _is_number(value[1])
+    )
+
+
+def _matches_contract_type(key: str, value: Any) -> bool:
+    if key in {"alive_counts", "hp_totals", "loadout_totals"}:
+        return value is None or _is_number_pair(value)
+    if key == "round_phase":
+        return value is None or isinstance(value, str)
+    if key == "round_number":
+        return value is None or (isinstance(value, int) and not isinstance(value, bool))
+    if key in {"q_intra_total", "round_time_remaining_s", "target_p_hat", "expected_p_hat_after_movement", "movement_gap_abs"}:
+        return value is None or _is_number(value)
+    if key in {"rail_low", "rail_high", "p_hat_prev", "p_hat_final", "movement_confidence"}:
+        return _is_number(value)
+    if key == "is_bomb_planted":
+        return value is None or isinstance(value, bool)
+    if key in {"structural_violations", "behavioral_violations"}:
+        return isinstance(value, list)
+    return True
 
 
 def _fixture_class_from_path(replay_path_str: str) -> str:
@@ -150,6 +201,9 @@ async def run_assessment(replay_path: str) -> dict[str, Any]:
     contract_diagnostics_missing_key_counts = {
         key: 0 for key in CONTRACT_DIAGNOSTIC_REQUIRED_KEYS
     }
+    contract_diagnostics_type_mismatch_counts = {
+        key: 0 for key in CONTRACT_DIAGNOSTIC_REQUIRED_KEYS
+    }
     p_hats: list[float] = []
     rail_lows: list[float] = []
     rail_highs: list[float] = []
@@ -176,6 +230,8 @@ async def run_assessment(replay_path: str) -> dict[str, Any]:
             for key in CONTRACT_DIAGNOSTIC_REQUIRED_KEYS:
                 if key in cd:
                     contract_diagnostics_key_presence_counts[key] += 1
+                    if not _matches_contract_type(key, cd.get(key)):
+                        contract_diagnostics_type_mismatch_counts[key] += 1
                 else:
                     contract_diagnostics_missing_key_counts[key] += 1
             sv = cd.get("structural_violations") or []
@@ -203,6 +259,14 @@ async def run_assessment(replay_path: str) -> dict[str, Any]:
     contract_diagnostics_key_presence_rates = {
         key: (
             contract_diagnostics_key_presence_counts[key] / points_with_contract_diagnostics
+            if points_with_contract_diagnostics > 0
+            else 0.0
+        )
+        for key in CONTRACT_DIAGNOSTIC_REQUIRED_KEYS
+    }
+    contract_diagnostics_type_mismatch_rates = {
+        key: (
+            contract_diagnostics_type_mismatch_counts[key] / points_with_contract_diagnostics
             if points_with_contract_diagnostics > 0
             else 0.0
         )
@@ -241,9 +305,12 @@ async def run_assessment(replay_path: str) -> dict[str, Any]:
         "raw_mode_point_like_skipped": int(replay_contract_status.get("raw_mode_point_like_skipped", 0)),
         "points_with_contract_diagnostics": points_with_contract_diagnostics,
         "contract_diagnostics_required_keys": CONTRACT_DIAGNOSTIC_REQUIRED_KEYS,
+        "contract_diagnostics_required_key_type_contract": CONTRACT_DIAGNOSTIC_REQUIRED_KEY_TYPE_CONTRACT,
         "contract_diagnostics_key_presence_counts": contract_diagnostics_key_presence_counts,
         "contract_diagnostics_missing_key_counts": contract_diagnostics_missing_key_counts,
         "contract_diagnostics_key_presence_rates": contract_diagnostics_key_presence_rates,
+        "contract_diagnostics_type_mismatch_counts": contract_diagnostics_type_mismatch_counts,
+        "contract_diagnostics_type_mismatch_rates": contract_diagnostics_type_mismatch_rates,
         "structural_violations_total": structural_violations_total,
         "behavioral_violations_total": behavioral_violations_total,
         "invariant_violations_total": invariant_violations_total,
