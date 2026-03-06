@@ -1,0 +1,95 @@
+{
+  "branch": "fast/run-20260306-1806-contract-violation-code-metrics",
+  "base_branch": "agent-base",
+  "lane": "fast",
+  "run_type": "maintenance",
+  "status": "implemented",
+  "_status_allowed_values": [
+    "proposed",
+    "implemented",
+    "promoted",
+    "held"
+  ],
+  "selected_issue": {
+    "issue": "Missing per-code violation reason counters in replay verification summary",
+    "title": "tools/replay_verification_assess.py emitted only aggregate violation totals, not reason-code distributions needed for diagnostics triage"
+  },
+  "why_it_outranked_alternatives": "Current evidence on agent-base showed no unresolved rank 1-4 issues: structural invariant totals were zero, canonical tests passed (375), replay mode usage had no mismatch signal, and diagnostic/invariant violation totals were zero. The highest unresolved bounded issue was rank 5 missing instrumentation: replay summary lacked per-code violation counters needed to localize failure reasons when violations occur.",
+  "baseline_evidence": {
+    "branch": "agent-base",
+    "commit": "6458ba6bdc5c9df6ed975cc29bdb2befca1dabd4",
+    "checks": [
+      {
+        "command": "python3 -m pytest -q",
+        "result": "375 passed in 7.93s"
+      },
+      {
+        "command": "python3 tools/replay_verification_assess.py",
+        "result": "structural_violations_total=0, behavioral_violations_total=0, invariant_violations_total=0"
+      },
+      {
+        "command": "python3 -c \"import asyncio; ... run_assessment('tools/fixtures/replay_multimatch_small_v1.jsonl') ...\"",
+        "result": "{'contract_diagnostics_structural_violation_code_counts': False, 'contract_diagnostics_behavioral_violation_code_counts': False, 'invariant_violation_code_counts': False}"
+      }
+    ]
+  },
+  "files_changed": [
+    {
+      "path": "tools/replay_verification_assess.py",
+      "change": "Added per-code counters for contract structural violations, contract behavioral violations, and invariant violations; emitted them in summary."
+    },
+    {
+      "path": "tools/schemas/replay_validation_summary.schema.json",
+      "change": "Added required schema fields for the three per-code violation counter maps."
+    },
+    {
+      "path": "tests/unit/test_replay_verification_assess_stage1.py",
+      "change": "Added assertions that new per-code violation counter fields are present on canonical fixture output."
+    },
+    {
+      "path": "automation/reports/fast-run-20260306-1806-contract-violation-code-metrics.md",
+      "change": "Added human-readable promotion report."
+    },
+    {
+      "path": "automation/reports/fast-run-20260306-1806-contract-violation-code-metrics.json",
+      "change": "Added machine-readable promotion report artifact."
+    }
+  ],
+  "validation_performed": [
+    {
+      "command": "python3 -m pytest -q tests/unit/test_replay_verification_assess_stage1.py",
+      "result": "1 passed in 0.30s"
+    },
+    {
+      "command": "python3 tools/replay_verification_assess.py",
+      "result": "summary includes contract_diagnostics_structural_violation_code_counts, contract_diagnostics_behavioral_violation_code_counts, invariant_violation_code_counts"
+    },
+    {
+      "command": "python3 tools/replay_verification_assess.py tools/fixtures/replay_multimatch_small_v1.jsonl",
+      "result": "new per-code violation counter fields present on multimatch fixture summary"
+    },
+    {
+      "command": "python3 -m pytest -q",
+      "result": "375 passed in 7.32s"
+    },
+    {
+      "command": "python3 -c \"import asyncio; ... run_assessment('tools/fixtures/replay_multimatch_small_v1.jsonl') ...\"",
+      "result": "{'contract_diagnostics_structural_violation_code_counts': True, 'contract_diagnostics_behavioral_violation_code_counts': True, 'invariant_violation_code_counts': True}"
+    }
+  ],
+  "before_after_evidence": {
+    "before": "Replay summary exposed aggregate violation totals only and did not include per-code reason frequency maps.",
+    "after": "Replay summary now includes per-code counter maps for contract structural/behavioral violations and invariant violations."
+  },
+  "unresolved_risks": [
+    "Current canonical fixtures have zero violations, so non-empty distributions are not exercised in this run.",
+    "Counter quality depends on upstream correctness of emitted violation code strings."
+  ],
+  "stop_reason": "Selected rank-5 instrumentation issue fixed with minimal changes and stable validation; additional synthetic failure generation would exceed bounded single-issue scope.",
+  "recommendation": "promote",
+  "_recommendation_allowed_values": [
+    "promote",
+    "hold",
+    "discard"
+  ]
+}

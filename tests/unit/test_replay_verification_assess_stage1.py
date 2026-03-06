@@ -74,3 +74,6 @@ def test_replay_verification_assess_stage1_deterministic_and_schema_conformant()
         assert first["contract_diagnostics_key_presence_counts"][key] == first["points_with_contract_diagnostics"]
         assert first["contract_diagnostics_missing_key_counts"][key] == 0
         assert first["contract_diagnostics_key_presence_rates"][key] == 1.0
+    assert first["contract_diagnostics_structural_violation_code_counts"] == {}
+    assert first["contract_diagnostics_behavioral_violation_code_counts"] == {}
+    assert first["invariant_violation_code_counts"] == {}

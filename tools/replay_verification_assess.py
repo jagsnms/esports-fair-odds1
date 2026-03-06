@@ -143,6 +143,9 @@ async def run_assessment(replay_path: str) -> dict[str, Any]:
     structural_violations_total = 0
     behavioral_violations_total = 0
     invariant_violations_total = 0
+    contract_diagnostics_structural_violation_code_counts: dict[str, int] = {}
+    contract_diagnostics_behavioral_violation_code_counts: dict[str, int] = {}
+    invariant_violation_code_counts: dict[str, int] = {}
     points_with_contract_diagnostics = 0
     contract_diagnostics_key_presence_counts = {
         key: 0 for key in CONTRACT_DIAGNOSTIC_REQUIRED_KEYS
@@ -182,12 +185,25 @@ async def run_assessment(replay_path: str) -> dict[str, Any]:
             bv = cd.get("behavioral_violations") or []
             if isinstance(sv, list):
                 structural_violations_total += len(sv)
+                for code in sv:
+                    if isinstance(code, str) and code:
+                        contract_diagnostics_structural_violation_code_counts[code] = (
+                            contract_diagnostics_structural_violation_code_counts.get(code, 0) + 1
+                        )
             if isinstance(bv, list):
                 behavioral_violations_total += len(bv)
+                for code in bv:
+                    if isinstance(code, str) and code:
+                        contract_diagnostics_behavioral_violation_code_counts[code] = (
+                            contract_diagnostics_behavioral_violation_code_counts.get(code, 0) + 1
+                        )
 
         inv = debug.get("invariant_violations")
         if isinstance(inv, list):
             invariant_violations_total += len(inv)
+            for code in inv:
+                if isinstance(code, str) and code:
+                    invariant_violation_code_counts[code] = invariant_violation_code_counts.get(code, 0) + 1
 
         pt = item.get("point") or {}
         p = pt.get("p_hat")
@@ -247,6 +263,9 @@ async def run_assessment(replay_path: str) -> dict[str, Any]:
         "structural_violations_total": structural_violations_total,
         "behavioral_violations_total": behavioral_violations_total,
         "invariant_violations_total": invariant_violations_total,
+        "contract_diagnostics_structural_violation_code_counts": contract_diagnostics_structural_violation_code_counts,
+        "contract_diagnostics_behavioral_violation_code_counts": contract_diagnostics_behavioral_violation_code_counts,
+        "invariant_violation_code_counts": invariant_violation_code_counts,
         "p_hat_min": min(p_hats) if p_hats else None,
         "p_hat_max": max(p_hats) if p_hats else None,
         "p_hat_count": len(p_hats),
