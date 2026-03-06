@@ -1,0 +1,91 @@
+{
+  "branch": "fast/run-20260306-2106-replay-violation-reasons",
+  "base_branch": "agent-base",
+  "lane": "fast",
+  "run_type": "maintenance",
+  "status": "implemented",
+  "selected_issue": {
+    "issue": "Missing replay-summary violation reason-code distributions",
+    "title": "tools/replay_verification_assess.py reported only aggregate violation totals, not per-reason counts needed for diagnosis"
+  },
+  "why_it_outranked_alternatives": "Current evidence showed no unresolved rank 1-4 issues: structural violations were zero, canonical tests passed, replay mismatch signals were absent, and diagnostic violation totals were zero. The highest unresolved bounded issue was rank 5 missing instrumentation: replay summary lacked per-reason violation distributions needed for fast root-cause localization when failures occur.",
+  "baseline_evidence": {
+    "branch": "fast/run-20260306-2106-replay-violation-reasons",
+    "commit": "3a871b09bf26f9afefec73fb2fdad16118138ea8",
+    "checks": [
+      {
+        "command": "python3 -m pytest -q",
+        "result": "379 passed in 7.31s"
+      },
+      {
+        "command": "python3 tools/replay_verification_assess.py tools/fixtures/replay_multimatch_small_v1.jsonl",
+        "result": "structural_violations_total=0, behavioral_violations_total=0, invariant_violations_total=0"
+      },
+      {
+        "command": "python3 probe for replay summary reason-count keys",
+        "result": "{'structural_violation_reason_counts': False, 'behavioral_violation_reason_counts': False, 'invariant_violation_reason_counts': False}"
+      }
+    ]
+  },
+  "files_changed": [
+    {
+      "path": "tools/replay_verification_assess.py",
+      "change": "Added per-reason count aggregation for structural, behavioral, and invariant violations."
+    },
+    {
+      "path": "tools/schemas/replay_validation_summary.schema.json",
+      "change": "Added required schema properties for structural/behavioral/invariant violation reason-count maps."
+    },
+    {
+      "path": "tests/unit/test_replay_verification_assess_stage1.py",
+      "change": "Added assertions for new reason-count fields and reason-count sum consistency against violation totals."
+    },
+    {
+      "path": "automation/reports/fast-run-20260306-2106-replay-violation-reasons.md",
+      "change": "Added human-readable promotion report."
+    },
+    {
+      "path": "automation/reports/fast-run-20260306-2106-replay-violation-reasons.json",
+      "change": "Added machine-readable promotion report artifact."
+    }
+  ],
+  "validation_performed": [
+    {
+      "command": "python3 -m pytest -q tests/unit/test_replay_verification_assess_stage1.py",
+      "result": "1 passed in 0.31s"
+    },
+    {
+      "command": "python3 tools/replay_verification_assess.py tools/fixtures/replay_multimatch_small_v1.jsonl",
+      "result": "summary now includes structural_violation_reason_counts, behavioral_violation_reason_counts, invariant_violation_reason_counts"
+    },
+    {
+      "command": "python3 -m pytest -q",
+      "result": "379 passed in 7.35s"
+    },
+    {
+      "command": "python3 tools/replay_verification_assess.py",
+      "result": "canonical raw replay summary remains clean and includes new reason-count fields"
+    }
+  ],
+  "before_after_evidence": {
+    "before": "Replay validation summary included only aggregate violation totals and omitted per-reason distributions.",
+    "after": "Replay validation summary now includes structural_violation_reason_counts, behavioral_violation_reason_counts, and invariant_violation_reason_counts for direct reason-level diagnosis."
+  },
+  "unresolved_risks": [
+    "Current canonical fixtures have zero violations, so reason-count maps are empty on baseline fixtures.",
+    "Reason-count usefulness depends on stable upstream reason-code naming consistency."
+  ],
+  "stop_reason": "Selected rank-5 instrumentation gap fixed with minimal changes and repeated validation; additional analytics expansion would exceed bounded single-issue scope.",
+  "recommendation": "promote",
+  "_status_allowed_values": [
+    "proposed",
+    "implemented",
+    "promoted",
+    "held"
+  ],
+  "_recommendation_allowed_values": [
+    "promote",
+    "hold",
+    "discard"
+  ]
+}

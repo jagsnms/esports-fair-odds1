@@ -67,6 +67,12 @@ def test_replay_verification_assess_stage1_deterministic_and_schema_conformant()
     assert first["point_like_inputs_transition_passthrough"] == 0
     assert first["point_like_reject_reason_counts"] == {}
     assert first["points_with_contract_diagnostics"] == first["total_points_captured"]
+    assert first["structural_violation_reason_counts"] == {}
+    assert first["behavioral_violation_reason_counts"] == {}
+    assert first["invariant_violation_reason_counts"] == {}
+    assert sum(first["structural_violation_reason_counts"].values()) == first["structural_violations_total"]
+    assert sum(first["behavioral_violation_reason_counts"].values()) == first["behavioral_violations_total"]
+    assert sum(first["invariant_violation_reason_counts"].values()) == first["invariant_violations_total"]
     required_keys = first["contract_diagnostics_required_keys"]
     assert isinstance(required_keys, list)
     assert len(required_keys) > 0

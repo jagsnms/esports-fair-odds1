@@ -150,6 +150,9 @@ async def run_assessment(replay_path: str) -> dict[str, Any]:
     contract_diagnostics_missing_key_counts = {
         key: 0 for key in CONTRACT_DIAGNOSTIC_REQUIRED_KEYS
     }
+    structural_violation_reason_counts: dict[str, int] = {}
+    behavioral_violation_reason_counts: dict[str, int] = {}
+    invariant_violation_reason_counts: dict[str, int] = {}
     p_hats: list[float] = []
     rail_lows: list[float] = []
     rail_highs: list[float] = []
@@ -182,12 +185,27 @@ async def run_assessment(replay_path: str) -> dict[str, Any]:
             bv = cd.get("behavioral_violations") or []
             if isinstance(sv, list):
                 structural_violations_total += len(sv)
+                for reason in sv:
+                    if isinstance(reason, str) and reason:
+                        structural_violation_reason_counts[reason] = (
+                            structural_violation_reason_counts.get(reason, 0) + 1
+                        )
             if isinstance(bv, list):
                 behavioral_violations_total += len(bv)
+                for reason in bv:
+                    if isinstance(reason, str) and reason:
+                        behavioral_violation_reason_counts[reason] = (
+                            behavioral_violation_reason_counts.get(reason, 0) + 1
+                        )
 
         inv = debug.get("invariant_violations")
         if isinstance(inv, list):
             invariant_violations_total += len(inv)
+            for reason in inv:
+                if isinstance(reason, str) and reason:
+                    invariant_violation_reason_counts[reason] = (
+                        invariant_violation_reason_counts.get(reason, 0) + 1
+                    )
 
         pt = item.get("point") or {}
         p = pt.get("p_hat")
@@ -247,6 +265,9 @@ async def run_assessment(replay_path: str) -> dict[str, Any]:
         "structural_violations_total": structural_violations_total,
         "behavioral_violations_total": behavioral_violations_total,
         "invariant_violations_total": invariant_violations_total,
+        "structural_violation_reason_counts": structural_violation_reason_counts,
+        "behavioral_violation_reason_counts": behavioral_violation_reason_counts,
+        "invariant_violation_reason_counts": invariant_violation_reason_counts,
         "p_hat_min": min(p_hats) if p_hats else None,
         "p_hat_max": max(p_hats) if p_hats else None,
         "p_hat_count": len(p_hats),

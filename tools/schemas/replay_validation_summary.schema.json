@@ -26,7 +26,10 @@
     "contract_diagnostics_key_presence_rates",
     "structural_violations_total",
     "behavioral_violations_total",
-    "invariant_violations_total"
+    "invariant_violations_total",
+    "structural_violation_reason_counts",
+    "behavioral_violation_reason_counts",
+    "invariant_violation_reason_counts"
   ],
   "properties": {
     "schema_version": {
@@ -142,6 +145,27 @@
     "invariant_violations_total": {
       "type": "integer",
       "minimum": 0
+    },
+    "structural_violation_reason_counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "behavioral_violation_reason_counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "invariant_violation_reason_counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
     }
   }
 }
