@@ -1,56 +1,92 @@
 """
-Stage 3: Assert inter_map_break debug structure contract — same keys across BO3/GRID/REPLAY.
-Parity: inter_map_break=True => debug has inter_map_break, inter_map_break_reason, explain.phase, p_hat_final, map_low/map_high.
+Stage 3B: Inter-map-break parity — assert on real runner-produced output.
+Parity: when inter_map_break is True, runner-produced derived.debug has canonical keys
+(inter_map_break, inter_map_break_reason, p_hat_old, p_hat_final, series_low, series_high,
+map_low, map_high, explain with phase inter_map_break).
 """
 from __future__ import annotations
 
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
 
-def test_inter_map_break_dbg_contract_structure() -> None:
-    """Inter-map-break branch must produce debug with required keys (parity contract)."""
-    # Contract: when is_break is True, all sources build dbg with these keys (see runner BO3/GRID/REPLAY paths).
-    required = {
-        "inter_map_break",
-        "inter_map_break_reason",
-        "p_hat_old",
-        "p_hat_final",
-        "series_low",
-        "series_high",
-        "map_low",
-        "map_high",
-        "explain",
+import pytest
+
+from engine.models import Config, Derived, State
+from backend.store.memory_store import MemoryStore
+from backend.services.runner import Runner
+
+
+_REQUIRED_INTER_MAP_BREAK_KEYS = {
+    "inter_map_break",
+    "inter_map_break_reason",
+    "p_hat_old",
+    "p_hat_final",
+    "series_low",
+    "series_high",
+    "map_low",
+    "map_high",
+    "explain",
+}
+
+
+@pytest.mark.asyncio
+async def test_real_runner_inter_map_break_produces_canonical_debug() -> None:
+    """
+    Run replay with detect_inter_map_break forced True; assert stored derived.debug
+    from runner has canonical inter_map_break shape (real runner output, not handcrafted).
+    """
+    store = MemoryStore(max_history=100)
+    config = Config(
+        source="REPLAY",
+        replay_path="logs/bo3_pulls.jsonl",
+        match_id=99,
+        poll_interval_s=5.0,
+        replay_loop=False,
+    )
+    state = State(config=config, segment_id=0)
+    derived = Derived(p_hat=0.5, bound_low=0.2, bound_high=0.8, rail_low=0.3, rail_high=0.7, kappa=0.0)
+    await store.set_current(state, derived)
+
+    broadcaster = MagicMock()
+    broadcaster.broadcast = AsyncMock(return_value=None)
+    runner = Runner(store=store, broadcaster=broadcaster)
+
+    minimal_raw_payload = {
+        "team_one": {"name": "A", "score": 0, "id": 1},
+        "team_two": {"name": "B", "score": 0, "id": 2},
+        "created_at": "2024-01-01T00:00:00Z",
+        "round_phase": "IN_PROGRESS",
     }
-    # Replicate the minimal structure the runner builds in each inter_map_break block.
-    bound_low, bound_high = 0.2, 0.8
-    break_reason = "test"
-    series_width = bound_high - bound_low
-    center = max(bound_low, min(bound_high, 0.5 * (bound_low + bound_high)))
-    map_width = min(series_width * 0.6, 0.30)
-    half = 0.5 * map_width
-    rail_low = max(bound_low, min(bound_high, center - half))
-    rail_high = max(bound_low, min(bound_high, center + half))
-    p_hat = center
-    cw = rail_high - rail_low if rail_high >= rail_low else 0.0
-    dbg = {
-        "inter_map_break": True,
-        "inter_map_break_reason": break_reason,
-        "p_hat_old": None,
-        "p_hat_final": p_hat,
-        "series_low": bound_low,
-        "series_high": bound_high,
-        "map_low": rail_low,
-        "map_high": rail_high,
-        "explain": {
-            "phase": "inter_map_break",
-            "p_base_map": None,
-            "p_base_series": None,
-            "midround_weight": 0.0,
-            "q_intra_total": None,
-            "q_terms": {},
-            "micro_adj": {"alive_adj": 0.0, "hp_adj": 0.0, "econ_adj": 0.0},
-            "rails": {"rail_low": rail_low, "rail_high": rail_high, "corridor_width": cw},
-            "final": {"p_hat_final": p_hat, "clamp_reason": "inter_map_break"},
-        },
-    }
-    for key in required:
-        assert key in dbg, f"inter_map_break dbg must contain {key!r}"
-    assert dbg["explain"]["phase"] == "inter_map_break"
+    runner._replay_payloads = [minimal_raw_payload]
+    runner._replay_index = 0
+    runner._replay_path = "logs/bo3_pulls.jsonl"
+    runner._replay_match_id = 99
+    runner._replay_format = "raw"
+
+    with patch(
+        "engine.diagnostics.inter_map_break.detect_inter_map_break",
+        return_value=(True, "test_reason"),
+    ):
+        did_replay = await runner._tick_replay(config)
+
+    assert did_replay is True
+    cur = await store.get_current()
+    assert isinstance(cur, dict)
+    derived_obj = cur.get("derived")
+    assert isinstance(derived_obj, dict)
+    dbg = derived_obj.get("debug")
+    assert isinstance(dbg, dict), "runner must produce derived.debug"
+
+    for key in _REQUIRED_INTER_MAP_BREAK_KEYS:
+        assert key in dbg, f"runner-produced debug must contain {key!r}"
+
+    assert dbg["inter_map_break"] is True
+    assert dbg["inter_map_break_reason"] == "test_reason"
+    explain = dbg.get("explain")
+    assert isinstance(explain, dict)
+    assert explain.get("phase") == "inter_map_break"
+    assert dbg.get("replay_mode") == "raw_contract"
+
+
+def test_real_runner_inter_map_break_produces_canonical_debug_sync() -> None:
+    asyncio.run(test_real_runner_inter_map_break_produces_canonical_debug())

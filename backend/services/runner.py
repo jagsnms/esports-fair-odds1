@@ -57,6 +57,48 @@ def _minimal_explain(
     }
 
 
+def _inter_map_break_phat_and_dbg(
+    bound_low: float,
+    bound_high: float,
+    break_reason: str,
+    last_p: float | None,
+    bounds_debug: dict[str, Any],
+) -> tuple[float, dict[str, Any]]:
+    """Build canonical inter_map_break p_hat and debug payload (Stage 3B). Callers add source-specific keys after."""
+    series_width = bound_high - bound_low
+    center = max(bound_low, min(bound_high, 0.5 * (bound_low + bound_high)))
+    map_width = min(series_width * 0.6, 0.30)
+    half = 0.5 * map_width
+    rail_low = max(bound_low, min(bound_high, center - half))
+    rail_high = max(bound_low, min(bound_high, center + half))
+    p_hat = float(last_p) if isinstance(last_p, (int, float)) else center
+    p_hat = max(rail_low, min(rail_high, p_hat))
+    cw = rail_high - rail_low if rail_high >= rail_low else 0.0
+    dbg: dict[str, Any] = {
+        "inter_map_break": True,
+        "inter_map_break_reason": break_reason,
+        "p_hat_old": last_p,
+        "p_hat_final": p_hat,
+        "series_low": bound_low,
+        "series_high": bound_high,
+        "map_low": rail_low,
+        "map_high": rail_high,
+    }
+    dbg.update(bounds_debug)
+    dbg["explain"] = {
+        "phase": "inter_map_break",
+        "p_base_map": None,
+        "p_base_series": None,
+        "midround_weight": 0.0,
+        "q_intra_total": None,
+        "q_terms": {},
+        "micro_adj": {"alive_adj": 0.0, "hp_adj": 0.0, "econ_adj": 0.0},
+        "rails": {"rail_low": rail_low, "rail_high": rail_high, "corridor_width": cw},
+        "final": {"p_hat_final": p_hat, "clamp_reason": "inter_map_break"},
+    }
+    return (p_hat, dbg)
+
+
 def _compute_dominance_features(frame: Frame | None) -> dict[str, Any]:
     """
     Compute compact round dominance / win-quality features from Frame only.
@@ -1958,45 +2000,18 @@ class Runner:
         # Detect inter-map break (between maps) and keep corridors/p_hat stable.
         is_break, break_reason = detect_inter_map_break(frame, new_state)
         if is_break:
-            series_width = bound_high - bound_low
-            center = max(bound_low, min(bound_high, 0.5 * (bound_low + bound_high)))
-            # Use a modest map width inside series; avoid collapsing to zero.
-            map_width = min(series_width * 0.6, 0.30)
-            half = 0.5 * map_width
-            rail_low = max(bound_low, min(bound_high, center - half))
-            rail_high = max(bound_low, min(bound_high, center + half))
-            # Try to reuse last p_hat if available; else midpoint.
-            cur = await self._store.get_current()
-            d = (cur.get("derived") or {}) if isinstance(cur, dict) else {}
-            last_p = d.get("p_hat")
-            if isinstance(last_p, (int, float)):
-                p_hat = float(last_p)
+            # Stage 3B: continuity from store only when write_to_store; else session-local only.
+            if write_to_store:
+                cur = await self._store.get_current()
+                d = (cur.get("derived") or {}) if isinstance(cur, dict) else {}
+                last_p = d.get("p_hat")
             else:
-                p_hat = center
-            p_hat = max(rail_low, min(rail_high, p_hat))
-            dbg: dict[str, Any] = {
-                "inter_map_break": True,
-                "inter_map_break_reason": break_reason,
-                "p_hat_old": last_p,
-                "p_hat_final": p_hat,
-                "series_low": bound_low,
-                "series_high": bound_high,
-                "map_low": rail_low,
-                "map_high": rail_high,
-            }
-            dbg.update(bounds_debug)
-            cw = rail_high - rail_low if rail_high >= rail_low else 0.0
-            dbg["explain"] = {
-                "phase": "inter_map_break",
-                "p_base_map": None,
-                "p_base_series": None,
-                "midround_weight": 0.0,
-                "q_intra_total": None,
-                "q_terms": {},
-                "micro_adj": {"alive_adj": 0.0, "hp_adj": 0.0, "econ_adj": 0.0},
-                "rails": {"rail_low": rail_low, "rail_high": rail_high, "corridor_width": cw},
-                "final": {"p_hat_final": p_hat, "clamp_reason": "inter_map_break"},
-            }
+                last_p = getattr(session_runtime, "last_p_hat", None)
+            p_hat, dbg = _inter_map_break_phat_and_dbg(
+                bound_low, bound_high, break_reason, last_p, dict(bounds_debug)
+            )
+            rail_low = dbg["map_low"]
+            rail_high = dbg["map_high"]
             dbg["bo3_monotonic_gate"] = gate_diag
             dbg["match_context_diag"] = _match_context_diag(ctx, _sel_decision.to_diag() if _sel_decision else None)
         else:
@@ -2009,6 +2024,9 @@ class Runner:
             dbg = {**dbg, **bounds_debug, **rails_debug}
             dbg["bo3_monotonic_gate"] = gate_diag
             dbg["match_context_diag"] = _match_context_diag(ctx, _sel_decision.to_diag() if _sel_decision else None)
+
+        if session_runtime is not None:
+            setattr(session_runtime, "last_p_hat", p_hat)
 
         from engine.diagnostics.fragility_cs2 import build_raw_debug, compute_fragility_debug
         dbg["raw"] = build_raw_debug(frame)
@@ -2446,37 +2464,21 @@ class Runner:
         bounds_debug = bounds_result[2] if len(bounds_result) > 2 else {}
         is_break, break_reason = detect_inter_map_break(frame, new_state)
         if is_break:
-            series_width = bound_high - bound_low
-            center = max(bound_low, min(bound_high, 0.5 * (bound_low + bound_high)))
-            map_width = min(series_width * 0.6, 0.30)
-            half = 0.5 * map_width
-            rail_low = max(bound_low, min(bound_high, center - half))
-            rail_high = max(bound_low, min(bound_high, center + half))
-            cur = await self._store.get_current()
-            d = (cur.get("derived") or {}) if isinstance(cur, dict) else {}
-            last_p = d.get("p_hat")
-            p_hat = float(last_p) if isinstance(last_p, (int, float)) else center
-            p_hat = max(rail_low, min(rail_high, p_hat))
-            cw = rail_high - rail_low if rail_high >= rail_low else 0.0
-            dbg: dict[str, Any] = {
-                "inter_map_break": True,
-                "inter_map_break_reason": break_reason,
-                "source": "GRID",
-                "grid_series_id": grid_series_id,
-                "match_context_diag": _match_context_diag(ctx, _sel_decision.to_diag() if _sel_decision else None),
-            }
-            dbg.update(bounds_debug)
-            dbg["explain"] = {
-                "phase": "inter_map_break",
-                "p_base_map": None,
-                "p_base_series": None,
-                "midround_weight": 0.0,
-                "q_intra_total": None,
-                "q_terms": {},
-                "micro_adj": {"alive_adj": 0.0, "hp_adj": 0.0, "econ_adj": 0.0},
-                "rails": {"rail_low": rail_low, "rail_high": rail_high, "corridor_width": cw},
-                "final": {"p_hat_final": p_hat, "clamp_reason": "inter_map_break"},
-            }
+            # Stage 3B: continuity from store only when write_to_store; else session-local only.
+            if write_to_store:
+                cur = await self._store.get_current()
+                d = (cur.get("derived") or {}) if isinstance(cur, dict) else {}
+                last_p = d.get("p_hat")
+            else:
+                last_p = getattr(session_runtime, "last_p_hat", None)
+            p_hat, dbg = _inter_map_break_phat_and_dbg(
+                bound_low, bound_high, break_reason, last_p, dict(bounds_debug)
+            )
+            rail_low = dbg["map_low"]
+            rail_high = dbg["map_high"]
+            dbg["source"] = "GRID"
+            dbg["grid_series_id"] = grid_series_id
+            dbg["match_context_diag"] = _match_context_diag(ctx, _sel_decision.to_diag() if _sel_decision else None)
         else:
             bounds = (bound_low, bound_high)
             rails_result = compute_rails(frame, config, new_state, bounds)
@@ -2488,6 +2490,8 @@ class Runner:
             dbg["source"] = "GRID"
             dbg["grid_series_id"] = grid_series_id
             dbg["match_context_diag"] = _match_context_diag(ctx, _sel_decision.to_diag() if _sel_decision else None)
+        if session_runtime is not None:
+            setattr(session_runtime, "last_p_hat", p_hat)
         dbg["raw"] = build_raw_debug(frame)
         dbg["fragility"] = compute_fragility_debug(frame)
         dbg.update(_compute_dominance_features(frame))
@@ -2643,7 +2647,7 @@ class Runner:
             rail_low=rail_low,
             rail_high=rail_high,
             kappa=0.0,
-            debug={"explain": explain},
+            debug={"explain": explain, "replay_mode": "point_passthrough"},
         )
         await self._store.append_point(point, state, derived)
         await self._broadcast_point(point)
@@ -2784,43 +2788,15 @@ class Runner:
 
         is_break, break_reason = detect_inter_map_break(frame, new_state)
         if is_break:
-            series_width = bound_high - bound_low
-            center = max(bound_low, min(bound_high, 0.5 * (bound_low + bound_high)))
-            map_width = min(series_width * 0.6, 0.30)
-            half = 0.5 * map_width
-            rail_low = max(bound_low, min(bound_high, center - half))
-            rail_high = max(bound_low, min(bound_high, center + half))
+            # Stage 3B: REPLAY is single-session; continuity from store.
             cur = await self._store.get_current()
             d = (cur.get("derived") or {}) if isinstance(cur, dict) else {}
             last_p = d.get("p_hat")
-            if isinstance(last_p, (int, float)):
-                p_hat = float(last_p)
-            else:
-                p_hat = center
-            p_hat = max(rail_low, min(rail_high, p_hat))
-            dbg: dict[str, Any] = {
-                "inter_map_break": True,
-                "inter_map_break_reason": break_reason,
-                "p_hat_old": last_p,
-                "p_hat_final": p_hat,
-                "series_low": bound_low,
-                "series_high": bound_high,
-                "map_low": rail_low,
-                "map_high": rail_high,
-            }
-            dbg.update(bounds_debug)
-            cw = rail_high - rail_low if rail_high >= rail_low else 0.0
-            dbg["explain"] = {
-                "phase": "inter_map_break",
-                "p_base_map": None,
-                "p_base_series": None,
-                "midround_weight": 0.0,
-                "q_intra_total": None,
-                "q_terms": {},
-                "micro_adj": {"alive_adj": 0.0, "hp_adj": 0.0, "econ_adj": 0.0},
-                "rails": {"rail_low": rail_low, "rail_high": rail_high, "corridor_width": cw},
-                "final": {"p_hat_final": p_hat, "clamp_reason": "inter_map_break"},
-            }
+            p_hat, dbg = _inter_map_break_phat_and_dbg(
+                bound_low, bound_high, break_reason, last_p, dict(bounds_debug)
+            )
+            rail_low = dbg["map_low"]
+            rail_high = dbg["map_high"]
         else:
             bounds = (bound_low, bound_high)
             rails_result = compute_rails(frame, config, new_state, bounds)
@@ -2829,6 +2805,7 @@ class Runner:
             setattr(config, "contract_testing_mode", getattr(config, "invariant_diagnostics", False))
             p_hat, dbg = resolve_p_hat(frame, config, new_state, (rail_low, rail_high))
             dbg = {**dbg, **bounds_debug, **rails_debug}
+        dbg["replay_mode"] = "raw_contract"
 
         from engine.diagnostics.fragility_cs2 import build_raw_debug, compute_fragility_debug
         dbg["raw"] = build_raw_debug(frame)
