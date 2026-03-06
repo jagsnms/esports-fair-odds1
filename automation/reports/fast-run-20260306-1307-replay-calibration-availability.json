@@ -1,0 +1,80 @@
+{
+  "branch": "fast/run-20260306-1307-replay-calibration-availability",
+  "base_branch": "agent-base",
+  "lane": "fast",
+  "run_type": "maintenance",
+  "status": "implemented",
+  "selected_issue": {
+    "issue": "Missing calibration availability diagnostics in replay validation summary",
+    "title": "Replay assessment omitted calibration-status fields, blocking unambiguous Chapter 9.5 calibration diagnosis"
+  },
+  "why_it_outranked_alternatives": "Current evidence showed no unresolved rank 1-4 issues (no structural failures, no failing canonical tests, no replay mismatch signal, and no high-frequency diagnostic invariant failures). The highest unresolved bounded issue was rank 5 missing instrumentation because replay summaries silently omitted calibration availability/status fields.",
+  "baseline_evidence": {
+    "branch": "agent-base",
+    "commit": "6458ba6bdc5c9df6ed975cc29bdb2befca1dabd4",
+    "checks": [
+      {
+        "command": "python3 -m pytest -q",
+        "result": "375 passed in 7.19s"
+      },
+      {
+        "command": "python3 tools/replay_verification_assess.py",
+        "result": "structural_violations_total=0, behavioral_violations_total=0, invariant_violations_total=0"
+      },
+      {
+        "command": "python3 probe for replay calibration status keys",
+        "result": "{'calibration_metrics_available': False, 'calibration_metrics_unavailable_reason': False, 'calibration_brier_score': False, 'calibration_log_loss': False, 'calibration_reliability_bins': False}"
+      }
+    ]
+  },
+  "files_changed": [
+    {
+      "path": "tools/replay_verification_assess.py",
+      "change": "Added explicit calibration diagnostics outputs: availability flag, unavailable reason, and placeholder metric fields."
+    },
+    {
+      "path": "tools/schemas/replay_validation_summary.schema.json",
+      "change": "Added new required schema keys/types for calibration diagnostics outputs."
+    },
+    {
+      "path": "tests/unit/test_replay_verification_assess_stage1.py",
+      "change": "Added assertions for deterministic calibration diagnostics values on replay fixture."
+    },
+    {
+      "path": "automation/reports/fast-run-20260306-1307-replay-calibration-availability.md",
+      "change": "Added human-readable promotion report."
+    },
+    {
+      "path": "automation/reports/fast-run-20260306-1307-replay-calibration-availability.json",
+      "change": "Added machine-readable promotion report artifact."
+    }
+  ],
+  "validation_performed": [
+    {
+      "command": "python3 -m pytest -q tests/unit/test_replay_verification_assess_stage1.py",
+      "result": "1 passed in 0.28s"
+    },
+    {
+      "command": "python3 probe run_assessment('tools/fixtures/replay_multimatch_small_v1.jsonl')",
+      "result": "calibration_metrics_available=False, calibration_metrics_unavailable_reason='series_outcome_labels_missing_in_replay_points', calibration_brier_score=None, calibration_log_loss=None, calibration_reliability_bins=[]"
+    },
+    {
+      "command": "python3 tools/replay_verification_assess.py",
+      "result": "summary includes new calibration diagnostics fields; structural_violations_total=0, behavioral_violations_total=0, invariant_violations_total=0"
+    },
+    {
+      "command": "python3 -m pytest -q",
+      "result": "375 passed in 7.23s"
+    }
+  ],
+  "before_after_evidence": {
+    "before": "Replay summary lacked explicit calibration availability/status keys, so calibration observability was ambiguous.",
+    "after": "Replay summary now always emits calibration status fields and deterministic unavailable reason when labels are absent."
+  },
+  "unresolved_risks": [
+    "Current replay fixtures still do not include explicit series-outcome labels, so numeric calibration metrics remain unavailable by design.",
+    "This run improves observability only; it does not implement labeled-data calibration scoring."
+  ],
+  "stop_reason": "Selected rank-5 instrumentation gap was fixed with minimal bounded changes and validated; further progress requires a broader labeled replay data pipeline outside this run scope.",
+  "recommendation": "promote"
+}

@@ -27,6 +27,7 @@ from backend.services.runner import Runner, _is_raw_bo3_snapshot
 from engine.replay.bo3_jsonl import load_bo3_jsonl_entries, iter_payloads, load_generic_jsonl
 
 SCHEMA_VERSION = "replay_validation_summary.v1"
+CALIBRATION_UNAVAILABLE_REASON = "series_outcome_labels_missing_in_replay_points"
 CONTRACT_DIAGNOSTIC_REQUIRED_KEYS = [
     "alive_counts",
     "hp_totals",
@@ -208,6 +209,11 @@ async def run_assessment(replay_path: str) -> dict[str, Any]:
         )
         for key in CONTRACT_DIAGNOSTIC_REQUIRED_KEYS
     }
+    calibration_metrics_available = False
+    calibration_metrics_unavailable_reason = CALIBRATION_UNAVAILABLE_REASON
+    calibration_brier_score = None
+    calibration_log_loss = None
+    calibration_reliability_bins: list[dict[str, Any]] = []
 
     return {
         "schema_version": SCHEMA_VERSION,
@@ -244,6 +250,11 @@ async def run_assessment(replay_path: str) -> dict[str, Any]:
         "contract_diagnostics_key_presence_counts": contract_diagnostics_key_presence_counts,
         "contract_diagnostics_missing_key_counts": contract_diagnostics_missing_key_counts,
         "contract_diagnostics_key_presence_rates": contract_diagnostics_key_presence_rates,
+        "calibration_metrics_available": calibration_metrics_available,
+        "calibration_metrics_unavailable_reason": calibration_metrics_unavailable_reason,
+        "calibration_brier_score": calibration_brier_score,
+        "calibration_log_loss": calibration_log_loss,
+        "calibration_reliability_bins": calibration_reliability_bins,
         "structural_violations_total": structural_violations_total,
         "behavioral_violations_total": behavioral_violations_total,
         "invariant_violations_total": invariant_violations_total,

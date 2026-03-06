@@ -74,3 +74,8 @@ def test_replay_verification_assess_stage1_deterministic_and_schema_conformant()
         assert first["contract_diagnostics_key_presence_counts"][key] == first["points_with_contract_diagnostics"]
         assert first["contract_diagnostics_missing_key_counts"][key] == 0
         assert first["contract_diagnostics_key_presence_rates"][key] == 1.0
+    assert first["calibration_metrics_available"] is False
+    assert first["calibration_metrics_unavailable_reason"] == "series_outcome_labels_missing_in_replay_points"
+    assert first["calibration_brier_score"] is None
+    assert first["calibration_log_loss"] is None
+    assert first["calibration_reliability_bins"] == []
