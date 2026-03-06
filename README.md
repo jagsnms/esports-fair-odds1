@@ -2,10 +2,15 @@
 
 ## Setup
 
-1. Run the bootstrap script (Windows PowerShell):
-   ```powershell
-   .\scripts\bootstrap.ps1
-   ```
+1. Install project dependencies with a bootstrap script:
+   - Linux/macOS (bash):
+     ```bash
+     ./scripts/bootstrap.sh
+     ```
+   - Windows PowerShell:
+     ```powershell
+     .\scripts\bootstrap.ps1
+     ```
 2. Run the legacy Streamlit app (dev/analysis only):
    ```bash
    streamlit run legacy/app/app35_ml.py

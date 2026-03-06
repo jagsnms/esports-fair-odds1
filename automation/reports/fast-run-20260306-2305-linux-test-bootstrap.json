@@ -1,0 +1,83 @@
+{
+  "branch": "fast/run-20260306-2305-linux-test-bootstrap",
+  "base_branch": "agent-base",
+  "lane": "fast",
+  "run_type": "maintenance",
+  "status": "implemented",
+  "_status_allowed_values": [
+    "proposed",
+    "implemented",
+    "promoted",
+    "held"
+  ],
+  "selected_issue": {
+    "issue": "Canonical evidence commands fail on fresh Linux due missing bootstrap path",
+    "title": "Add Linux/macOS bootstrap script so canonical tests and replay checks are runnable"
+  },
+  "why_it_outranked_alternatives": "No structural or replay/diagnostic failures remained once tooling was runnable. The highest-ranked unresolved issue was rank-2 failing canonical tests on fresh Linux startup (`No module named pytest`), which blocked baseline evidence collection.",
+  "baseline_evidence": {
+    "branch": "fast/run-20260306-2305-linux-test-bootstrap",
+    "commit": "95e93f599810d133c551e9286c76da40b64b2ee3",
+    "checks": [
+      {
+        "command": "python3 -m pytest -q",
+        "result": "/usr/bin/python3: No module named pytest"
+      },
+      {
+        "command": "python3 tools/replay_verification_assess.py",
+        "result": "ModuleNotFoundError: No module named 'fastapi'"
+      },
+      {
+        "command": "glob scripts/*bootstrap*",
+        "result": "Only scripts/bootstrap.ps1 existed; no Linux shell bootstrap script."
+      }
+    ]
+  },
+  "files_changed": [
+    {
+      "path": "scripts/bootstrap.sh",
+      "change": "Added Linux/macOS bootstrap script to install dev/test dependencies."
+    },
+    {
+      "path": "README.md",
+      "change": "Documented Linux/macOS bootstrap command in Setup instructions."
+    },
+    {
+      "path": "automation/reports/fast-run-20260306-2305-linux-test-bootstrap.md",
+      "change": "Added human-readable promotion report."
+    },
+    {
+      "path": "automation/reports/fast-run-20260306-2305-linux-test-bootstrap.json",
+      "change": "Added machine-readable promotion report."
+    }
+  ],
+  "validation_performed": [
+    {
+      "command": "./scripts/bootstrap.sh",
+      "result": "Pass (exit 0)."
+    },
+    {
+      "command": "python3 -m pytest -q",
+      "result": "394 passed in 7.50s"
+    },
+    {
+      "command": "python3 tools/replay_verification_assess.py",
+      "result": "Pass; structural_violations_total=0, behavioral_violations_total=0, invariant_violations_total=0"
+    }
+  ],
+  "before_after_evidence": {
+    "before": "Canonical evidence commands failed in fresh Linux environment due missing dependencies and no shell bootstrap path.",
+    "after": "Linux/macOS bootstrap script now exists, executes successfully, and canonical test/replay commands run cleanly."
+  },
+  "unresolved_risks": [
+    "Bootstrap installs into active Python interpreter and does not enforce virtualenv isolation.",
+    "Optional browser tooling bootstrap remains out of scope for this bounded fix."
+  ],
+  "stop_reason": "Stopped after fixing the selected rank-2 issue with minimal edits and confirming stable canonical validation.",
+  "recommendation": "promote",
+  "_recommendation_allowed_values": [
+    "promote",
+    "hold",
+    "discard"
+  ]
+}
