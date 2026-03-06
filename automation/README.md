@@ -1,5 +1,7 @@
 # Automation
 
+Run policy: [AUTOMATION_RUN_POLICY.md](AUTOMATION_RUN_POLICY.md).
+
 ## Purpose of agent-base
 
 `agent-base` is the approved starting branch for all autonomous automation work. Every automation run must branch from `agent-base`—never from `main`, `master`, `dev`, `release`, or any human-owned feature branch.
