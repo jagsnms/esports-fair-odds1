@@ -11,10 +11,10 @@ Run policy: [AUTOMATION_RUN_POLICY.md](AUTOMATION_RUN_POLICY.md).
 Create a fresh branch for each run using this format:
 
 ```
-agent/run-YYYYMMDD-issue-slug
+fast/run-YYYYMMDD-HHMM-short-slug
 ```
 
-Example: `agent/run-20250305-add-validation`.
+Example: `fast/run-20260306-2215-contract-diag-gap`.
 
 ## Push and merge rules
 

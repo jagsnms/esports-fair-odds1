@@ -1,0 +1,77 @@
+{
+  "branch": "fast/run-20260306-1705-branch-contract-align",
+  "base_branch": "agent-base",
+  "lane": "fast",
+  "run_type": "maintenance",
+  "status": "implemented",
+  "_status_allowed_values": [
+    "proposed",
+    "implemented",
+    "promoted",
+    "held"
+  ],
+  "selected_issue": {
+    "issue": "DOC-CONTRACT-FAST-LANE",
+    "title": "Automation operator docs used outdated run-branch and report filename conventions that conflicted with the active fast-lane contract"
+  },
+  "why_it_outranked_alternatives": "Current evidence shows no unresolved rank 1-6 issues: structural violations are zero, canonical tests pass, replay mismatch is not confirmed, diagnostic invariant totals are zero, and no blocking instrumentation/calibration signal was found in canonical checks. Therefore the highest unresolved bounded issue is rank-7 documentation contract drift.",
+  "baseline_evidence": {
+    "branch": "agent-base",
+    "commit": "6458ba6bdc5c9df6ed975cc29bdb2befca1dabd4",
+    "checks": [
+      "python3 -m pytest -q -> 375 passed in 7.76s",
+      "python3 tools/replay_verification_assess.py -> structural_violations_total=0, behavioral_violations_total=0, invariant_violations_total=0",
+      "rg contract-gap probe showed legacy agent/run and report-YYYYMMDD naming in automation/README.md and automation/FIRST_RUN_OPERATOR_GUIDE.md"
+    ]
+  },
+  "files_changed": [
+    {
+      "path": "automation/README.md",
+      "change": "Updated run-branch naming format/example to fast lane contract."
+    },
+    {
+      "path": "automation/FIRST_RUN_OPERATOR_GUIDE.md",
+      "change": "Updated run-branch naming and report artifact filename convention to branch-stem .md/.json paths."
+    },
+    {
+      "path": "automation/reports/fast-run-20260306-1705-branch-contract-align.md",
+      "change": "Added human-readable promotion report."
+    },
+    {
+      "path": "automation/reports/fast-run-20260306-1705-branch-contract-align.json",
+      "change": "Added machine-readable promotion report."
+    }
+  ],
+  "validation_performed": [
+    {
+      "command": "python3 -m pytest -q",
+      "result": "375 passed in 7.31s"
+    },
+    {
+      "command": "python3 tools/replay_verification_assess.py",
+      "result": "structural_violations_total=0, behavioral_violations_total=0, invariant_violations_total=0"
+    },
+    {
+      "command": "rg \"agent/run-YYYYMMDD-issue-slug|report-YYYYMMDD-issue-slug\\.md\" /workspace/automation/README.md /workspace/automation/FIRST_RUN_OPERATOR_GUIDE.md",
+      "result": "No matches found"
+    },
+    {
+      "command": "rg \"fast/run-YYYYMMDD-HHMM-short-slug|automation/reports/<branch-name-with-slashes-replaced-by-hyphens>\\.(md|json)\" /workspace/automation",
+      "result": "Expected matches found in updated docs and templates"
+    }
+  ],
+  "before_after_evidence": {
+    "before": "README/operator guide contained legacy agent/run branch naming and legacy single-file report naming format.",
+    "after": "README/operator guide now specify fast/run-YYYYMMDD-HHMM-short-slug and branch-stem-based markdown/json report paths."
+  },
+  "unresolved_risks": [
+    "Other historical docs outside these two operator docs may still include legacy branch examples."
+  ],
+  "stop_reason": "Selected single rank-7 contract-drift issue was fixed with minimal bounded doc edits and validated; broader documentation harmonization is out of scope for this run.",
+  "recommendation": "promote",
+  "_recommendation_allowed_values": [
+    "promote",
+    "hold",
+    "discard"
+  ]
+}

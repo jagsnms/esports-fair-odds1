@@ -11,10 +11,10 @@ Every run must start from **agent-base**. Create the run branch from it; do not 
 Use this format for each run:
 
 ```
-agent/run-YYYYMMDD-issue-slug
+fast/run-YYYYMMDD-HHMM-short-slug
 ```
 
-Example: `agent/run-20250305-fix-replay-mismatch`.
+Example: `fast/run-20260306-2215-fix-replay-mismatch`.
 
 ## Policy files to read before each run
 
@@ -37,13 +37,16 @@ Read these in order before starting work:
 
 ## Report filename convention
 
-Save each run’s report as:
+Use the exact run branch stem for both reports, with `/` replaced by `-`:
 
 ```
-report-YYYYMMDD-issue-slug.md
+automation/reports/<branch-name-with-slashes-replaced-by-hyphens>.md
+automation/reports/<branch-name-with-slashes-replaced-by-hyphens>.json
 ```
 
-Example: `report-20250305-fix-replay-mismatch.md`. Place it under `automation/reports/`.
+Example for branch `fast/run-20260306-2215-fix-replay-mismatch`:
+- `automation/reports/fast-run-20260306-2215-fix-replay-mismatch.md`
+- `automation/reports/fast-run-20260306-2215-fix-replay-mismatch.json`
 
 ## Memory vs repo evidence
 
