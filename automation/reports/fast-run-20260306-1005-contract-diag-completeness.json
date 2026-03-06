@@ -1,0 +1,80 @@
+{
+  "branch": "fast/run-20260306-1005-contract-diag-completeness",
+  "base_branch": "agent-base",
+  "lane": "fast",
+  "run_type": "maintenance",
+  "status": "implemented",
+  "selected_issue": {
+    "issue": "Missing per-key contract_diagnostics completeness metrics in replay assessment output",
+    "title": "tools/replay_verification_assess.py did not report required contract-diagnostic key coverage/missing counts"
+  },
+  "why_it_outranked_alternatives": "Current evidence on agent-base showed no unresolved rank 1-4 issues: canonical tests passed (365), replay assessment reported zero structural/behavioral/invariant totals, and no replay mismatch signal was present. The highest unresolved bounded issue was rank 5 missing instrumentation: replay summary lacked per-required-field contract_diagnostics completeness metrics.",
+  "baseline_evidence": {
+    "branch": "agent-base",
+    "commit": "b9991c02c0e758ba860feb8541f25fdc3a06b474",
+    "checks": [
+      {
+        "command": "python3 -m pytest -q",
+        "result": "365 passed in 7.74s"
+      },
+      {
+        "command": "python3 tools/replay_verification_assess.py",
+        "result": "structural_violations_total=0, behavioral_violations_total=0, invariant_violations_total=0"
+      },
+      {
+        "command": "python3 baseline completeness-key probe against run_assessment(raw_replay_sample)",
+        "result": "{'contract_diagnostics_required_keys': False, 'contract_diagnostics_key_presence_counts': False, 'contract_diagnostics_key_presence_rates': False, 'contract_diagnostics_missing_key_counts': False}"
+      }
+    ]
+  },
+  "files_changed": [
+    {
+      "path": "tools/replay_verification_assess.py",
+      "change": "Added contract diagnostics required-key list and emitted key presence/missing counts plus presence rates."
+    },
+    {
+      "path": "tools/schemas/replay_validation_summary.schema.json",
+      "change": "Extended summary schema with required completeness metric properties."
+    },
+    {
+      "path": "tests/unit/test_replay_verification_assess_stage1.py",
+      "change": "Added assertions for new completeness fields and array schema-type handling."
+    },
+    {
+      "path": "automation/reports/fast-run-20260306-1005-contract-diag-completeness.md",
+      "change": "Added human-readable promotion report."
+    },
+    {
+      "path": "automation/reports/fast-run-20260306-1005-contract-diag-completeness.json",
+      "change": "Added machine-readable promotion report."
+    }
+  ],
+  "validation_performed": [
+    {
+      "command": "python3 -m pytest -q tests/unit/test_replay_verification_assess_stage1.py",
+      "result": "1 passed in 0.29s"
+    },
+    {
+      "command": "python3 tools/replay_verification_assess.py",
+      "result": "summary includes contract_diagnostics_required_keys plus key_presence_counts/key_presence_rates/missing_key_counts with full coverage on raw fixture"
+    },
+    {
+      "command": "python3 tools/replay_verification_assess.py tools/fixtures/replay_multimatch_small_v1.jsonl",
+      "result": "new completeness metrics present with full key coverage across 6 points"
+    },
+    {
+      "command": "python3 -m pytest -q",
+      "result": "365 passed in 7.18s"
+    }
+  ],
+  "before_after_evidence": {
+    "before": "Replay summary lacked per-field contract_diagnostics completeness keys; baseline probe showed expected keys absent.",
+    "after": "Replay summary now emits required key list plus per-key presence counts/rates and missing counts, enabling field-level diagnostics completeness tracking."
+  },
+  "unresolved_risks": [
+    "Metrics validate key presence only and do not guarantee semantic correctness of each diagnostic value.",
+    "Coverage remains dependent on fixture breadth; larger replay sets may reveal value-quality issues not visible in small fixtures."
+  ],
+  "stop_reason": "Selected rank-5 instrumentation gap is fixed and validated with minimal changes; further analytics expansion would exceed this bounded single-issue run scope.",
+  "recommendation": "promote"
+}
