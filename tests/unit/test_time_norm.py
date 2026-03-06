@@ -68,6 +68,7 @@ def test_frame_gets_normalized_time_from_bo3_snapshot() -> None:
         "team_one": {"name": "A", "score": 0},
         "team_two": {"name": "B", "score": 0},
         "round_time_remaining": 111003,
+        "bomb_time_remaining": 35500,
         "round_phase": "live",
     }
     frame = bo3_snapshot_to_frame(raw, team_a_is_team_one=True)
@@ -76,6 +77,7 @@ def test_frame_gets_normalized_time_from_bo3_snapshot() -> None:
     assert abs(frame.round_time_remaining_s - 111.003) < 0.001
     assert frame.bomb_phase_time_remaining is not None
     assert abs(frame.bomb_phase_time_remaining.get("round_time_remaining", 0) - 111.003) < 0.001
+    assert abs(frame.bomb_phase_time_remaining.get("bomb_time_remaining", 0) - 35.5) < 0.001
 
 
 class TestTimeNorm(unittest.TestCase):

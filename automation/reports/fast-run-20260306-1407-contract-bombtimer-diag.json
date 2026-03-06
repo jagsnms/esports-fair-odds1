@@ -1,0 +1,119 @@
+{
+  "branch": "fast/run-20260306-1407-contract-bombtimer-diag",
+  "base_branch": "agent-base",
+  "lane": "fast",
+  "run_type": "maintenance",
+  "status": "implemented",
+  "_status_allowed_values": [
+    "proposed",
+    "implemented",
+    "promoted",
+    "held"
+  ],
+  "selected_issue": {
+    "issue": "missing-contract-bomb-time-diagnostic-field",
+    "title": "contract_diagnostics omitted bomb_time_remaining_s, blocking full post-plant timer-state diagnosis"
+  },
+  "why_it_outranked_alternatives": "Current evidence showed no unresolved rank 1-4 issues (no structural violations, 375/375 canonical tests passing, no replay mismatches, and zero behavioral/invariant totals), so the highest unresolved bounded issue was rank 5: missing instrumentation for bomb timer remaining in contract diagnostics and replay completeness checks.",
+  "baseline_evidence": {
+    "branch": "fast/run-20260306-1407-contract-bombtimer-diag",
+    "commit": "6458ba6bdc5c9df6ed975cc29bdb2befca1dabd4",
+    "checks": [
+      {
+        "command": "python3 -m pytest -q",
+        "result": "375 passed in 7.28s"
+      },
+      {
+        "command": "python3 tools/replay_verification_assess.py",
+        "result": "structural_violations_total=0, behavioral_violations_total=0, invariant_violations_total=0"
+      },
+      {
+        "command": "python3 - <<'PY' ... resolve_p_hat(...) ... PY",
+        "result": "has_bomb_time_remaining_s False"
+      },
+      {
+        "command": "python3 tools/replay_verification_assess.py",
+        "result": "contract_diagnostics_required_keys missing bomb_time_remaining_s"
+      }
+    ]
+  },
+  "files_changed": [
+    {
+      "path": "engine/diagnostics/invariants.py",
+      "change": "Added bomb_time_remaining_s to contract diagnostics input/output payload."
+    },
+    {
+      "path": "engine/compute/resolve.py",
+      "change": "Extracted bomb timer remaining from frame bomb-phase payload and passed it to contract diagnostics."
+    },
+    {
+      "path": "engine/normalize/bo3_normalize.py",
+      "change": "Normalized raw bomb timer fields and carried canonical seconds into bomb_phase_time_remaining."
+    },
+    {
+      "path": "tools/replay_verification_assess.py",
+      "change": "Added bomb_time_remaining_s to required contract diagnostics completeness keys."
+    },
+    {
+      "path": "tests/unit/test_invariants_contract_diagnostics.py",
+      "change": "Updated diagnostics tests for bomb_time_remaining_s input and output assertions."
+    },
+    {
+      "path": "tests/unit/test_runner_source_contract_parity.py",
+      "change": "Added parity assertion that bomb_time_remaining_s key exists in contract diagnostics."
+    },
+    {
+      "path": "tests/unit/test_time_norm.py",
+      "change": "Added assertion that bo3 snapshot bomb timer is normalized and stored in bomb_phase_time_remaining."
+    },
+    {
+      "path": "tests/unit/test_replay_verification_assess_stage1.py",
+      "change": "Added assertion that replay completeness required keys include bomb_time_remaining_s."
+    },
+    {
+      "path": "automation/reports/fast-run-20260306-1407-contract-bombtimer-diag.md",
+      "change": "Added human-readable run report."
+    },
+    {
+      "path": "automation/reports/fast-run-20260306-1407-contract-bombtimer-diag.json",
+      "change": "Added machine-readable run report artifact."
+    }
+  ],
+  "validation_performed": [
+    {
+      "command": "python3 -m pytest -q tests/unit/test_invariants_contract_diagnostics.py tests/unit/test_runner_source_contract_parity.py tests/unit/test_replay_verification_assess_stage1.py tests/unit/test_time_norm.py",
+      "result": "19 passed"
+    },
+    {
+      "command": "python3 tools/replay_verification_assess.py",
+      "result": "bomb_time_remaining_s present in required keys; presence_rate=1.0; missing_count=0"
+    },
+    {
+      "command": "python3 tools/replay_verification_assess.py tools/fixtures/replay_multimatch_small_v1.jsonl",
+      "result": "bomb_time_remaining_s present in required keys; presence_rate=1.0; missing_count=0"
+    },
+    {
+      "command": "python3 - <<'PY' ... resolve_p_hat(...) ... PY",
+      "result": "has_bomb_time_remaining_s True; bomb_time_remaining_s_value 32.5"
+    },
+    {
+      "command": "python3 -m pytest -q",
+      "result": "375 passed in 7.21s"
+    }
+  ],
+  "before_after_evidence": {
+    "before": "contract_diagnostics omitted bomb_time_remaining_s (probe: has_bomb_time_remaining_s False) and replay completeness keys did not include bomb_time_remaining_s.",
+    "after": "contract_diagnostics now emits bomb_time_remaining_s, bo3 normalization carries bomb timer into frame bomb-phase state, and replay completeness includes bomb_time_remaining_s with full coverage."
+  },
+  "unresolved_risks": [
+    "Canonical replay fixtures provide limited planted-bomb timer variety, so additional source-format variants may still be uncovered later.",
+    "This run addresses instrumentation completeness, not timer-pressure calibration quality."
+  ],
+  "stop_reason": "Stopped after fixing the selected rank-5 instrumentation gap with minimal changes and repeated targeted + canonical validation; further work would expand into broader calibration scope.",
+  "recommendation": "promote",
+  "_recommendation_allowed_values": [
+    "promote",
+    "hold",
+    "discard"
+  ]
+}

@@ -39,6 +39,7 @@ CONTRACT_DIAGNOSTIC_REQUIRED_KEYS = [
     "p_hat_prev",
     "p_hat_final",
     "round_time_remaining_s",
+    "bomb_time_remaining_s",
     "is_bomb_planted",
     "movement_confidence",
     "target_p_hat",

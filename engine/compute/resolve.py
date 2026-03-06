@@ -112,12 +112,18 @@ def _contract_diag(
         round_time_remaining_s = None
     bomb_phase = getattr(frame, "bomb_phase_time_remaining", None)
     is_bomb_planted = None
+    bomb_time_remaining_s = None
     round_phase = None
     round_number = None
     if isinstance(bomb_phase, dict) and "is_bomb_planted" in bomb_phase:
         bp = bomb_phase.get("is_bomb_planted")
         is_bomb_planted = bool(bp) if bp is not None else None
     if isinstance(bomb_phase, dict):
+        for key in ("bomb_time_remaining", "bomb_timer_remaining", "time_remaining", "bomb_time_remaining_s"):
+            bt = bomb_phase.get(key)
+            if isinstance(bt, (int, float)):
+                bomb_time_remaining_s = float(bt)
+                break
         if isinstance(bomb_phase.get("round_phase"), str):
             round_phase = bomb_phase.get("round_phase")
         rn = bomb_phase.get("round_number")
@@ -159,6 +165,7 @@ def _contract_diag(
         movement_confidence=movement_confidence,
         phase=phase,
         round_time_remaining_s=float(round_time_remaining_s) if round_time_remaining_s is not None else None,
+        bomb_time_remaining_s=bomb_time_remaining_s,
         is_bomb_planted=is_bomb_planted,
         alive_counts=alive_counts,
         hp_totals=hp_totals,

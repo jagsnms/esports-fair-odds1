@@ -310,8 +310,19 @@ def bo3_snapshot_to_frame(raw: dict[str, Any], team_a_is_team_one: bool = True) 
     # Round time: normalize at ingest (ms -> seconds), canonical on Frame
     rtr_norm = normalize_round_time(raw.get("round_time_remaining"))
     rt_norm = normalize_round_time(raw.get("round_time"))
+    bomb_time_raw = raw.get("bomb_time_remaining")
+    if bomb_time_raw is None:
+        bomb_time_raw = raw.get("bomb_timer_remaining")
+    nested_bomb_phase = raw.get("bomb_phase_time_remaining")
+    if bomb_time_raw is None and isinstance(nested_bomb_phase, dict):
+        for key in ("bomb_time_remaining", "bomb_timer_remaining", "time_remaining", "bomb_time_remaining_s"):
+            if nested_bomb_phase.get(key) is not None:
+                bomb_time_raw = nested_bomb_phase.get(key)
+                break
+    btr_norm = normalize_round_time(bomb_time_raw)
     round_time_remaining_s = rtr_norm.get("seconds")
     round_time_s = rt_norm.get("seconds")
+    bomb_time_remaining_s = btr_norm.get("seconds")
     round_time_remaining_raw = raw.get("round_time_remaining") if rtr_norm.get("raw") is not None else None
     round_time_raw = raw.get("round_time") if rt_norm.get("raw") is not None else None
 
@@ -321,6 +332,8 @@ def bo3_snapshot_to_frame(raw: dict[str, Any], team_a_is_team_one: bool = True) 
         bomb_phase["round_time_remaining"] = round_time_remaining_s
     if round_time_s is not None:
         bomb_phase["round_time"] = round_time_s
+    if bomb_time_remaining_s is not None:
+        bomb_phase["bomb_time_remaining"] = bomb_time_remaining_s
     for key in ("round_phase", "round_number", "is_bomb_planted"):
         val = raw.get(key)
         if val is not None:

@@ -15,6 +15,7 @@ def test_contract_diagnostics_structural_q_out_of_bounds() -> None:
         movement_confidence=0.25,
         phase="IN_PROGRESS",
         round_time_remaining_s=88.0,
+        bomb_time_remaining_s=None,
         is_bomb_planted=False,
         alive_counts=(5, 4),
         hp_totals=(400.0, 320.0),
@@ -37,6 +38,7 @@ def test_contract_diagnostics_structural_rail_order_invalid() -> None:
         movement_confidence=0.25,
         phase="IN_PROGRESS",
         round_time_remaining_s=42.0,
+        bomb_time_remaining_s=20.0,
         is_bomb_planted=True,
         alive_counts=(2, 5),
         hp_totals=(180.0, 420.0),
@@ -58,6 +60,7 @@ def test_contract_diagnostics_behavioral_gap_testing_only() -> None:
         movement_confidence=0.25,
         phase="IN_PROGRESS",
         round_time_remaining_s=15.0,
+        bomb_time_remaining_s=12.0,
         is_bomb_planted=True,
         alive_counts=(3, 1),
         hp_totals=(250.0, 100.0),
@@ -81,6 +84,7 @@ def test_contract_diagnostics_emits_core_state_fields() -> None:
         movement_confidence=0.25,
         phase="IN_PROGRESS",
         round_time_remaining_s=30.0,
+        bomb_time_remaining_s=18.0,
         is_bomb_planted=False,
         alive_counts=(4, 3),
         hp_totals=(300.0, 220.0),
@@ -94,6 +98,7 @@ def test_contract_diagnostics_emits_core_state_fields() -> None:
     assert diag["p_hat_prev"] == 0.4
     assert diag["p_hat_final"] == 0.5
     assert diag["round_time_remaining_s"] == 30.0
+    assert diag["bomb_time_remaining_s"] == 18.0
     assert diag["is_bomb_planted"] is False
     assert diag["alive_counts"] == (4, 3)
     assert diag["hp_totals"] == (300.0, 220.0)

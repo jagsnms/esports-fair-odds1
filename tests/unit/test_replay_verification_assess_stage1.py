@@ -70,6 +70,7 @@ def test_replay_verification_assess_stage1_deterministic_and_schema_conformant()
     required_keys = first["contract_diagnostics_required_keys"]
     assert isinstance(required_keys, list)
     assert len(required_keys) > 0
+    assert "bomb_time_remaining_s" in required_keys
     for key in required_keys:
         assert first["contract_diagnostics_key_presence_counts"][key] == first["points_with_contract_diagnostics"]
         assert first["contract_diagnostics_missing_key_counts"][key] == 0
