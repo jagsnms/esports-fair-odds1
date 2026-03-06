@@ -1,0 +1,68 @@
+{
+  "branch": "fast/run-20260306-0807-bootstrap-dev-test-deps",
+  "base_branch": "agent-base",
+  "lane": "fast",
+  "run_type": "maintenance",
+  "status": "implemented",
+  "selected_issue": {
+    "issue": "canonical tests fail after documented bootstrap because test dependencies are not installed",
+    "title": "scripts/bootstrap.ps1 installs runtime deps only, causing python3 -m pytest -q failure in clean setup"
+  },
+  "why_it_outranked_alternatives": "Current evidence showed no rank-1 structural violations and no rank-3/4 replay or diagnostic failures. A rank-2 failure was reproducible in this run: python3 -m pytest -q initially failed with 'No module named pytest' on agent-base, so this issue outranked lower-tier candidates.",
+  "baseline_evidence": {
+    "branch": "agent-base",
+    "commit": "6d1374ca22aa63df08b20b916b9a5793bd5cbffc",
+    "checks": [
+      {
+        "command": "python3 -m pytest -q",
+        "result": "failed: /usr/bin/python3: No module named pytest"
+      },
+      {
+        "command": "rg \"requirements-dev\\\\.txt|pip install -r\" scripts/bootstrap.ps1",
+        "result": "baseline showed bootstrap installing requirements.txt only"
+      },
+      {
+        "command": "python3 tools/replay_verification_assess.py",
+        "result": "structural_violations_total=0, behavioral_violations_total=0, invariant_violations_total=0"
+      }
+    ]
+  },
+  "files_changed": [
+    {
+      "path": "scripts/bootstrap.ps1",
+      "change": "Install requirements-dev.txt (with existence guard) instead of requirements.txt-only install."
+    },
+    {
+      "path": "automation/reports/fast-run-20260306-0807-bootstrap-dev-test-deps.md",
+      "change": "Added human-readable promotion report for this run."
+    },
+    {
+      "path": "automation/reports/fast-run-20260306-0807-bootstrap-dev-test-deps.json",
+      "change": "Added machine-readable promotion report for this run."
+    }
+  ],
+  "validation_performed": [
+    {
+      "command": "rg \"requirements-dev\\\\.txt|pip install -r\" scripts/bootstrap.ps1",
+      "result": "pass; bootstrap now points to requirements-dev.txt"
+    },
+    {
+      "command": "python3 -m pytest -q",
+      "result": "361 passed in 7.31s"
+    },
+    {
+      "command": "python3 tools/replay_verification_assess.py",
+      "result": "structural_violations_total=0, behavioral_violations_total=0, invariant_violations_total=0"
+    }
+  ],
+  "before_after_evidence": {
+    "before": "Canonical pytest failed in clean run context (No module named pytest); bootstrap installed runtime requirements only.",
+    "after": "Bootstrap now installs requirements-dev.txt, and canonical pytest executed successfully in this run (361 passed)."
+  },
+  "unresolved_risks": [
+    "PowerShell bootstrap execution could not be run directly in this Linux sandbox because pwsh is unavailable.",
+    "Dev dependencies remain unpinned in requirements-dev.txt and may drift over time."
+  ],
+  "stop_reason": "Selected rank-2 issue fixed with minimal bounded change and validated; further edits would exceed this single-issue run scope.",
+  "recommendation": "promote"
+}
