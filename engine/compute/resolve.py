@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from engine.diagnostics.invariants import compute_phat_contract_diagnostics
 from engine.models import Config, Frame, State
 
 from engine.compute.micro_adj_cs2 import micro_adjustment_cs2, micro_adjustment_cs2_breakdown
@@ -89,6 +90,34 @@ def _build_explain(
     return out
 
 
+def _contract_diag(
+    *,
+    config: Config,
+    phase: str | None,
+    q_intra_debug: dict[str, Any],
+    midround_v2_result: dict[str, Any],
+    rail_low: float,
+    rail_high: float,
+    p_hat_old: float,
+    p_hat_final: float,
+    movement_confidence: float,
+) -> dict[str, Any]:
+    q_intra_total = midround_v2_result.get("q_intra")
+    if q_intra_total is None:
+        q_intra_total = q_intra_debug.get("q_intra_round_win_a")
+    testing_mode = bool(getattr(config, "contract_testing_mode", False))
+    return compute_phat_contract_diagnostics(
+        q_intra_total=q_intra_total,
+        rail_low=rail_low,
+        rail_high=rail_high,
+        p_hat_prev=p_hat_old,
+        p_hat_final=p_hat_final,
+        movement_confidence=movement_confidence,
+        phase=phase,
+        testing_mode=testing_mode,
+    )
+
+
 def resolve_p_hat(
     frame: Frame,
     config: Config,
@@ -144,6 +173,17 @@ def resolve_p_hat(
             rail_high=rail_high,
             p_hat_final=p_hat_final,
         )
+        contract_diag = _contract_diag(
+            config=config,
+            phase=phase_upper,
+            q_intra_debug=q_intra_debug,
+            midround_v2_result=midround_v2_result,
+            rail_low=rail_low,
+            rail_high=rail_high,
+            p_hat_old=p_hat_old,
+            p_hat_final=p_hat_final,
+            movement_confidence=midround_weight,
+        )
         debug_dict = {
             "p_hat_base": base,
             "micro_adj": adj,
@@ -158,6 +198,7 @@ def resolve_p_hat(
             "midround_v2": midround_v2_result,
             "phase_unknown": phase_unknown,
             "explain": explain,
+            "contract_diagnostics": contract_diag,
         }
         if "reason" in q_intra_debug:
             debug_dict["reason"] = q_intra_debug["reason"]
@@ -180,8 +221,10 @@ def resolve_p_hat(
             config=config,
         )
         midround_v2_result = result
-        p_mid_clamped = result["p_mid_clamped"]
-        p_hat_final = max(rail_low, min(rail_high, p_mid_clamped))
+        # Stage 2: movement toward target (Bible Ch 6 Step 8), then clamp to rails.
+        target_p_hat = result["p_mid"]
+        p_hat_final = p_hat_old + midround_weight * (target_p_hat - p_hat_old)
+        p_hat_final = max(rail_low, min(rail_high, p_hat_final))
 
     explain = _build_explain(
         phase=phase_upper,
@@ -194,6 +237,17 @@ def resolve_p_hat(
         rail_low=rail_low,
         rail_high=rail_high,
         p_hat_final=p_hat_final,
+    )
+    contract_diag = _contract_diag(
+        config=config,
+        phase=phase_upper,
+        q_intra_debug=q_intra_debug,
+        midround_v2_result=midround_v2_result,
+        rail_low=rail_low,
+        rail_high=rail_high,
+        p_hat_old=p_hat_old,
+        p_hat_final=p_hat_final,
+        movement_confidence=midround_weight,
     )
     debug_dict = {
         "p_hat_base": base,
@@ -209,6 +263,7 @@ def resolve_p_hat(
         "midround_v2": midround_v2_result,
         "phase_unknown": phase_unknown,
         "explain": explain,
+        "contract_diagnostics": contract_diag,
     }
     if "reason" in q_intra_debug:
         debug_dict["reason"] = q_intra_debug["reason"]

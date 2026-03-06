@@ -57,6 +57,8 @@ class Config:
     market_side: Optional[str] = None  # e.g. "A" or "B" or team key
     # Midround V2 term weights: "current" | "learned_v1" | "learned_v2" | "learned_fit" (fitted suggested_coef)
     midround_v2_weight_profile: str = "current"
+    # Runner/source: when True, resolve emits contract_diagnostics (testing-mode behavioral invariants).
+    invariant_diagnostics: bool = False
 
 
 # --- Frame (normalized live snapshot from feed) ---

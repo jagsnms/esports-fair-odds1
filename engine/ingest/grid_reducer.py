@@ -33,6 +33,26 @@ def _parse_updated_at_to_unix(updated_at: str | None) -> float | None:
         return None
 
 
+# Canonical phase vocabulary for resolve_p_hat (align with engine/compute/resolve.py BUY_TIME_PHASES / IN_PROGRESS_PHASES).
+GRID_PHASE_BUY_TIME = "BUY_TIME"
+GRID_PHASE_FREEZETIME = "FREEZETIME"
+GRID_PHASE_IN_PROGRESS = "IN_PROGRESS"
+
+
+def _normalize_grid_phase(clock_type: str | None) -> str:
+    """Map GRID clock_type to canonical round_phase for resolve contract parity with BO3."""
+    if not clock_type or not isinstance(clock_type, str):
+        return GRID_PHASE_IN_PROGRESS
+    s = str(clock_type).strip().lower()
+    if not s or s in ("gameclock", "game_clock", "round", "bomb"):
+        return GRID_PHASE_IN_PROGRESS
+    if s in ("freezetime", "freeze_time", "warmup"):
+        return GRID_PHASE_FREEZETIME
+    if s in ("halftime", "half_time", "buy", "buytime", "buy_time"):
+        return GRID_PHASE_BUY_TIME
+    return GRID_PHASE_IN_PROGRESS
+
+
 def _normalize_series_fmt(format_val: Any) -> str:
     """Map GRID series format to Frame.series_fmt: bo1, bo3, bo5. Default DEFAULT_SERIES_FMT."""
     if format_val is None:
@@ -171,8 +191,8 @@ def reduce_event(state: GridState, event: dict[str, Any]) -> GridState:
         state.round_index = last_seg.get("sequenceNumber")
     else:
         state.round_index = None
-    state.round_phase = state.clock_type or "gameClock"
-    state.bomb_planted = state.round_phase and "bomb" in (state.round_phase or "").lower()
+    state.round_phase = _normalize_grid_phase(state.clock_type)
+    state.bomb_planted = bool(state.clock_type and "bomb" in (state.clock_type or "").lower())
     return state
 
 

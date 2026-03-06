@@ -1,0 +1,3 @@
+{"team_one": {"name": "Team A", "score": 0, "id": 1}, "team_two": {"name": "Team B", "score": 0, "id": 2}, "round_phase": "IN_PROGRESS", "round_time_remaining": 115000}
+{"team_one": {"name": "Team A", "score": 1, "id": 1}, "team_two": {"name": "Team B", "score": 0, "id": 2}, "round_phase": "IN_PROGRESS", "round_time_remaining": 90000}
+{"team_one": {"name": "Team A", "score": 1, "id": 1}, "team_two": {"name": "Team B", "score": 1, "id": 2}, "round_phase": "IN_PROGRESS", "round_time_remaining": 60000}
