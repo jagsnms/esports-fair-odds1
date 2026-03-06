@@ -83,7 +83,7 @@ def test_real_runner_raw_replay_tags_contract_mode_sync() -> None:
 async def test_real_runner_point_replay_tags_passthrough_mode() -> None:
     """
     Run one point-like payload through _tick_replay; assert runner-produced
-    derived.debug has replay_mode == "point_passthrough" (real runner output).
+    derived.debug is quarantine-tagged as non-canonical point replay output.
     """
     store = MemoryStore(max_history=100)
     config = Config(
@@ -127,6 +127,9 @@ async def test_real_runner_point_replay_tags_passthrough_mode() -> None:
     dbg = derived_obj.get("debug")
     assert isinstance(dbg, dict)
     assert dbg.get("replay_mode") == "point_passthrough", "point replay must tag runner output as point_passthrough"
+    assert dbg.get("replay_contract_class") == "non_canonical_point"
+    assert dbg.get("replay_quarantine_status") == "quarantined_tagged"
+    assert dbg.get("replay_quarantine_reason") == "point_payload_bypasses_canonical_pipeline"
     assert "explain" in dbg
 
 

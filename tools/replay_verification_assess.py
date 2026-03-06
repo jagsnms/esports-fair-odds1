@@ -111,6 +111,9 @@ async def run_assessment(replay_path: str) -> dict[str, Any]:
     total_points = len(captured)
     raw_contract = 0
     point_passthrough = 0
+    non_canonical_point_points = 0
+    replay_quarantine_status_counts: dict[str, int] = {}
+    unknown_replay_mode_points = 0
     structural_violations_total = 0
     behavioral_violations_total = 0
     invariant_violations_total = 0
@@ -127,6 +130,13 @@ async def run_assessment(replay_path: str) -> dict[str, Any]:
             raw_contract += 1
         elif replay_mode == "point_passthrough":
             point_passthrough += 1
+        else:
+            unknown_replay_mode_points += 1
+        if debug.get("replay_contract_class") == "non_canonical_point":
+            non_canonical_point_points += 1
+        qs = debug.get("replay_quarantine_status")
+        if isinstance(qs, str) and qs:
+            replay_quarantine_status_counts[qs] = replay_quarantine_status_counts.get(qs, 0) + 1
 
         cd = debug.get("contract_diagnostics")
         if isinstance(cd, dict):
@@ -163,6 +173,16 @@ async def run_assessment(replay_path: str) -> dict[str, Any]:
         "total_points_captured": total_points,
         "raw_contract_points": raw_contract,
         "point_passthrough_points": point_passthrough,
+        "unknown_replay_mode_points": unknown_replay_mode_points,
+        "non_canonical_point_points": non_canonical_point_points,
+        "replay_quarantine_status_counts": replay_quarantine_status_counts,
+        "replay_mode_usage_matrix": {
+            "raw_contract": raw_contract,
+            "point_passthrough": point_passthrough,
+            "non_canonical_point": non_canonical_point_points,
+            "unknown": unknown_replay_mode_points,
+            "total_points": total_points,
+        },
         "points_with_contract_diagnostics": points_with_contract_diagnostics,
         "structural_violations_total": structural_violations_total,
         "behavioral_violations_total": behavioral_violations_total,
