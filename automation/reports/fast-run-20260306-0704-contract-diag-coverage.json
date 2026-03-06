@@ -1,0 +1,84 @@
+{
+  "branch": "fast/run-20260306-0704-contract-diag-coverage",
+  "base_branch": "agent-base",
+  "lane": "fast",
+  "run_type": "maintenance",
+  "status": "implemented",
+  "selected_issue": {
+    "issue": "Missing contract diagnostics fields required for replay diagnosis",
+    "title": "contract_diagnostics lacked rail/p-hat/timer state fields needed by Bible diagnostics contract"
+  },
+  "why_it_outranked_alternatives": "Current evidence showed no unresolved rank 1-4 issues: canonical tests passed, replay assessment had no structural/behavioral/invariant violations, and no replay mismatch signal was present. The highest unresolved bounded issue was rank 5 (missing instrumentation): contract_diagnostics payloads omitted key rail/p-hat/timer state fields needed for diagnosis.",
+  "baseline_evidence": {
+    "branch": "agent-base",
+    "commit": "ca748b2b5364459ce597449bce4d7870b53fad6e",
+    "checks": [
+      {
+        "command": "python3 -m pytest -q",
+        "result": "361 passed in 7.71s"
+      },
+      {
+        "command": "python3 tools/replay_verification_assess.py",
+        "result": "structural_violations_total=0, behavioral_violations_total=0, invariant_violations_total=0"
+      },
+      {
+        "command": "contract diagnostics key probe on tools/fixtures/raw_replay_sample.jsonl",
+        "result": "missing_keys=['rail_low','rail_high','p_hat_prev','p_hat_final','round_time_remaining_s','is_bomb_planted']"
+      }
+    ]
+  },
+  "files_changed": [
+    {
+      "path": "engine/diagnostics/invariants.py",
+      "change": "Extended contract diagnostics payload with rail/p-hat/timer state fields."
+    },
+    {
+      "path": "engine/compute/resolve.py",
+      "change": "Passed frame timer state into contract diagnostics computation."
+    },
+    {
+      "path": "tests/unit/test_invariants_contract_diagnostics.py",
+      "change": "Updated diagnostics unit tests and added core-field assertions."
+    },
+    {
+      "path": "tests/unit/test_runner_source_contract_parity.py",
+      "change": "Added resolve-path assertions for emitted contract diagnostics fields."
+    },
+    {
+      "path": "automation/reports/fast-run-20260306-0704-contract-diag-coverage.md",
+      "change": "Added human-readable report for this run."
+    },
+    {
+      "path": "automation/reports/fast-run-20260306-0704-contract-diag-coverage.json",
+      "change": "Added machine-readable report artifact for this run."
+    }
+  ],
+  "validation_performed": [
+    {
+      "command": "python3 -m pytest -q tests/unit/test_invariants_contract_diagnostics.py tests/unit/test_runner_source_contract_parity.py",
+      "result": "5 passed"
+    },
+    {
+      "command": "python3 -m pytest -q",
+      "result": "362 passed in 7.28s"
+    },
+    {
+      "command": "python3 tools/replay_verification_assess.py",
+      "result": "structural_violations_total=0, behavioral_violations_total=0, invariant_violations_total=0"
+    },
+    {
+      "command": "contract diagnostics key probe on tools/fixtures/raw_replay_sample.jsonl",
+      "result": "missing_keys=[]"
+    }
+  ],
+  "before_after_evidence": {
+    "before": "contract_diagnostics lacked explicit rail/p-hat/timer fields; probe reported missing keys rail_low, rail_high, p_hat_prev, p_hat_final, round_time_remaining_s, is_bomb_planted.",
+    "after": "contract_diagnostics now includes rail/p-hat/timer fields; probe reports no missing keys and canonical tests/replay assessment stay green."
+  },
+  "unresolved_risks": [
+    "Replay fixture coverage for planted-bomb countdown semantics is still limited.",
+    "Replay summary script does not yet emit per-point diagnostics completeness metrics."
+  ],
+  "stop_reason": "Selected rank-5 instrumentation issue fixed and validated with minimal changes; additional analytics expansion would exceed bounded single-issue scope.",
+  "recommendation": "promote"
+}

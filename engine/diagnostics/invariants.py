@@ -108,6 +108,8 @@ def compute_phat_contract_diagnostics(
     p_hat_final: float,
     movement_confidence: float,
     phase: str | None,
+    round_time_remaining_s: float | None,
+    is_bomb_planted: bool | None,
     testing_mode: bool,
     eps: float = 1e-9,
 ) -> dict[str, Any]:
@@ -153,8 +155,14 @@ def compute_phat_contract_diagnostics(
     return {
         "contract_testing_mode": bool(testing_mode),
         "phase": phase,
+        "round_time_remaining_s": round_time_remaining_s,
+        "is_bomb_planted": is_bomb_planted,
         "q_intra_total": q_used,
+        "rail_low": float(rail_low),
+        "rail_high": float(rail_high),
         "target_p_hat": target_p_hat,
+        "p_hat_prev": float(p_hat_prev),
+        "p_hat_final": float(p_hat_final),
         "movement_confidence": confidence,
         "expected_p_hat_after_movement": expected_after_movement,
         "movement_gap_abs": movement_gap,

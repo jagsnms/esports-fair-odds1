@@ -92,6 +92,7 @@ def _build_explain(
 
 def _contract_diag(
     *,
+    frame: Frame,
     config: Config,
     phase: str | None,
     q_intra_debug: dict[str, Any],
@@ -106,6 +107,14 @@ def _contract_diag(
     if q_intra_total is None:
         q_intra_total = q_intra_debug.get("q_intra_round_win_a")
     testing_mode = bool(getattr(config, "contract_testing_mode", False))
+    round_time_remaining_s = getattr(frame, "round_time_remaining_s", None)
+    if not isinstance(round_time_remaining_s, (int, float)):
+        round_time_remaining_s = None
+    bomb_phase = getattr(frame, "bomb_phase_time_remaining", None)
+    is_bomb_planted = None
+    if isinstance(bomb_phase, dict) and "is_bomb_planted" in bomb_phase:
+        bp = bomb_phase.get("is_bomb_planted")
+        is_bomb_planted = bool(bp) if bp is not None else None
     return compute_phat_contract_diagnostics(
         q_intra_total=q_intra_total,
         rail_low=rail_low,
@@ -114,6 +123,8 @@ def _contract_diag(
         p_hat_final=p_hat_final,
         movement_confidence=movement_confidence,
         phase=phase,
+        round_time_remaining_s=float(round_time_remaining_s) if round_time_remaining_s is not None else None,
+        is_bomb_planted=is_bomb_planted,
         testing_mode=testing_mode,
     )
 
@@ -174,6 +185,7 @@ def resolve_p_hat(
             p_hat_final=p_hat_final,
         )
         contract_diag = _contract_diag(
+            frame=frame,
             config=config,
             phase=phase_upper,
             q_intra_debug=q_intra_debug,
@@ -239,6 +251,7 @@ def resolve_p_hat(
         p_hat_final=p_hat_final,
     )
     contract_diag = _contract_diag(
+        frame=frame,
         config=config,
         phase=phase_upper,
         q_intra_debug=q_intra_debug,
