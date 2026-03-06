@@ -2590,7 +2590,7 @@ class Runner:
         )
 
     async def _tick_replay_point_passthrough(self, payload: dict[str, Any], config: Config) -> bool:
-        """Point replay: append wire point as-is, no normalize/resolve; backfill explain if missing."""
+        """Point replay: append point as-is (legacy), but quarantine-tag it as non-canonical."""
         t = float(payload.get("t", 0) or 0)
         p = float(payload.get("p", 0.5) or 0.5)
         lo = float(payload.get("lo") or payload.get("series_low", 0) or 0)
@@ -2623,6 +2623,10 @@ class Runner:
             game_number_pt = int(_gn) if _gn is not None else None
         except (TypeError, ValueError):
             game_number_pt = None
+        quarantine_reason = "point_payload_bypasses_canonical_pipeline"
+        # Stage 1 quarantine mechanism: keep legacy point path for compatibility, but mark non-canonical outputs.
+        quarantine_status = "quarantined_tagged"
+        emit_quarantined_points = bool(getattr(config, "replay_emit_quarantined_points", True))
         state = await self._store.get_state()
         point = HistoryPoint(
             time=t,
@@ -2647,10 +2651,17 @@ class Runner:
             rail_low=rail_low,
             rail_high=rail_high,
             kappa=0.0,
-            debug={"explain": explain, "replay_mode": "point_passthrough"},
+            debug={
+                "explain": explain,
+                "replay_mode": "point_passthrough",
+                "replay_contract_class": "non_canonical_point",
+                "replay_quarantine_status": quarantine_status,
+                "replay_quarantine_reason": quarantine_reason,
+            },
         )
         await self._store.append_point(point, state, derived)
-        await self._broadcast_point(point)
+        if emit_quarantined_points:
+            await self._broadcast_point(point)
         self._replay_index += 1
         return True
 
