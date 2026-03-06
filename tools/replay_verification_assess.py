@@ -26,6 +26,13 @@ from backend.store.memory_store import MemoryStore
 from backend.services.runner import Runner, _is_raw_bo3_snapshot
 from engine.replay.bo3_jsonl import load_bo3_jsonl_entries, iter_payloads, load_generic_jsonl
 
+SCHEMA_VERSION = "replay_validation_summary.v1"
+
+
+def _fixture_class_from_path(replay_path_str: str) -> str:
+    """Derive deterministic fixture class from replay file stem."""
+    return Path(replay_path_str).stem
+
 
 def _load_replay_payloads(replay_path_str: str) -> list[dict[str, Any]]:
     """Load payloads: BO3 entries first, then generic JSONL. (4B: script-side load to unblock.)"""
@@ -147,6 +154,8 @@ async def run_assessment(replay_path: str) -> dict[str, Any]:
             rail_highs.append(float(rh))
 
     return {
+        "schema_version": SCHEMA_VERSION,
+        "fixture_class": _fixture_class_from_path(replay_path_str),
         "replay_path": replay_path_str,
         "replay_path_exists": path.exists(),
         "direct_load_payload_count": direct_load_count,
@@ -171,7 +180,8 @@ def main() -> None:
     default_path = str(ROOT / "tools" / "fixtures" / "raw_replay_sample.jsonl")
     replay_path = sys.argv[1] if len(sys.argv) > 1 else default_path
     summary = asyncio.run(run_assessment(replay_path))
-    print(json.dumps(summary, indent=2))
+    # Deterministic key ordering supports stable artifact diffs.
+    print(json.dumps(summary, indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":
