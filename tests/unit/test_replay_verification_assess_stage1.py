@@ -36,6 +36,8 @@ def _assert_schema_conformance(summary: dict, schema: dict) -> None:
             assert isinstance(value, bool), f"{key} must be boolean"
         elif expected_type == "object":
             assert isinstance(value, dict), f"{key} must be object"
+        elif expected_type == "array":
+            assert isinstance(value, list), f"{key} must be array"
         elif isinstance(expected_type, list):
             allowed = tuple(
                 float if t == "number" else type(None) if t == "null" else object
@@ -64,3 +66,11 @@ def test_replay_verification_assess_stage1_deterministic_and_schema_conformant()
     assert first["point_like_inputs_rejected"] == 0
     assert first["point_like_inputs_transition_passthrough"] == 0
     assert first["point_like_reject_reason_counts"] == {}
+    assert first["points_with_contract_diagnostics"] == first["total_points_captured"]
+    required_keys = first["contract_diagnostics_required_keys"]
+    assert isinstance(required_keys, list)
+    assert len(required_keys) > 0
+    for key in required_keys:
+        assert first["contract_diagnostics_key_presence_counts"][key] == first["points_with_contract_diagnostics"]
+        assert first["contract_diagnostics_missing_key_counts"][key] == 0
+        assert first["contract_diagnostics_key_presence_rates"][key] == 1.0

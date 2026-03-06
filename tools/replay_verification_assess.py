@@ -27,6 +27,21 @@ from backend.services.runner import Runner, _is_raw_bo3_snapshot
 from engine.replay.bo3_jsonl import load_bo3_jsonl_entries, iter_payloads, load_generic_jsonl
 
 SCHEMA_VERSION = "replay_validation_summary.v1"
+CONTRACT_DIAGNOSTIC_REQUIRED_KEYS = [
+    "q_intra_total",
+    "rail_low",
+    "rail_high",
+    "p_hat_prev",
+    "p_hat_final",
+    "round_time_remaining_s",
+    "is_bomb_planted",
+    "movement_confidence",
+    "target_p_hat",
+    "expected_p_hat_after_movement",
+    "movement_gap_abs",
+    "structural_violations",
+    "behavioral_violations",
+]
 
 
 def _fixture_class_from_path(replay_path_str: str) -> str:
@@ -124,6 +139,12 @@ async def run_assessment(replay_path: str) -> dict[str, Any]:
     behavioral_violations_total = 0
     invariant_violations_total = 0
     points_with_contract_diagnostics = 0
+    contract_diagnostics_key_presence_counts = {
+        key: 0 for key in CONTRACT_DIAGNOSTIC_REQUIRED_KEYS
+    }
+    contract_diagnostics_missing_key_counts = {
+        key: 0 for key in CONTRACT_DIAGNOSTIC_REQUIRED_KEYS
+    }
     p_hats: list[float] = []
     rail_lows: list[float] = []
     rail_highs: list[float] = []
@@ -147,6 +168,11 @@ async def run_assessment(replay_path: str) -> dict[str, Any]:
         cd = debug.get("contract_diagnostics")
         if isinstance(cd, dict):
             points_with_contract_diagnostics += 1
+            for key in CONTRACT_DIAGNOSTIC_REQUIRED_KEYS:
+                if key in cd:
+                    contract_diagnostics_key_presence_counts[key] += 1
+                else:
+                    contract_diagnostics_missing_key_counts[key] += 1
             sv = cd.get("structural_violations") or []
             bv = cd.get("behavioral_violations") or []
             if isinstance(sv, list):
@@ -168,6 +194,15 @@ async def run_assessment(replay_path: str) -> dict[str, Any]:
             rail_lows.append(float(rl))
         if isinstance(rh, (int, float)):
             rail_highs.append(float(rh))
+
+    contract_diagnostics_key_presence_rates = {
+        key: (
+            contract_diagnostics_key_presence_counts[key] / points_with_contract_diagnostics
+            if points_with_contract_diagnostics > 0
+            else 0.0
+        )
+        for key in CONTRACT_DIAGNOSTIC_REQUIRED_KEYS
+    }
 
     return {
         "schema_version": SCHEMA_VERSION,
@@ -200,6 +235,10 @@ async def run_assessment(replay_path: str) -> dict[str, Any]:
         "point_like_reject_reason_counts": replay_contract_status.get("point_like_reject_reason_counts", {}),
         "raw_mode_point_like_skipped": int(replay_contract_status.get("raw_mode_point_like_skipped", 0)),
         "points_with_contract_diagnostics": points_with_contract_diagnostics,
+        "contract_diagnostics_required_keys": CONTRACT_DIAGNOSTIC_REQUIRED_KEYS,
+        "contract_diagnostics_key_presence_counts": contract_diagnostics_key_presence_counts,
+        "contract_diagnostics_missing_key_counts": contract_diagnostics_missing_key_counts,
+        "contract_diagnostics_key_presence_rates": contract_diagnostics_key_presence_rates,
         "structural_violations_total": structural_violations_total,
         "behavioral_violations_total": behavioral_violations_total,
         "invariant_violations_total": invariant_violations_total,
