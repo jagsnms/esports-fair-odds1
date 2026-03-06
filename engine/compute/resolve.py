@@ -150,6 +150,15 @@ def _contract_diag(
         loadout_totals = None
     else:
         loadout_totals = (float(loadout_totals[0]), float(loadout_totals[1]))
+    cash_totals = getattr(frame, "cash_totals", None)
+    if (
+        not isinstance(cash_totals, (tuple, list))
+        or len(cash_totals) != 2
+        or not all(isinstance(v, (int, float)) for v in cash_totals)
+    ):
+        cash_totals = None
+    else:
+        cash_totals = (float(cash_totals[0]), float(cash_totals[1]))
     return compute_phat_contract_diagnostics(
         q_intra_total=q_intra_total,
         rail_low=rail_low,
@@ -163,6 +172,7 @@ def _contract_diag(
         alive_counts=alive_counts,
         hp_totals=hp_totals,
         loadout_totals=loadout_totals,
+        cash_totals=cash_totals,
         round_phase=round_phase,
         round_number=round_number,
         testing_mode=testing_mode,

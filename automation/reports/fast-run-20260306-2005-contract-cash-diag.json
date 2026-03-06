@@ -1,0 +1,91 @@
+{
+  "branch": "fast/run-20260306-2005-contract-cash-diag",
+  "base_branch": "agent-base",
+  "lane": "fast",
+  "run_type": "maintenance",
+  "status": "implemented",
+  "_status_allowed_values": [
+    "proposed",
+    "implemented",
+    "promoted",
+    "held"
+  ],
+  "selected_issue": {
+    "issue": "Missing economy totals in contract diagnostics payload and replay completeness gate",
+    "title": "cash_totals absent from contract diagnostics and replay required-key contract"
+  },
+  "why_it_outranked_alternatives": "Current evidence showed no unresolved rank 1-4 issues (structural violations 0, canonical tests passing, no replay mismatch signal, no high-frequency invariant failures). The highest unresolved bounded issue was rank 5 instrumentation: Bible-aligned diagnostic round-state evidence included no cash_totals economy field.",
+  "baseline_evidence": {
+    "branch": "agent-base",
+    "commit": "3a871b09bf26f9afefec73fb2fdad16118138ea8",
+    "checks": [
+      "python3 -m pytest -q -> 379 passed in 7.88s",
+      "python3 tools/replay_verification_assess.py -> structural_violations_total=0, behavioral_violations_total=0, invariant_violations_total=0",
+      "probe: cash_totals_in_contract_diagnostics=False",
+      "probe: cash_totals_required_in_replay_assess=False"
+    ]
+  },
+  "files_changed": [
+    {
+      "path": "engine/diagnostics/invariants.py",
+      "change": "Added cash_totals to compute_phat_contract_diagnostics payload contract."
+    },
+    {
+      "path": "engine/compute/resolve.py",
+      "change": "Wired validated Frame.cash_totals into contract diagnostics emission."
+    },
+    {
+      "path": "tools/replay_verification_assess.py",
+      "change": "Added cash_totals to required contract diagnostics completeness keys."
+    },
+    {
+      "path": "tests/unit/test_invariants_contract_diagnostics.py",
+      "change": "Updated unit diagnostics calls and assertions to include cash_totals."
+    },
+    {
+      "path": "tests/unit/test_runner_source_contract_parity.py",
+      "change": "Added contract diagnostics parity assertion for cash_totals."
+    },
+    {
+      "path": "automation/reports/fast-run-20260306-2005-contract-cash-diag.md",
+      "change": "Added human-readable promotion report."
+    },
+    {
+      "path": "automation/reports/fast-run-20260306-2005-contract-cash-diag.json",
+      "change": "Added machine-readable promotion report."
+    }
+  ],
+  "validation_performed": [
+    {
+      "command": "python3 -m pytest -q tests/unit/test_invariants_contract_diagnostics.py tests/unit/test_runner_source_contract_parity.py tests/unit/test_replay_verification_assess_stage1.py",
+      "result": "6 passed"
+    },
+    {
+      "command": "python3 tools/replay_verification_assess.py",
+      "result": "cash_totals key required and present with presence rate 1.0, missing count 0"
+    },
+    {
+      "command": "python3 -m pytest -q",
+      "result": "379 passed in 7.39s"
+    },
+    {
+      "command": "probe script (resolve_p_hat + run_assessment)",
+      "result": "cash_totals_in_contract_diagnostics=True; cash_totals_required_in_replay_assess=True; cash_totals_presence_rate=1.0"
+    }
+  ],
+  "before_after_evidence": {
+    "before": "contract_diagnostics and replay required-key contract omitted cash_totals economy evidence.",
+    "after": "contract_diagnostics emits cash_totals and replay summary enforces/reports its completeness."
+  },
+  "unresolved_risks": [
+    "Presence checks do not guarantee semantic correctness of upstream economy values.",
+    "Small replay fixtures may not expose all provider-specific economy edge cases."
+  ],
+  "stop_reason": "Selected rank-5 instrumentation gap fixed with minimal bounded change set and repeated targeted + canonical validation.",
+  "recommendation": "promote",
+  "_recommendation_allowed_values": [
+    "promote",
+    "hold",
+    "discard"
+  ]
+}

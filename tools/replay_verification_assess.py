@@ -31,6 +31,7 @@ CONTRACT_DIAGNOSTIC_REQUIRED_KEYS = [
     "alive_counts",
     "hp_totals",
     "loadout_totals",
+    "cash_totals",
     "round_phase",
     "round_number",
     "q_intra_total",
