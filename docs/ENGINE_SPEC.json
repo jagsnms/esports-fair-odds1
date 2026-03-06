@@ -1,0 +1,359 @@
+{
+  "meta": {
+    "name": "CS2 Series Probability Engine Spec",
+    "version": "0.1.0",
+    "generated_utc": "2026-03-06T00:34:01.914632Z",
+    "source": "ENGINE_BIBLE_WITH_TOC_CH1-10.md",
+    "notes": [
+      "Machine-readable contract distilled from the Engine Bible.",
+      "This spec constrains automation agents and supports automated validation."
+    ]
+  },
+  "definitions": {
+    "PHAT": {
+      "name": "p_hat",
+      "meaning": "P(Team A wins the series | current game state)",
+      "range": [
+        0.0,
+        1.0
+      ]
+    },
+    "q": {
+      "name": "q_round_win",
+      "meaning": "P(Team A wins the current round | current round state)",
+      "range": [
+        0.0,
+        1.0
+      ]
+    },
+    "rails": {
+      "rail_high": "Series probability if Team A wins the round (conditional endpoint)",
+      "rail_low": "Series probability if Team B wins the round (conditional endpoint)"
+    }
+  },
+  "core_architecture": {
+    "target_variable": "PHAT",
+    "core_equation": {
+      "type": "coupling",
+      "expression": "target_p_hat = rail_low + q * (rail_high - rail_low)",
+      "must_hold_structurally": true,
+      "notes": [
+        "PHAT is derived through q and rails; direct additive feature updates to PHAT are forbidden.",
+        "PHAT movement toward target_p_hat is governed by movement dynamics (confidence/inertia)."
+      ]
+    },
+    "calculation_flow": [
+      "ingest_normalized_round_state",
+      "compute_combat_capability",
+      "apply_objective_state_modifiers",
+      "apply_timer_pressure_scaler",
+      "compute_q_round_win",
+      "compute_rails_tick_dynamic",
+      "compute_target_p_hat_from_q_and_rails",
+      "apply_movement_confidence_inertia_update",
+      "emit_outputs_and_diagnostics"
+    ]
+  },
+  "signal_model": {
+    "groups": {
+      "combat_strength": {
+        "inputs": [
+          "players_alive",
+          "hp_state",
+          "loadout_value"
+        ],
+        "notes": [
+          "Represents effective fighting capability.",
+          "Relative combat advantage drives q before objective/timer adjustments."
+        ]
+      },
+      "objective_state": {
+        "inputs": [
+          "bomb_planted",
+          "bomb_timer_remaining"
+        ],
+        "notes": [
+          "Objective state modifies interpretation of combat state.",
+          "Bomb plant can be strategic for money; model should not treat plant as universally dominant."
+        ]
+      },
+      "timer_pressure": {
+        "inputs": [
+          "round_time_remaining",
+          "bomb_timer_remaining",
+          "bomb_planted"
+        ],
+        "notes": [
+          "Timer acts as a scaler that amplifies advantage as time approaches zero.",
+          "Pre-plant pressure favors CT; post-plant pressure favors T."
+        ],
+        "curve_intent": {
+          "shape": "accelerating_non_linear",
+          "interpretation": "Differences near 0 seconds matter far more than differences early in the timer."
+        }
+      }
+    },
+    "hierarchy_rule": {
+      "fixed_groups": [
+        "combat_strength",
+        "objective_state",
+        "timer_pressure"
+      ],
+      "calibration_may_tune_within_groups": true,
+      "calibration_may_reweight_between_groups": false,
+      "future_extension_allowed": true,
+      "future_extension_note": "Group hierarchy is fixed for now; may be relaxed later if justified by testing."
+    }
+  },
+  "rails_contract": {
+    "dynamic": true,
+    "recomputed_each_tick": true,
+    "meaning": "Conditional series endpoints if the round resolves immediately, with endpoints varying based on carryover-relevant context (envelope concept).",
+    "dependency_policy": {
+      "allowed_inputs": [
+        "teamA_cash_total",
+        "teamB_cash_total",
+        "teamA_loadout_value",
+        "teamB_loadout_value",
+        "loss_bonus_state",
+        "saved_weapons_value_teamA",
+        "saved_weapons_value_teamB",
+        "persistent_equipment_value"
+      ],
+      "forbidden_inputs": [
+        "hp_remaining",
+        "positioning_or_map_control",
+        "utility_remaining_transient",
+        "round_time_remaining",
+        "bomb_planted_state_as_transient",
+        "time_remaining_when_round_ended"
+      ],
+      "notes": [
+        "Only 'quality of win' signals that persist across the round boundary may shape rail endpoints.",
+        "Opponent economy and carryover outlook are allowed and important."
+      ]
+    }
+  },
+  "movement_model": {
+    "principle": "PHAT moves toward target_p_hat, not instant jumps.",
+    "update_form": {
+      "expression": "p_hat_next = p_hat + confidence * (target_p_hat - p_hat)",
+      "confidence_range": [
+        0.0,
+        1.0
+      ],
+      "confidence_behavior": "increases_as_round_approaches_resolution",
+      "notes": [
+        "Early round: low confidence (slow movement).",
+        "Late round: high confidence (fast convergence).",
+        "Avoid cosmetic smoothing that hides diagnostic issues during testing."
+      ]
+    },
+    "optional_safety": {
+      "production_display_clamp_allowed": true,
+      "testing_clamp_forbidden": true,
+      "must_emit_diagnostics_when_triggered": true,
+      "explicitly_configurable": true
+    }
+  },
+  "invariants": {
+    "structural_hard": [
+      {
+        "id": "INV_STRUCT_Q_RANGE",
+        "expr": "0 <= q <= 1",
+        "severity": "fail"
+      },
+      {
+        "id": "INV_STRUCT_RAIL_ORDER",
+        "expr": "rail_low <= rail_high",
+        "severity": "fail"
+      },
+      {
+        "id": "INV_STRUCT_SERIES_DECIDED",
+        "expr": "series_decided -> p_hat in {0,1}",
+        "severity": "fail"
+      }
+    ],
+    "behavioral_diagnostic": [
+      {
+        "id": "INV_BEHAV_RAIL_CONTAIN",
+        "expr": "rail_low <= p_hat <= rail_high",
+        "severity": "warn",
+        "policy": "do_not_clamp_in_testing"
+      },
+      {
+        "id": "INV_BEHAV_CONVERGENCE_Q1",
+        "expr": "q -> 1 implies p_hat -> rail_high",
+        "severity": "warn"
+      },
+      {
+        "id": "INV_BEHAV_CONVERGENCE_Q0",
+        "expr": "q -> 0 implies p_hat -> rail_low",
+        "severity": "warn"
+      },
+      {
+        "id": "INV_BEHAV_TIMER_DIRECTION",
+        "expr": "timer pressure direction correct pre/post plant",
+        "severity": "warn"
+      },
+      {
+        "id": "INV_BEHAV_MONOTONIC_COMBAT",
+        "expr": "monotonic combat improvements should not reduce q",
+        "severity": "warn"
+      }
+    ],
+    "diagnostics_payload_required_fields": [
+      "round_state_vector",
+      "q",
+      "rail_low",
+      "rail_high",
+      "target_p_hat",
+      "p_hat",
+      "movement_confidence_params",
+      "timer_state",
+      "violation_reason_codes"
+    ]
+  },
+  "calibration_contract": {
+    "allowed": [
+      "tune_feature_weights",
+      "tune_curve_parameters",
+      "tune_movement_confidence_parameters",
+      "tune_interaction_coefficients_within_fixed_signal_groups"
+    ],
+    "forbidden": [
+      "change_core_equation_or_pipeline",
+      "change_rail_philosophy_carryover_only_rule",
+      "change_invariants_definitions",
+      "bypass_q_and_rails_to_update_p_hat"
+    ],
+    "objectives": [
+      "probability_accuracy_reliability",
+      "stability_under_small_state_changes",
+      "interpretability"
+    ],
+    "required_metrics": [
+      "brier_score",
+      "log_loss",
+      "reliability_curve_bins"
+    ],
+    "data_collection_autonomy": {
+      "allowed": true,
+      "rule": "Calibration system may generate data-collection-only scripts to acquire missing fields required for analysis.",
+      "forbidden": "Data collection scripts must not alter engine behavior."
+    },
+    "reporting_required": [
+      "parameters_changed",
+      "reason_for_change",
+      "datasets_used",
+      "before_after_metrics",
+      "invariant_validation_results"
+    ]
+  },
+  "testing_framework": {
+    "required_suites": [
+      "structural_tests",
+      "invariant_tests",
+      "replay_validation",
+      "scenario_stress_tests",
+      "simulation_tests"
+    ],
+    "must_pass_before_push": true,
+    "regression_policy": {
+      "compare_against_baseline": true,
+      "track": [
+        "p_hat_trajectories",
+        "q_outputs",
+        "rail_endpoints",
+        "violation_rates",
+        "calibration_metrics"
+      ]
+    },
+    "simulation": {
+      "required": true,
+      "phases": [
+        {
+          "name": "synthetic_state_generator",
+          "goal": "coverage_and_stress",
+          "state_sequences": [
+            "players_alive trajectories (5->4->3->...)",
+            "loadout regimes (eco/half/full)",
+            "bomb planted transitions + countdown",
+            "timer pressure ramp near zero",
+            "carryover context transitions (saved guns, economy swings)"
+          ],
+          "reproducible_seeded_rng": true
+        },
+        {
+          "name": "policy_driven_simulation",
+          "goal": "more_realistic_distributions",
+          "notes": [
+            "Future: add agent policies for executes/retakes/clutches/eco patterns."
+          ]
+        }
+      ]
+    }
+  },
+  "automation_contract": {
+    "scope": "sandbox_only_full_autonomy",
+    "branch_policy": {
+      "allowed_prefixes": [
+        "automation/"
+      ],
+      "forbidden_branches": [
+        "main",
+        "master"
+      ],
+      "no_direct_push_to_main": true
+    },
+    "merge_policy": {
+      "no_self_merge": true,
+      "requires_human_review": true
+    },
+    "campaign_model": {
+      "mode": "multi_target_improvement_campaign",
+      "loop": [
+        "measure_baseline",
+        "select_highest_value_target",
+        "iterate_until_plateau",
+        "re_rank_targets",
+        "continue_until_budget_or_plateau_all"
+      ],
+      "resume_between_runs": true,
+      "resume_inputs": [
+        "prior_run_reports",
+        "open_pr_state",
+        "last_baseline_metrics"
+      ]
+    },
+    "budgeting": {
+      "required": true,
+      "recommended_limits": {
+        "max_wall_clock_minutes": 90,
+        "max_iterations_per_run": 30,
+        "max_commits_per_run": 10
+      }
+    },
+    "loop_prevention": {
+      "required": true,
+      "acceptable_strategies": [
+        "exclude_automation_branches_from_triggers",
+        "schedule_or_manual_trigger_only",
+        "commit_message_guard",
+        "state_guard_last_processed_sha"
+      ]
+    },
+    "required_outputs": {
+      "promotion_report": [
+        "targets_selected_and_rationale",
+        "changes_made_files_summary",
+        "tests_run_results",
+        "metrics_before_after",
+        "diagnostic_examples",
+        "what_remains_next_targets",
+        "plateau_assessment"
+      ],
+      "must_reference_bible_sections": true
+    }
+  }
+}
