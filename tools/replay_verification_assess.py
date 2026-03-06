@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
 import sys
 from dataclasses import asdict
@@ -63,7 +64,22 @@ def _load_replay_payloads(replay_path_str: str) -> list[dict[str, Any]]:
     return payloads
 
 
-async def run_assessment(replay_path: str) -> dict[str, Any]:
+def _normalize_prematch_map(value: float | None) -> float | None:
+    """Normalize optional prematch_map for replay assessment config."""
+    if value is None:
+        return None
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(v):
+        return None
+    if v <= 0.0 or v >= 1.0:
+        return None
+    return v
+
+
+async def run_assessment(replay_path: str, *, prematch_map: float | None = None) -> dict[str, Any]:
     """Run replay with invariant_diagnostics=True; capture each appended point's derived; return metrics."""
     os.chdir(ROOT)
     path = Path(replay_path)
@@ -110,11 +126,13 @@ async def run_assessment(replay_path: str) -> dict[str, Any]:
         else ("point" if payloads else None)
     )
 
+    prematch_map_value = _normalize_prematch_map(prematch_map)
     config = Config(
         source="REPLAY",
         replay_path=replay_path_str,
         replay_loop=False,
         invariant_diagnostics=True,
+        prematch_map=prematch_map_value,
     )
     max_ticks = 5000
     max_points_cap = 500
@@ -234,6 +252,7 @@ async def run_assessment(replay_path: str) -> dict[str, Any]:
         "fixture_class": _fixture_class_from_path(replay_path_str),
         "replay_path": replay_path_str,
         "replay_path_exists": path.exists(),
+        "assessment_prematch_map": prematch_map_value,
         "replay_contract_policy": getattr(config, "replay_contract_policy", "reject_point_like"),
         "replay_point_transition_enabled": bool(getattr(config, "replay_point_transition_enabled", False)),
         "replay_point_transition_sunset_epoch": getattr(config, "replay_point_transition_sunset_epoch", None),
@@ -283,8 +302,30 @@ async def run_assessment(replay_path: str) -> dict[str, Any]:
 def main() -> None:
     # 4C: default to raw replay fixture when no arg (for raw-contract verification)
     default_path = str(ROOT / "tools" / "fixtures" / "raw_replay_sample.jsonl")
-    replay_path = sys.argv[1] if len(sys.argv) > 1 else default_path
-    summary = asyncio.run(run_assessment(replay_path))
+    replay_path = default_path
+    prematch_map: float | None = None
+    args = sys.argv[1:]
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == "--prematch-map" and (i + 1) < len(args):
+            try:
+                prematch_map = float(args[i + 1])
+            except (TypeError, ValueError):
+                prematch_map = None
+            i += 2
+            continue
+        if arg.startswith("--prematch-map="):
+            raw = arg.split("=", 1)[1]
+            try:
+                prematch_map = float(raw)
+            except (TypeError, ValueError):
+                prematch_map = None
+            i += 1
+            continue
+        replay_path = arg
+        i += 1
+    summary = asyncio.run(run_assessment(replay_path, prematch_map=prematch_map))
     # Deterministic key ordering supports stable artifact diffs.
     print(json.dumps(summary, indent=2, sort_keys=True))
 
