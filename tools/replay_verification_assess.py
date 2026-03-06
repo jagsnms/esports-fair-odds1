@@ -107,6 +107,12 @@ async def run_assessment(replay_path: str) -> dict[str, Any]:
             break
         await runner._tick_replay(config)
 
+    replay_contract_status = (
+        runner.get_replay_contract_status()
+        if hasattr(runner, "get_replay_contract_status")
+        else {}
+    )
+
     # Aggregate metrics
     total_points = len(captured)
     raw_contract = 0
@@ -168,6 +174,9 @@ async def run_assessment(replay_path: str) -> dict[str, Any]:
         "fixture_class": _fixture_class_from_path(replay_path_str),
         "replay_path": replay_path_str,
         "replay_path_exists": path.exists(),
+        "replay_contract_policy": getattr(config, "replay_contract_policy", "reject_point_like"),
+        "replay_point_transition_enabled": bool(getattr(config, "replay_point_transition_enabled", False)),
+        "replay_point_transition_sunset_epoch": getattr(config, "replay_point_transition_sunset_epoch", None),
         "direct_load_payload_count": direct_load_count,
         "replay_payload_count_loaded": len(runner._replay_payloads),
         "total_points_captured": total_points,
@@ -183,6 +192,13 @@ async def run_assessment(replay_path: str) -> dict[str, Any]:
             "unknown": unknown_replay_mode_points,
             "total_points": total_points,
         },
+        "point_like_inputs_seen": int(replay_contract_status.get("point_like_inputs_seen", 0)),
+        "point_like_inputs_rejected": int(replay_contract_status.get("point_like_inputs_rejected", 0)),
+        "point_like_inputs_transition_passthrough": int(
+            replay_contract_status.get("point_like_inputs_transition_passthrough", 0)
+        ),
+        "point_like_reject_reason_counts": replay_contract_status.get("point_like_reject_reason_counts", {}),
+        "raw_mode_point_like_skipped": int(replay_contract_status.get("raw_mode_point_like_skipped", 0)),
         "points_with_contract_diagnostics": points_with_contract_diagnostics,
         "structural_violations_total": structural_violations_total,
         "behavioral_violations_total": behavioral_violations_total,

@@ -32,6 +32,16 @@ def _assert_schema_conformance(summary: dict, schema: dict) -> None:
                 assert len(value) >= int(spec["minLength"]), f"{key} below minLength"
             if "const" in spec:
                 assert value == spec["const"], f"{key} must equal {spec['const']}"
+        elif expected_type == "boolean":
+            assert isinstance(value, bool), f"{key} must be boolean"
+        elif expected_type == "object":
+            assert isinstance(value, dict), f"{key} must be object"
+        elif isinstance(expected_type, list):
+            allowed = tuple(
+                float if t == "number" else type(None) if t == "null" else object
+                for t in expected_type
+            )
+            assert any(isinstance(value, t) for t in allowed), f"{key} must match one of {expected_type}"
 
 
 def test_replay_verification_assess_stage1_deterministic_and_schema_conformant() -> None:
@@ -45,6 +55,12 @@ def test_replay_verification_assess_stage1_deterministic_and_schema_conformant()
 
     assert first == second, "stage1 replay summary must be deterministic for same fixture"
     assert first["fixture_class"] == "replay_multimatch_small_v1"
+    assert first["replay_contract_policy"] == "reject_point_like"
+    assert first["replay_point_transition_enabled"] is False
     assert first["direct_load_payload_count"] == 6
     assert first["raw_contract_points"] == first["total_points_captured"]
     assert first["point_passthrough_points"] == 0
+    assert first["point_like_inputs_seen"] == 0
+    assert first["point_like_inputs_rejected"] == 0
+    assert first["point_like_inputs_transition_passthrough"] == 0
+    assert first["point_like_reject_reason_counts"] == {}

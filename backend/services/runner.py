@@ -34,6 +34,16 @@ _RUNNER_POINT_EMIT_DEBUG = os.environ.get("RUNNER_POINT_EMIT_DEBUG", "0").strip(
 _POINT_JUMP_THRESHOLD = float(os.environ.get("POINT_JUMP_THRESHOLD", "0.25"))
 BO3_RATE_DEBUG = os.environ.get("BO3_RATE_DEBUG", "") == "1"
 
+REPLAY_CONTRACT_POLICY_REJECT_POINT_LIKE = "reject_point_like"
+
+REPLAY_POINT_POLICY_DECISION_REJECT = "reject"
+REPLAY_POINT_POLICY_DECISION_TRANSITION_PASSTHROUGH = "transition_passthrough"
+
+REPLAY_POINT_REJECT_REASON_DEFAULT_POLICY = "POINT_REPLAY_REJECTED_DEFAULT_POLICY"
+REPLAY_POINT_REJECT_REASON_UNSUPPORTED_POLICY = "POINT_REPLAY_REJECTED_UNSUPPORTED_POLICY"
+REPLAY_POINT_REJECT_REASON_TRANSITION_SUNSET_MISSING = "POINT_REPLAY_REJECTED_TRANSITION_SUNSET_MISSING"
+REPLAY_POINT_REJECT_REASON_TRANSITION_SUNSET_EXPIRED = "POINT_REPLAY_REJECTED_TRANSITION_SUNSET_EXPIRED"
+
 
 def _minimal_explain(
     phase: str,
@@ -620,6 +630,12 @@ class Runner:
         self._replay_match_id: int | None = None
         self._replay_format: str | None = None  # "raw" | "point" from first payload
         self._replay_skipped_point_like_count: int = 0  # warning counter when in raw mode
+        self._replay_point_inputs_seen: int = 0
+        self._replay_point_rejected_count: int = 0
+        self._replay_point_transition_passthrough_count: int = 0
+        self._replay_point_reject_reason_counts: dict[str, int] = {}
+        self._replay_last_point_policy_decision: str | None = None
+        self._replay_last_point_policy_reason: str | None = None
         # Market delay buffer + poll throttle
         from backend.services.market_buffer import MarketDelayBuffer
         self._market_buffer = MarketDelayBuffer(maxlen=5000)
@@ -884,6 +900,77 @@ class Runner:
         if not self._replay_payloads:
             return None
         return {"index": self._replay_index, "total": len(self._replay_payloads)}
+
+    def get_replay_contract_status(self) -> dict[str, Any]:
+        """Return replay contract-gate counters and last decision metadata."""
+        return {
+            "point_like_inputs_seen": self._replay_point_inputs_seen,
+            "point_like_inputs_rejected": self._replay_point_rejected_count,
+            "point_like_inputs_transition_passthrough": self._replay_point_transition_passthrough_count,
+            "point_like_reject_reason_counts": dict(self._replay_point_reject_reason_counts),
+            "last_point_like_policy_decision": self._replay_last_point_policy_decision,
+            "last_point_like_policy_reason": self._replay_last_point_policy_reason,
+            "raw_mode_point_like_skipped": self._replay_skipped_point_like_count,
+        }
+
+    def _coerce_replay_contract_policy(self, config: Config) -> str:
+        """Normalize replay contract policy. Stage 1 supports reject_point_like only."""
+        raw = getattr(config, "replay_contract_policy", REPLAY_CONTRACT_POLICY_REJECT_POINT_LIKE)
+        policy = str(raw).strip().lower() if raw is not None else REPLAY_CONTRACT_POLICY_REJECT_POINT_LIKE
+        if policy != REPLAY_CONTRACT_POLICY_REJECT_POINT_LIKE:
+            return REPLAY_CONTRACT_POLICY_REJECT_POINT_LIKE
+        return policy
+
+    def _coerce_replay_transition_sunset_epoch(self, config: Config) -> float | None:
+        raw = getattr(config, "replay_point_transition_sunset_epoch", None)
+        if raw in (None, ""):
+            return None
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return None
+
+    def _decide_point_like_replay_policy(self, config: Config) -> tuple[bool, str | None, dict[str, Any]]:
+        """
+        Stage 1 gate:
+        - default reject_point_like
+        - optional transition passthrough only when explicit and sunset-bound.
+        """
+        policy = self._coerce_replay_contract_policy(config)
+        transition_enabled = bool(getattr(config, "replay_point_transition_enabled", False))
+        sunset_epoch = self._coerce_replay_transition_sunset_epoch(config)
+        now = time.time()
+
+        policy_meta: dict[str, Any] = {
+            "replay_contract_policy": policy,
+            "replay_point_transition_enabled": transition_enabled,
+            "replay_point_transition_sunset_epoch": sunset_epoch,
+            "replay_point_transition_window_valid": bool(transition_enabled and sunset_epoch is not None and sunset_epoch > now),
+        }
+
+        if policy != REPLAY_CONTRACT_POLICY_REJECT_POINT_LIKE:
+            return (False, REPLAY_POINT_REJECT_REASON_UNSUPPORTED_POLICY, policy_meta)
+        if not transition_enabled:
+            return (False, REPLAY_POINT_REJECT_REASON_DEFAULT_POLICY, policy_meta)
+        if sunset_epoch is None:
+            return (False, REPLAY_POINT_REJECT_REASON_TRANSITION_SUNSET_MISSING, policy_meta)
+        if sunset_epoch <= now:
+            return (False, REPLAY_POINT_REJECT_REASON_TRANSITION_SUNSET_EXPIRED, policy_meta)
+        return (True, None, policy_meta)
+
+    def _record_point_like_policy_decision(self, allow_transition_passthrough: bool, reason_code: str | None) -> None:
+        """Update deterministic policy counters for replay contract observability."""
+        self._replay_point_inputs_seen += 1
+        if allow_transition_passthrough:
+            self._replay_point_transition_passthrough_count += 1
+            self._replay_last_point_policy_decision = REPLAY_POINT_POLICY_DECISION_TRANSITION_PASSTHROUGH
+            self._replay_last_point_policy_reason = None
+            return
+        self._replay_point_rejected_count += 1
+        code = reason_code or REPLAY_POINT_REJECT_REASON_DEFAULT_POLICY
+        self._replay_point_reject_reason_counts[code] = self._replay_point_reject_reason_counts.get(code, 0) + 1
+        self._replay_last_point_policy_decision = REPLAY_POINT_POLICY_DECISION_REJECT
+        self._replay_last_point_policy_reason = code
 
     async def _maybe_poll_market(self, config: Config) -> None:
         """If market_enabled and kalshi_ticker and poll interval elapsed, fetch and push to buffer."""
@@ -2589,8 +2676,13 @@ class Runner:
             write_to_store=is_primary,
         )
 
-    async def _tick_replay_point_passthrough(self, payload: dict[str, Any], config: Config) -> bool:
-        """Point replay: append point as-is (legacy), but quarantine-tag it as non-canonical."""
+    async def _tick_replay_point_passthrough(
+        self,
+        payload: dict[str, Any],
+        config: Config,
+        policy_meta: dict[str, Any] | None = None,
+    ) -> bool:
+        """Point replay transition mode: append point as-is, explicitly tagged as non-canonical."""
         t = float(payload.get("t", 0) or 0)
         p = float(payload.get("p", 0.5) or 0.5)
         lo = float(payload.get("lo") or payload.get("series_low", 0) or 0)
@@ -2624,8 +2716,7 @@ class Runner:
         except (TypeError, ValueError):
             game_number_pt = None
         quarantine_reason = "point_payload_bypasses_canonical_pipeline"
-        # Stage 1 quarantine mechanism: keep legacy point path for compatibility, but mark non-canonical outputs.
-        quarantine_status = "quarantined_tagged"
+        quarantine_status = "transition_passthrough_allowed"
         emit_quarantined_points = bool(getattr(config, "replay_emit_quarantined_points", True))
         state = await self._store.get_state()
         point = HistoryPoint(
@@ -2657,6 +2748,8 @@ class Runner:
                 "replay_contract_class": "non_canonical_point",
                 "replay_quarantine_status": quarantine_status,
                 "replay_quarantine_reason": quarantine_reason,
+                "replay_point_policy_decision": REPLAY_POINT_POLICY_DECISION_TRANSITION_PASSTHROUGH,
+                **(policy_meta or {}),
             },
         )
         await self._store.append_point(point, state, derived)
@@ -2694,6 +2787,12 @@ class Runner:
             self._replay_path = path
             self._replay_match_id = match_id
             self._replay_skipped_point_like_count = 0
+            self._replay_point_inputs_seen = 0
+            self._replay_point_rejected_count = 0
+            self._replay_point_transition_passthrough_count = 0
+            self._replay_point_reject_reason_counts = {}
+            self._replay_last_point_policy_decision = None
+            self._replay_last_point_policy_reason = None
             if self._replay_payloads:
                 self._replay_format = "raw" if _is_raw_bo3_snapshot(self._replay_payloads[0]) else "point"
             else:
@@ -2773,9 +2872,24 @@ class Runner:
             self._replay_index += 1
             return True
 
-        # Point replay: passthrough, no normalize/resolve; backfill explain if missing
+        # Point replay: contract gate (default reject; optional explicit transition passthrough only).
         if self._replay_format == "point":
-            return await self._tick_replay_point_passthrough(payload, config)
+            allow_transition_passthrough, reason_code, policy_meta = self._decide_point_like_replay_policy(config)
+            self._record_point_like_policy_decision(allow_transition_passthrough, reason_code)
+            if not allow_transition_passthrough:
+                logger.warning(
+                    "replay point-like payload rejected by contract gate",
+                    extra={
+                        "index": self._replay_index,
+                        "reason_code": reason_code,
+                        "replay_contract_policy": policy_meta.get("replay_contract_policy"),
+                        "transition_enabled": policy_meta.get("replay_point_transition_enabled"),
+                        "transition_sunset_epoch": policy_meta.get("replay_point_transition_sunset_epoch"),
+                    },
+                )
+                self._replay_index += 1
+                return True
+            return await self._tick_replay_point_passthrough(payload, config, policy_meta=policy_meta)
 
         # Raw snapshot replay: full pipeline
         team_a_is_team_one = getattr(config, "team_a_is_team_one", True)

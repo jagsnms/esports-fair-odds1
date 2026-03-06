@@ -8,11 +8,17 @@
     "schema_version",
     "fixture_class",
     "replay_path",
+    "replay_contract_policy",
+    "replay_point_transition_enabled",
     "direct_load_payload_count",
     "replay_payload_count_loaded",
     "total_points_captured",
     "raw_contract_points",
     "point_passthrough_points",
+    "point_like_inputs_seen",
+    "point_like_inputs_rejected",
+    "point_like_inputs_transition_passthrough",
+    "point_like_reject_reason_counts",
     "points_with_contract_diagnostics",
     "structural_violations_total",
     "behavioral_violations_total",
@@ -31,6 +37,19 @@
       "type": "string",
       "minLength": 1
     },
+    "replay_contract_policy": {
+      "type": "string",
+      "const": "reject_point_like"
+    },
+    "replay_point_transition_enabled": {
+      "type": "boolean"
+    },
+    "replay_point_transition_sunset_epoch": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
     "direct_load_payload_count": {
       "type": "integer",
       "minimum": 0
@@ -48,6 +67,29 @@
       "minimum": 0
     },
     "point_passthrough_points": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "point_like_inputs_seen": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "point_like_inputs_rejected": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "point_like_inputs_transition_passthrough": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "point_like_reject_reason_counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "raw_mode_point_like_skipped": {
       "type": "integer",
       "minimum": 0
     },

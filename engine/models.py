@@ -47,6 +47,11 @@ class Config:
     replay_loop: bool = True
     replay_speed: float = 1.0
     replay_index: int = 0  # runner-owned cursor
+    # Replay contract gate (Stage 1): canonical replay defaults to rejecting point-like payloads.
+    replay_contract_policy: str = "reject_point_like"
+    # Optional temporary transition mode: explicit opt-in and sunset-bound.
+    replay_point_transition_enabled: bool = False
+    replay_point_transition_sunset_epoch: Optional[float] = None
     context_widening_enabled: bool = False  # gate context_risk widening + width cap (default OFF)
     # Kalshi market
     market_enabled: bool = True

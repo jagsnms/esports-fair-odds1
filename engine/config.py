@@ -39,6 +39,9 @@ DEFAULTS: dict[str, Any] = {
     "replay_loop": True,
     "replay_speed": 1.0,
     "replay_index": 0,
+    "replay_contract_policy": "reject_point_like",
+    "replay_point_transition_enabled": False,
+    "replay_point_transition_sunset_epoch": None,
     "context_widening_enabled": False,
     "market_enabled": True,
     "kalshi_url": None,
@@ -170,6 +173,22 @@ def merge_config(current: Config, partial: dict[str, Any]) -> Config:
             updates["midround_v2_weight_profile"] = v.strip().lower()
         else:
             updates["midround_v2_weight_profile"] = "current"
+    if "replay_contract_policy" in updates:
+        v = updates["replay_contract_policy"]
+        updates["replay_contract_policy"] = str(v).strip().lower() if v is not None else "reject_point_like"
+        if updates["replay_contract_policy"] != "reject_point_like":
+            updates["replay_contract_policy"] = "reject_point_like"
+    if "replay_point_transition_enabled" in updates:
+        updates["replay_point_transition_enabled"] = bool(updates["replay_point_transition_enabled"])
+    if "replay_point_transition_sunset_epoch" in updates:
+        v = updates["replay_point_transition_sunset_epoch"]
+        if v in (None, ""):
+            updates["replay_point_transition_sunset_epoch"] = None
+        else:
+            try:
+                updates["replay_point_transition_sunset_epoch"] = float(v)
+            except (TypeError, ValueError):
+                updates["replay_point_transition_sunset_epoch"] = None
     d = {
         "source": getattr(current, "source"),
         "match_id": getattr(current, "match_id"),
@@ -198,6 +217,9 @@ def merge_config(current: Config, partial: dict[str, Any]) -> Config:
         "replay_loop": getattr(current, "replay_loop", True),
         "replay_speed": getattr(current, "replay_speed", 1.0),
         "replay_index": getattr(current, "replay_index", 0),
+        "replay_contract_policy": getattr(current, "replay_contract_policy", "reject_point_like"),
+        "replay_point_transition_enabled": getattr(current, "replay_point_transition_enabled", False),
+        "replay_point_transition_sunset_epoch": getattr(current, "replay_point_transition_sunset_epoch", None),
         "context_widening_enabled": getattr(current, "context_widening_enabled", False),
         "market_enabled": getattr(current, "market_enabled", True),
         "kalshi_url": getattr(current, "kalshi_url", None),

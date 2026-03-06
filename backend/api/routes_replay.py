@@ -200,13 +200,16 @@ async def replay_load(
     store: MemoryStore = Depends(get_store),
 ) -> dict[str, Any]:
     """
-    POST body: path?, match_id?, speed?, loop?
+    POST body: path?, match_id?, speed?, loop?, replay contract gate fields?
     Set source=REPLAY and replay options; return current state.
     """
     path = body.get("path")
     match_id = body.get("match_id")
     speed = body.get("speed")
     loop = body.get("loop")
+    replay_contract_policy = body.get("replay_contract_policy")
+    replay_point_transition_enabled = body.get("replay_point_transition_enabled")
+    replay_point_transition_sunset_epoch = body.get("replay_point_transition_sunset_epoch")
     partial: dict[str, Any] = {"source": "REPLAY"}
     if path is not None and str(path).strip():
         partial["replay_path"] = str(path).strip()
@@ -219,6 +222,12 @@ async def replay_load(
             pass
     if loop is not None:
         partial["replay_loop"] = bool(loop)
+    if replay_contract_policy is not None:
+        partial["replay_contract_policy"] = replay_contract_policy
+    if replay_point_transition_enabled is not None:
+        partial["replay_point_transition_enabled"] = bool(replay_point_transition_enabled)
+    if replay_point_transition_sunset_epoch is not None:
+        partial["replay_point_transition_sunset_epoch"] = replay_point_transition_sunset_epoch
     profile = body.get("midround_v2_weight_profile")
     if isinstance(profile, str) and profile.strip().lower() in ("current", "learned_v1", "learned_v2", "learned_fit"):
         partial["midround_v2_weight_profile"] = profile.strip().lower()
@@ -248,6 +257,9 @@ async def replay_status(
         "replay_speed": getattr(config, "replay_speed", 1.0),
         "replay_index": getattr(config, "replay_index", 0),
         "match_id": getattr(config, "match_id", None),
+        "replay_contract_policy": getattr(config, "replay_contract_policy", "reject_point_like"),
+        "replay_point_transition_enabled": bool(getattr(config, "replay_point_transition_enabled", False)),
+        "replay_point_transition_sunset_epoch": getattr(config, "replay_point_transition_sunset_epoch", None),
     }
     try:
         from backend.deps import get_runner
@@ -256,6 +268,8 @@ async def replay_status(
             progress = runner.get_replay_progress()
             if progress is not None:
                 out["replay_progress"] = progress
+        if hasattr(runner, "get_replay_contract_status"):
+            out["replay_contract_status"] = runner.get_replay_contract_status()
     except Exception:
         pass
     return out
