@@ -13,6 +13,9 @@ import pytest
 
 from engine.ingest.grid_reducer import (
     DEFAULT_SERIES_FMT,
+    GRID_PHASE_BUY_TIME,
+    GRID_PHASE_FREEZETIME,
+    GRID_PHASE_IN_PROGRESS,
     GridState,
     grid_state_to_canonical_frame,
     grid_state_to_frame,
@@ -159,6 +162,29 @@ def test_timestamp_from_updated_at() -> None:
     frame_d = grid_state_to_canonical_frame(state, team_a_is_team_one=True)
     expected_ts = _parse_iso8601_to_unix(ss["updatedAt"])
     assert frame_d["timestamp"] == pytest.approx(expected_ts, abs=0.001)
+
+
+def test_grid_phase_normalized_to_canonical_vocabulary() -> None:
+    """GRID round_phase is normalized to BUY_TIME/FREEZETIME/IN_PROGRESS for resolve contract parity."""
+    from engine.ingest.grid_reducer import _normalize_grid_phase
+
+    assert _normalize_grid_phase(None) == GRID_PHASE_IN_PROGRESS
+    assert _normalize_grid_phase("") == GRID_PHASE_IN_PROGRESS
+    assert _normalize_grid_phase("gameClock") == GRID_PHASE_IN_PROGRESS
+    assert _normalize_grid_phase("bomb") == GRID_PHASE_IN_PROGRESS
+    assert _normalize_grid_phase("freezetime") == GRID_PHASE_FREEZETIME
+    assert _normalize_grid_phase("freeze_time") == GRID_PHASE_FREEZETIME
+    assert _normalize_grid_phase("warmup") == GRID_PHASE_FREEZETIME
+    assert _normalize_grid_phase("halftime") == GRID_PHASE_BUY_TIME
+    assert _normalize_grid_phase("buy") == GRID_PHASE_BUY_TIME
+
+    # reduce_event sets round_phase from clock_type via _normalize_grid_phase
+    minimal_with_clock = {
+        "games": [{"started": True, "finished": False, "teams": [{"score": 0}, {"score": 0}], "clock": {"type": "freezetime"}}],
+        "teams": [{"score": 0}, {"score": 0}],
+    }
+    state = reduce_event(GridState(), minimal_with_clock)
+    assert state.round_phase == GRID_PHASE_FREEZETIME
 
 
 def test_armor_totals_alive_only() -> None:

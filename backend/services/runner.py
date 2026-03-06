@@ -2004,6 +2004,7 @@ class Runner:
             rails_result = compute_rails(frame, config, new_state, bounds)
             rail_low, rail_high = rails_result[0], rails_result[1]
             rails_debug = rails_result[2] if len(rails_result) > 2 else {}
+            setattr(config, "contract_testing_mode", getattr(config, "invariant_diagnostics", False))
             p_hat, dbg = resolve_p_hat(frame, config, new_state, (rail_low, rail_high))
             dbg = {**dbg, **bounds_debug, **rails_debug}
             dbg["bo3_monotonic_gate"] = gate_diag
@@ -2481,6 +2482,7 @@ class Runner:
             rails_result = compute_rails(frame, config, new_state, bounds)
             rail_low, rail_high = rails_result[0], rails_result[1]
             rails_debug = rails_result[2] if len(rails_result) > 2 else {}
+            setattr(config, "contract_testing_mode", getattr(config, "invariant_diagnostics", False))
             p_hat, dbg = resolve_p_hat(frame, config, new_state, (rail_low, rail_high))
             dbg = {**dbg, **bounds_debug, **rails_debug}
             dbg["source"] = "GRID"
@@ -2824,6 +2826,7 @@ class Runner:
             rails_result = compute_rails(frame, config, new_state, bounds)
             rail_low, rail_high = rails_result[0], rails_result[1]
             rails_debug = rails_result[2] if len(rails_result) > 2 else {}
+            setattr(config, "contract_testing_mode", getattr(config, "invariant_diagnostics", False))
             p_hat, dbg = resolve_p_hat(frame, config, new_state, (rail_low, rail_high))
             dbg = {**dbg, **bounds_debug, **rails_debug}
 
