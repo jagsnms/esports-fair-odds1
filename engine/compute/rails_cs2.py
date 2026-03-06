@@ -37,6 +37,52 @@ UNCERTAINTY_MULT_MIN = 1.0
 # Contract rails: tiny minimum width epsilon to avoid degenerate collapse.
 CONTRACT_MIN_WIDTH = 1e-4
 
+# --- Rail input contract (v1): observability only; no endpoint redesign. ---
+RAIL_INPUT_CONTRACT_VERSION = "v1"
+# Allowed (v1): round-boundary persistent state; consumed by contract rail computation.
+RAIL_INPUT_ALLOWED_FIELDS = (
+    "bounds.low",
+    "bounds.high",
+    "frame.scores",
+    "frame.series_score",
+    "frame.series_fmt",
+    "config.prematch_map",
+)
+# Forbidden (v1): transient intraround state; must not influence contract rails.
+RAIL_INPUT_FORBIDDEN_FIELDS = (
+    "frame.hp_totals",
+    "frame.alive_counts",
+    "frame.round_time_remaining_s",
+    "frame.bomb_phase_time_remaining",
+    "frame.loadout_totals",
+    "frame.cash_totals",
+    "frame.armor_totals",
+)
+
+
+def _rail_input_provenance(
+    frame: Frame,
+    config: Config,
+    bounds: tuple[float, float],
+    allowed_consumed: tuple[str, ...],
+) -> dict[str, Any]:
+    """Build per-evaluation provenance: allowed/forbidden sets and consumed/ignored."""
+    forbidden_ignored: list[str] = []
+    for key in RAIL_INPUT_FORBIDDEN_FIELDS:
+        if not key.startswith("frame."):
+            continue
+        attr = key.split(".", 1)[1]
+        val = getattr(frame, attr, None)
+        if val is not None:
+            forbidden_ignored.append(key)
+    return {
+        "rail_input_contract_version": RAIL_INPUT_CONTRACT_VERSION,
+        "rail_input_allowed_fields": list(RAIL_INPUT_ALLOWED_FIELDS),
+        "rail_input_forbidden_fields": list(RAIL_INPUT_FORBIDDEN_FIELDS),
+        "rail_input_allowed_consumed": list(allowed_consumed),
+        "rail_input_forbidden_ignored": forbidden_ignored,
+    }
+
 
 def _clip(x: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, x))
@@ -182,6 +228,17 @@ def compute_rails_cs2(
     cf_low = _clip01(cf_low)
     cf_high = _clip01(cf_high)
 
+    # Provenance: contract v1 allowed inputs consumed for cf_low/cf_high; forbidden inputs ignored.
+    allowed_consumed = (
+        "bounds.low",
+        "bounds.high",
+        "frame.scores",
+        "frame.series_score",
+        "frame.series_fmt",
+        "config.prematch_map",
+    )
+    provenance = _rail_input_provenance(frame, config, bounds, allowed_consumed)
+
     # Envelope around each branch (heuristic rails).
     env = compute_cs2_branch_endpoint_envelope_debug(
         canonical_if_a,
@@ -206,6 +263,8 @@ def compute_rails_cs2(
         "base_span": env.get("endpoint_base_span_abs"),
         "k": env.get("endpoint_env_fraction_k"),
     }
+    for k, v in provenance.items():
+        debug[k] = v
     env_valid = bool(env.get("env_valid"))
 
     # Heuristic rails (legacy): envelope -> active points -> optional contextual widening.
