@@ -26,4 +26,10 @@ def test_invariant_diagnostics_wired_to_contract_diagnostics() -> None:
     rails = (0.2, 0.8)
     p_hat, dbg = resolve_p_hat(frame, config, state, rails)
     assert "contract_diagnostics" in dbg
-    assert dbg["contract_diagnostics"].get("contract_testing_mode") is True
+    contract_diag = dbg["contract_diagnostics"]
+    assert contract_diag.get("contract_testing_mode") is True
+    assert contract_diag.get("rail_low") == 0.2
+    assert contract_diag.get("rail_high") == 0.8
+    assert contract_diag.get("p_hat_prev") is not None
+    assert contract_diag.get("p_hat_final") == p_hat
+    assert contract_diag.get("round_time_remaining_s") is None
