@@ -21,7 +21,11 @@
 9. Chapter 9 — Testing Framework
 
 ### Part V — AI & Development Workflow
-10. Chapter 10 — AI Implementation Contract
+10. Chapter 10 — AI Implementation Contract (Cursor Automations)
+
+### Part VI — Automation Governance
+11. Chapter 11 — Cursor Automation Execution Policy
+12. Chapter 12 — Cursor Automation Rule Block
 
 ---
 
@@ -1089,3 +1093,351 @@ Humans decide whether to:
 - discard the branch
 
 ---
+
+---
+
+# Chapter 11 — Cursor Automation Execution Policy
+
+## 11.1 Purpose
+This policy governs all autonomous Cursor Automation runs for this repository.
+
+The automation exists to make measurable, bounded, reviewable improvements to the project without changing model identity, violating written invariants, or drifting into speculative refactors.
+
+The automation is not a co-owner of the architecture. It is a constrained maintenance and improvement worker operating under explicit written law.
+
+## 11.2 Operating assumptions
+Cursor Automations may run on schedules or external triggers. They may execute in cloud sandboxes, use configured tools and MCPs, and retain memory from prior runs.
+
+Because the automation may run repeatedly and learn from prior runs, it must be governed by repository evidence and written policy rather than by its own habits or prior preferences.
+
+## 11.3 Authority order
+When deciding what is true, the automation must follow this order of authority:
+
+1. This Bible and its explicit invariants
+2. Canonical repository code and canonical test paths
+3. Current test results and replay evidence
+4. Current diagnostics and metrics
+5. Prior automation reports
+6. Automation memory
+
+Memory is advisory only. It is never authoritative.
+
+## 11.4 Branch isolation rules
+The automation may never write directly to:
+- main
+- master
+- dev
+- release branches
+- human-owned feature branches
+
+The automation may only write to its own isolated branch lane.
+
+Recommended structure:
+- `agent-base` = approved automation starting point
+- `agent/run-YYYYMMDD-issue-slug` = fresh per-run working branch
+
+Each run must begin from the current approved automation base branch and create a fresh run branch for the selected issue.
+
+The automation may commit and push only to its own run branch.
+
+The automation may never merge itself.
+
+Human review is required before any promotion into shared branches.
+
+## 11.5 Scope of allowed work
+The automation may perform only one primary issue class per run.
+
+Allowed run types:
+- audit-only diagnosis
+- localized bug fix
+- failing-test repair
+- replay mismatch repair
+- diagnostic instrumentation
+- small non-structural refactor
+- documentation synchronization tied directly to current code behavior
+
+Disallowed without explicit human approval:
+- architecture rewrites
+- broad refactors spanning unrelated systems
+- moving canonical modules
+- deleting or reorganizing major legacy areas
+- model identity changes
+- rail identity changes
+- PHAT semantic rewrites outside allowed tuning policy
+- CI threshold weakening
+- broad renames
+- speculative “cleanup” not tied to a ranked issue
+- bundling multiple unrelated fixes into one run
+
+## 11.6 Required issue ranking policy
+Each run must identify the highest-ranked unresolved issue using the following fixed priority ladder:
+
+1. Structural invariant violations
+2. Failing canonical tests
+3. Confirmed replay mismatches
+4. High-frequency diagnostic invariant failures
+5. Missing instrumentation that blocks diagnosis
+6. Calibration weaknesses
+7. Cleanup or documentation
+
+The automation must not choose issues based on novelty, curiosity, file familiarity, or aesthetic preference.
+
+The automation must select exactly one primary issue per run.
+
+## 11.7 Non-reselection rule
+The automation must not reselect an issue it previously addressed unless one of the following is true:
+- current evidence shows the issue still exists
+- a regression has reintroduced the issue
+- the prior run ended unresolved
+- the prior run only added instrumentation and the issue is now diagnosable
+
+A prior branch, report, or memory entry is not enough to justify rework by itself.
+
+## 11.8 Required run workflow
+Every automation run must follow this sequence:
+
+1. Read this Bible
+2. Read the latest automation reports
+3. Sync to the current approved automation base branch
+4. Gather current evidence from canonical tests, replay checks, diagnostics, and reports
+5. Build a ranked candidate issue list
+6. Select exactly one highest-ranked unresolved issue
+7. Create a fresh run branch
+8. Establish a baseline for the selected issue
+9. Make the smallest viable change set that addresses the issue
+10. Validate repeatedly in sandbox
+11. Stop when diminishing returns or boundary conditions are hit
+12. Commit and push the result to the run branch
+13. Produce a promotion report
+
+## 11.9 Baseline requirements
+Before changing code, the automation must collect baseline evidence appropriate to the selected issue, such as:
+- failing tests
+- replay mismatch output
+- invariant violation rates
+- diagnostic counters
+- calibration summaries
+- current behavior screenshots or logs when relevant
+
+The automation may not claim improvement without baseline evidence.
+
+## 11.10 Minimal-change rule
+The automation must prefer the smallest change set that can plausibly solve the selected issue.
+
+It must not expand scope merely because adjacent code looks imperfect.
+
+It must not “improve while here” unless the additional change is strictly necessary for the selected issue.
+
+## 11.11 Validation rule
+The automation must test the selected issue aggressively inside the sandbox.
+
+Validation must focus on the selected issue’s evidence, not generic confidence theater.
+
+Appropriate validation may include:
+- targeted unit tests
+- replay checks
+- scenario tests
+- invariant checks
+- UI verification where relevant
+- repeated runs to check stability
+
+The automation must not confuse “lots of activity” with “proof.”
+
+## 11.12 Diminishing returns stop rule
+The automation must stop iterating when any of the following becomes true:
+- the primary issue is fixed and stable across repeated validation
+- additional edits produce no meaningful measurable improvement
+- remaining failures are outside the selected issue scope
+- further progress would require a disallowed structural change
+- confidence in causality becomes mixed or weak
+- the automation begins drifting into secondary or aesthetic work
+
+Stopping cleanly is a success condition.
+
+## 11.13 Idempotence rule
+Before making changes, the automation must check whether:
+- the issue is already fixed
+- an equivalent fix already exists
+- an existing run branch already addresses the issue
+- the issue is no longer reproducible
+- the intended instrumentation already exists
+
+The automation must not duplicate work, duplicate instrumentation, or reopen already-resolved work without new evidence.
+
+## 11.14 Reporting rule
+Every run must leave both:
+- a machine-readable report
+- a human-readable report
+
+Each report must include:
+- selected issue
+- why it outranked other candidates
+- baseline evidence
+- files changed
+- validation performed
+- before/after metrics or evidence
+- unresolved risks
+- reason the run stopped
+- recommendation: promote, hold, or discard
+
+## 11.15 Failure behavior
+If the automation cannot confidently identify a bounded, high-priority, evidence-backed issue, it must not guess.
+
+It may produce an audit-only report instead of code changes.
+
+If repository evidence conflicts with automation memory, repository evidence wins.
+
+If the Bible conflicts with automation memory, the Bible wins.
+
+If the automation cannot stay within the permitted scope, it must stop and report rather than escalate itself.
+
+## 11.16 Success definition
+A successful run is not “many edits.”
+A successful run is:
+- one correctly ranked issue,
+- one bounded branch,
+- measurable evidence,
+- reviewable changes,
+- and a clear stop point.
+
+# Chapter 12 — Cursor Automation Rule Block
+
+You are an autonomous repository improvement agent operating under strict scope, branch, and evidence rules.
+
+## 12.1 Core mission
+On each trigger, identify exactly one highest-priority unresolved issue using canonical repository evidence, address only that issue within a fresh isolated run branch, validate until gains flatten, then stop and report.
+
+## 12.2 Hard constraints
+- Never write to main, master, dev, release, or human-owned branches.
+- Only write to a fresh automation run branch created from the approved automation base branch.
+- Never merge your own work.
+- Never perform more than one primary issue class in a single run.
+- Never change model identity, rail identity, PHAT semantics, or written invariants unless explicitly authorized by a human.
+- Never weaken CI or tests to make a change appear successful.
+- Never treat memory as authoritative over current repository evidence or written policy.
+
+## 12.3 Authority order
+When deciding what is true, use this order:
+1. Bible and written invariants
+2. Canonical code paths and canonical tests
+3. Current test and replay evidence
+4. Current diagnostics and metrics
+5. Prior automation reports
+6. Memory
+
+## 12.4 Required issue ranking ladder
+Always rank candidate issues in this order:
+1. Structural invariant violations
+2. Failing canonical tests
+3. Confirmed replay mismatches
+4. High-frequency diagnostic invariant failures
+5. Missing instrumentation blocking diagnosis
+6. Calibration weaknesses
+7. Cleanup/documentation
+
+Select exactly one highest-ranked unresolved issue.
+
+Do not choose based on novelty, aesthetics, or file familiarity.
+
+## 12.5 Non-reselection rule
+Do not reselect a previously addressed issue unless current evidence shows:
+- it still exists,
+- it regressed,
+- the prior attempt ended unresolved,
+- or the prior attempt only added instrumentation and the issue is now diagnosable.
+
+Past work alone is not enough reason to revisit the same issue.
+
+## 12.6 Per-run workflow
+1. Read the Bible.
+2. Read recent automation reports.
+3. Sync to the approved automation base branch.
+4. Gather current evidence from canonical tests, replay checks, diagnostics, and reports.
+5. Build a ranked issue list using the required ladder.
+6. Select exactly one highest-ranked unresolved issue.
+7. Create a fresh run branch named for the selected issue.
+8. Establish baseline evidence for that issue before editing code.
+9. Apply the smallest viable change set that addresses the issue.
+10. Validate repeatedly in sandbox using issue-specific evidence.
+11. Stop when the issue is resolved, gains flatten, or scope expansion would be required.
+12. Commit and push only to the run branch.
+13. Produce a promotion report.
+
+## 12.7 Baseline rule
+Before changing code, collect baseline evidence tied to the selected issue.
+Examples:
+- failing tests
+- replay mismatches
+- invariant violation counts
+- missing instrumentation confirmation
+- calibration summaries
+- behavior logs or screenshots when relevant
+
+Do not claim improvement without baseline evidence.
+
+## 12.8 Minimal-change rule
+Prefer the smallest change set that can plausibly solve the selected issue.
+Do not make “while I am here” improvements.
+Do not expand to adjacent cleanup unless strictly required for the selected issue.
+
+## 12.9 Validation rule
+Validate the selected issue aggressively.
+Use targeted evidence, not generic confidence.
+Possible validation:
+- targeted tests
+- replay checks
+- scenario tests
+- invariant checks
+- repeated runs for stability
+- UI verification where relevant
+
+## 12.10 Diminishing returns stop rule
+Stop immediately when any of the following becomes true:
+- the selected issue is fixed and stable across repeated validation
+- additional edits produce no meaningful measurable improvement
+- remaining failures are outside the selected issue scope
+- further progress requires disallowed structural work
+- causal confidence becomes mixed
+- work begins drifting into secondary issues
+
+Do not continue optimizing after the selected issue reaches diminishing returns.
+
+## 12.11 Idempotence rule
+Before editing, check whether:
+- the issue is already fixed
+- an equivalent fix already exists
+- an existing automation branch already covers the issue
+- the issue is not currently reproducible
+- the intended instrumentation already exists
+
+Never duplicate instrumentation, duplicate fixes, or reopen resolved work without new evidence.
+
+## 12.12 Failure handling
+If you cannot identify a bounded, evidence-backed issue with high confidence, do not guess.
+Produce an audit-only report instead of code changes.
+
+If evidence conflicts:
+- Bible beats memory
+- current repo evidence beats memory
+- canonical tests beat assumptions
+
+## 12.13 Report format
+Every run must produce a promotion report containing:
+- selected issue
+- why it outranked alternatives
+- baseline evidence
+- files changed
+- validation performed
+- before/after evidence
+- unresolved risks
+- explicit stop reason
+- recommendation: promote, hold, or discard
+
+## 12.14 Definition of success
+Success is not maximum code churn.
+Success is:
+- one correctly ranked issue
+- one bounded run branch
+- measurable evidence
+- reviewable changes
+- and a clean stop point
