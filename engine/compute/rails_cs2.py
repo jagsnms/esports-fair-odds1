@@ -59,6 +59,143 @@ RAIL_INPUT_FORBIDDEN_FIELDS = (
     "frame.armor_totals",
 )
 
+# --- Rail input contract v2 (carryover-observability), Stage 1: observe only; endpoints stay v1. ---
+RAIL_INPUT_V2_CONTRACT_VERSION = "v2-observe-stage1"
+RAIL_INPUT_V2_POLICY = "observe_v2_use_v1_endpoints"
+RAIL_INPUT_V2_REQUIRED_FIELDS = (
+    "frame.cash_totals",
+    "frame.loadout_totals",
+    "frame.armor_totals",
+    "frame.scores",
+    "frame.series_score",
+    "frame.series_fmt",
+    "config.prematch_map",
+)
+RAIL_INPUT_V2_OPTIONAL_FIELDS = (
+    "frame.wealth_totals",
+    "frame.loadout_source",
+    "frame.loadout_ev_count_a",
+    "frame.loadout_ev_count_b",
+    "frame.loadout_est_count_a",
+    "frame.loadout_est_count_b",
+)
+RAIL_INPUT_V2_FORBIDDEN_FIELDS = (
+    "frame.hp_totals",
+    "frame.alive_counts",
+    "frame.round_time_remaining_s",
+    "frame.round_time_s",
+    "frame.bomb_phase_time_remaining",
+)
+# Fallback reason codes (deterministic).
+V2_FALLBACK_REQUIRED_MISSING = "V2_REQUIRED_FIELDS_MISSING"
+V2_FALLBACK_REQUIRED_INVALID = "V2_REQUIRED_FIELDS_INVALID"
+V2_FALLBACK_STAGE1_LOCKED = "STAGE1_LOCKED_NO_SEMANTIC_SWITCH"
+
+
+def _v2_required_field_valid(key: str, frame: Frame, config: Config) -> bool:
+    """Return True if the required field is present and valid for v2 carryover semantics."""
+    if key == "config.prematch_map":
+        val = getattr(config, "prematch_map", None)
+        if val is None:
+            return False
+        try:
+            f = float(val)
+            return 1e-6 <= f <= 1.0 - 1e-6
+        except (TypeError, ValueError):
+            return False
+    if not key.startswith("frame."):
+        return False
+    attr = key.split(".", 1)[1]
+    val = getattr(frame, attr, None)
+    if val is None:
+        return False
+    if attr in ("scores", "series_score"):
+        if not isinstance(val, (tuple, list)) or len(val) < 2:
+            return False
+        try:
+            a, b = int(val[0]) if val[0] is not None else None, int(val[1]) if val[1] is not None else None
+            return a is not None and b is not None
+        except (TypeError, ValueError):
+            return False
+    if attr == "series_fmt":
+        return isinstance(val, str) and bool(str(val).strip())
+    if attr in ("cash_totals", "loadout_totals", "armor_totals"):
+        if not isinstance(val, (tuple, list)) or len(val) < 2:
+            return False
+        try:
+            a = float(val[0]) if val[0] is not None else None
+            b = float(val[1]) if val[1] is not None else None
+            return a is not None and b is not None
+        except (TypeError, ValueError):
+            return False
+    return False
+
+
+def _rail_input_v2_provenance(
+    frame: Frame,
+    config: Config,
+    *,
+    source: str | None = None,
+    replay_kind: str | None = None,
+) -> dict[str, Any]:
+    """Build v2 carryover-observability provenance; Stage 1 always uses v1 endpoints (fallback)."""
+    present_required: list[str] = []
+    missing_required: list[str] = []
+    invalid_required: list[str] = []
+    for key in RAIL_INPUT_V2_REQUIRED_FIELDS:
+        if key == "config.prematch_map":
+            val = getattr(config, "prematch_map", None)
+        else:
+            attr = key.split(".", 1)[1]
+            val = getattr(frame, attr, None)
+        if val is None:
+            missing_required.append(key)
+            continue
+        if _v2_required_field_valid(key, frame, config):
+            present_required.append(key)
+        else:
+            invalid_required.append(key)
+
+    present_optional: list[str] = []
+    for key in RAIL_INPUT_V2_OPTIONAL_FIELDS:
+        if not key.startswith("frame."):
+            continue
+        attr = key.split(".", 1)[1]
+        if getattr(frame, attr, None) is not None:
+            present_optional.append(key)
+
+    n_required = len(RAIL_INPUT_V2_REQUIRED_FIELDS)
+    n_present = len(present_required)
+    required_coverage_ratio = (n_present / n_required) if n_required else 0.0
+    required_complete = len(missing_required) == 0 and len(invalid_required) == 0
+
+    v1_fallback_used = True  # Stage 1 locked: always use v1 endpoints
+    if invalid_required:
+        fallback_reason_code = V2_FALLBACK_REQUIRED_INVALID
+    elif missing_required:
+        fallback_reason_code = V2_FALLBACK_REQUIRED_MISSING
+    else:
+        fallback_reason_code = V2_FALLBACK_STAGE1_LOCKED
+
+    return {
+        "rail_input_contract_version": RAIL_INPUT_V2_CONTRACT_VERSION,
+        "rail_input_contract_policy": RAIL_INPUT_V2_POLICY,
+        "rail_input_v2_required_fields": list(RAIL_INPUT_V2_REQUIRED_FIELDS),
+        "rail_input_v2_optional_fields": list(RAIL_INPUT_V2_OPTIONAL_FIELDS),
+        "rail_input_v2_forbidden_fields": list(RAIL_INPUT_V2_FORBIDDEN_FIELDS),
+        "rail_input_v2_present_required_fields": present_required,
+        "rail_input_v2_missing_required_fields": missing_required,
+        "rail_input_v2_invalid_required_fields": invalid_required,
+        "rail_input_v2_present_optional_fields": present_optional,
+        "rail_input_v2_required_coverage_ratio": required_coverage_ratio,
+        "rail_input_v2_required_complete": required_complete,
+        "rail_input_v1_fallback_used": v1_fallback_used,
+        "rail_input_v1_fallback_reason_code": fallback_reason_code,
+        "rail_input_active_endpoint_semantics": "v1",
+        "rail_input_source": source,
+        "rail_input_replay_kind": replay_kind,
+    }
+
 
 def _rail_input_provenance(
     frame: Frame,
@@ -171,6 +308,9 @@ def compute_rails_cs2(
     config: Config,
     state: State,
     bounds: tuple[float, float],
+    *,
+    source: str | None = None,
+    replay_kind: str | None = None,
 ) -> tuple[float, float, dict[str, Any]]:
     """
     Map corridor from strict next-round counterfactuals.
@@ -238,6 +378,7 @@ def compute_rails_cs2(
         "config.prematch_map",
     )
     provenance = _rail_input_provenance(frame, config, bounds, allowed_consumed)
+    v2_provenance = _rail_input_v2_provenance(frame, config, source=source, replay_kind=replay_kind)
 
     # Envelope around each branch (heuristic rails).
     env = compute_cs2_branch_endpoint_envelope_debug(
@@ -264,6 +405,8 @@ def compute_rails_cs2(
         "k": env.get("endpoint_env_fraction_k"),
     }
     for k, v in provenance.items():
+        debug[k] = v
+    for k, v in v2_provenance.items():
         debug[k] = v
     env_valid = bool(env.get("env_valid"))
 

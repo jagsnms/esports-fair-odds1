@@ -1,6 +1,7 @@
 """
-Rail input contract (v1) and provenance: allowed/forbidden fields, perturbation invariance, BO3/GRID parity.
+Rail input contract (v1 + v2 carryover observability) and provenance.
 Stage 1: contract definition + observability only; no endpoint redesign.
+v2 Stage 1: observe v2 required/optional; always use v1 endpoints (fallback).
 """
 from __future__ import annotations
 
@@ -9,6 +10,12 @@ from engine.compute.rails_cs2 import (
     RAIL_INPUT_ALLOWED_FIELDS,
     RAIL_INPUT_CONTRACT_VERSION,
     RAIL_INPUT_FORBIDDEN_FIELDS,
+    RAIL_INPUT_V2_CONTRACT_VERSION,
+    RAIL_INPUT_V2_POLICY,
+    RAIL_INPUT_V2_REQUIRED_FIELDS,
+    V2_FALLBACK_REQUIRED_MISSING,
+    V2_FALLBACK_REQUIRED_INVALID,
+    V2_FALLBACK_STAGE1_LOCKED,
     compute_rails_cs2,
 )
 from engine.models import Config, Frame, State
@@ -56,13 +63,16 @@ def _state() -> State:
 
 
 def test_provenance_keys_emitted() -> None:
-    """Every contract-rail evaluation emits the five provenance keys."""
+    """Every contract-rail evaluation emits v1 provenance keys and v2 observability keys."""
     frame = _frame(scores=(3, 2), series_score=(0, 0))
     config = _config()
     state = _state()
     bounds = (0.0, 1.0)
     _, _, debug = compute_rails_cs2(frame, config, state, bounds)
-    assert debug.get("rail_input_contract_version") == RAIL_INPUT_CONTRACT_VERSION
+    # v2 contract version and policy (Stage 1)
+    assert debug.get("rail_input_contract_version") == RAIL_INPUT_V2_CONTRACT_VERSION
+    assert debug.get("rail_input_contract_policy") == RAIL_INPUT_V2_POLICY
+    # v1 keys retained for backward compatibility
     assert "rail_input_allowed_fields" in debug
     assert "rail_input_forbidden_fields" in debug
     assert "rail_input_allowed_consumed" in debug
@@ -70,6 +80,13 @@ def test_provenance_keys_emitted() -> None:
     assert debug["rail_input_allowed_fields"] == list(RAIL_INPUT_ALLOWED_FIELDS)
     assert debug["rail_input_forbidden_fields"] == list(RAIL_INPUT_FORBIDDEN_FIELDS)
     assert set(debug["rail_input_allowed_consumed"]) == set(RAIL_INPUT_ALLOWED_FIELDS)
+    # v2 observability
+    assert debug.get("rail_input_v1_fallback_used") is True
+    assert debug.get("rail_input_active_endpoint_semantics") == "v1"
+    assert "rail_input_v2_required_fields" in debug
+    assert "rail_input_v2_missing_required_fields" in debug
+    assert "rail_input_v2_required_coverage_ratio" in debug
+    assert "rail_input_v1_fallback_reason_code" in debug
 
 
 def test_forbidden_perturbation_invariance() -> None:
@@ -161,7 +178,7 @@ def test_allowed_input_change_changes_rails() -> None:
 
 
 def test_bo3_vs_grid_contract_parity() -> None:
-    """Same allowed/forbidden classification for BO3 and GRID: identical contract version and field sets."""
+    """Same contract version and v2 classification for BO3 and GRID when inputs are identical."""
     config_bo3 = _config()
     config_bo3.source = "BO3"
     config_grid = _config()
@@ -172,10 +189,63 @@ def test_bo3_vs_grid_contract_parity() -> None:
     bounds = (bounds_result[0], bounds_result[1])
     _, _, debug_bo3 = compute_rails_cs2(frame, config_bo3, state, bounds)
     _, _, debug_grid = compute_rails_cs2(frame, config_grid, state, bounds)
-    assert debug_bo3["rail_input_contract_version"] == debug_grid["rail_input_contract_version"]
+    assert debug_bo3["rail_input_contract_version"] == debug_grid["rail_input_contract_version"] == RAIL_INPUT_V2_CONTRACT_VERSION
     assert debug_bo3["rail_input_allowed_fields"] == debug_grid["rail_input_allowed_fields"]
     assert debug_bo3["rail_input_forbidden_fields"] == debug_grid["rail_input_forbidden_fields"]
     assert debug_bo3["rail_input_allowed_consumed"] == debug_grid["rail_input_allowed_consumed"]
     assert debug_bo3["rail_input_forbidden_ignored"] == debug_grid["rail_input_forbidden_ignored"]
+    assert debug_bo3["rail_input_v1_fallback_reason_code"] == debug_grid["rail_input_v1_fallback_reason_code"]
+    assert debug_bo3["rail_input_v2_required_coverage_ratio"] == debug_grid["rail_input_v2_required_coverage_ratio"]
     assert debug_bo3["rail_low_contract"] == debug_grid["rail_low_contract"]
     assert debug_bo3["rail_high_contract"] == debug_grid["rail_high_contract"]
+
+
+def test_v2_fallback_always_used() -> None:
+    """Stage 1: v1 fallback always used; active endpoint semantics remain v1."""
+    frame = _frame(scores=(1, 0), series_score=(0, 0), cash_totals=(1000.0, 1000.0), loadout_totals=(5000.0, 5000.0), armor_totals=(200.0, 200.0))
+    config = _config(prematch_map=0.5)
+    state = _state()
+    _, _, debug = compute_rails_cs2(frame, config, state, (0.0, 1.0))
+    assert debug["rail_input_v1_fallback_used"] is True
+    assert debug["rail_input_active_endpoint_semantics"] == "v1"
+
+
+def test_v2_fallback_reason_missing_when_required_absent() -> None:
+    """When v2 required fields are missing, fallback reason is V2_REQUIRED_FIELDS_MISSING."""
+    # Frame without cash_totals, loadout_totals, armor_totals (None)
+    frame = _frame(scores=(2, 1), series_score=(0, 0), cash_totals=None, loadout_totals=None, armor_totals=None)
+    config = _config(prematch_map=0.5)
+    state = _state()
+    _, _, debug = compute_rails_cs2(frame, config, state, (0.0, 1.0))
+    assert debug["rail_input_v1_fallback_reason_code"] == V2_FALLBACK_REQUIRED_MISSING
+    assert "frame.cash_totals" in debug["rail_input_v2_missing_required_fields"] or "frame.loadout_totals" in debug["rail_input_v2_missing_required_fields"] or "frame.armor_totals" in debug["rail_input_v2_missing_required_fields"]
+
+
+def test_v2_fallback_reason_stage1_locked_when_required_complete() -> None:
+    """When all v2 required fields present and valid, fallback reason is STAGE1_LOCKED_NO_SEMANTIC_SWITCH."""
+    frame = _frame(
+        scores=(3, 2),
+        series_score=(0, 0),
+        series_fmt="bo3",
+        cash_totals=(2000.0, 1500.0),
+        loadout_totals=(8000.0, 6000.0),
+        armor_totals=(300.0, 250.0),
+    )
+    config = _config(prematch_map=0.52)
+    state = _state()
+    _, _, debug = compute_rails_cs2(frame, config, state, (0.0, 1.0))
+    assert debug["rail_input_v1_fallback_reason_code"] == V2_FALLBACK_STAGE1_LOCKED
+    assert debug["rail_input_v2_required_complete"] is True
+    assert debug["rail_input_v2_required_coverage_ratio"] == 1.0
+
+
+def test_v2_fallback_reason_invalid_when_required_bad_type() -> None:
+    """When a v2 required field is present but invalid, fallback reason is V2_REQUIRED_FIELDS_INVALID."""
+    # prematch_map outside [0,1] or wrong type can be invalid; use a frame with invalid series_fmt (empty)
+    frame = _frame(scores=(1, 0), series_score=(0, 0), series_fmt="", cash_totals=(0.0, 0.0), loadout_totals=(0.0, 0.0), armor_totals=(0.0, 0.0))
+    config = _config(prematch_map=0.5)
+    state = _state()
+    _, _, debug = compute_rails_cs2(frame, config, state, (0.0, 1.0))
+    # series_fmt "" is invalid (must be non-empty str), so we get invalid_required
+    assert debug["rail_input_v1_fallback_reason_code"] == V2_FALLBACK_REQUIRED_INVALID
+    assert "frame.series_fmt" in debug["rail_input_v2_invalid_required_fields"]
