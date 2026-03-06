@@ -1,0 +1,91 @@
+{
+  "branch": "fast/run-20260306-1910-linux-test-bootstrap",
+  "base_branch": "agent-base",
+  "lane": "fast",
+  "run_type": "maintenance",
+  "status": "implemented",
+  "_status_allowed_values": [
+    "proposed",
+    "implemented",
+    "promoted",
+    "held"
+  ],
+  "selected_issue": {
+    "issue": "canonical checks fail to run on Linux automation hosts due to missing bootstrap path",
+    "title": "Add Linux/macOS bootstrap flow so canonical test and replay evidence can be collected"
+  },
+  "why_it_outranked_alternatives": "Ranked using current evidence: no runnable structural-check evidence was available before setup because runtime dependencies were missing; rank-2 failing canonical checks was reproducible on agent-base (`python3 -m pytest -q` failed with No module named pytest, and replay assessment failed with No module named fastapi).",
+  "baseline_evidence": {
+    "branch": "agent-base",
+    "commit": "3a871b09bf26f9afefec73fb2fdad16118138ea8",
+    "checks": [
+      {
+        "command": "python3 -m pytest -q",
+        "result": "failed: /usr/bin/python3: No module named pytest"
+      },
+      {
+        "command": "python3 tools/replay_verification_assess.py",
+        "result": "failed: ModuleNotFoundError: No module named 'fastapi'"
+      },
+      {
+        "command": "glob scripts/*bootstrap*",
+        "result": "only scripts/bootstrap.ps1 existed; no Linux/macOS bootstrap script"
+      }
+    ]
+  },
+  "files_changed": [
+    {
+      "path": "scripts/bootstrap.sh",
+      "change": "added Linux/macOS bootstrap with venv creation, virtualenv fallback, incomplete-venv recovery, and dev dependency install"
+    },
+    {
+      "path": "README.md",
+      "change": "documented Linux/macOS bootstrap command in setup section"
+    },
+    {
+      "path": "automation/reports/fast-run-20260306-1910-linux-test-bootstrap.md",
+      "change": "added human-readable report"
+    },
+    {
+      "path": "automation/reports/fast-run-20260306-1910-linux-test-bootstrap.json",
+      "change": "added machine-readable report"
+    }
+  ],
+  "validation_performed": [
+    {
+      "command": "./scripts/bootstrap.sh",
+      "result": "initial run revealed ensurepip/venv availability issue; informed fallback fix"
+    },
+    {
+      "command": "./scripts/bootstrap.sh",
+      "result": "success after fallback/recovery fix; .venv311 created and requirements installed"
+    },
+    {
+      "command": "./scripts/bootstrap.sh",
+      "result": "repeat run succeeded using existing .venv311 (idempotent)"
+    },
+    {
+      "command": "./.venv311/bin/python -m pytest -q",
+      "result": "379 passed in 7.70s"
+    },
+    {
+      "command": "./.venv311/bin/python tools/replay_verification_assess.py",
+      "result": "success; structural_violations_total=0, behavioral_violations_total=0, invariant_violations_total=0"
+    }
+  ],
+  "before_after_evidence": {
+    "before": "Canonical commands were blocked on Linux automation host due to missing test/runtime packages and no Linux bootstrap path.",
+    "after": "Linux/macOS bootstrap path exists and successfully prepares .venv311; canonical pytest and replay assessment run cleanly."
+  },
+  "unresolved_risks": [
+    "Playwright host dependency warnings may remain on minimal Linux hosts unless OS browser libraries are installed.",
+    "Run scoped to bootstrap/evidence-collection enablement; no broader infra packaging changes included."
+  ],
+  "stop_reason": "Stopped after fixing the selected rank-2 canonical-check execution issue with minimal changes and repeated validation; further distro-specific system package automation is outside bounded scope.",
+  "recommendation": "promote",
+  "_recommendation_allowed_values": [
+    "promote",
+    "hold",
+    "discard"
+  ]
+}
