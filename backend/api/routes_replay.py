@@ -1,8 +1,11 @@
 """
 Replay API: load JSONL replay, stop, status, list matches, list sources.
 """
+from __future__ import annotations
+
 import os
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +14,13 @@ from fastapi.responses import JSONResponse
 
 from backend.deps import get_store
 from backend.store.memory_store import MemoryStore
+from backend.services.runner import (
+    REPLAY_CONTRACT_POLICY_REJECT_POINT_LIKE,
+    REPLAY_POINT_REJECT_REASON_DEFAULT_POLICY,
+    REPLAY_POINT_REJECT_REASON_TRANSITION_SUNSET_EXPIRED,
+    REPLAY_POINT_REJECT_REASON_TRANSITION_SUNSET_MISSING,
+    REPLAY_POINT_REJECT_REASON_UNSUPPORTED_POLICY,
+ )
 
 router = APIRouter(prefix="/replay", tags=["replay"])
 
@@ -89,12 +99,87 @@ def _discover_replay_sources() -> dict[str, Any]:
 
 
 @router.get("/sources")
-async def replay_sources() -> dict[str, Any]:
+async def replay_sources(
+    store: MemoryStore = Depends(get_store),
+) -> dict[str, Any]:
     """
     List available replay input files under logs/ (bo3_pulls.jsonl, bo3_raw_match_*.jsonl, history_points*.jsonl).
     Returns default_path and sources with label, path, kind (raw|point), mtime, size for UI dropdown.
     """
-    return _discover_replay_sources()
+    discovered = _discover_replay_sources()
+    sources = discovered.get("sources") or []
+    config = await store.get_config()
+    out_sources: list[dict[str, Any]] = []
+    for s in sources:
+        row = dict(s) if isinstance(s, dict) else {}
+        kind = row.get("kind")
+        row.update(_replay_source_contract_signaling(kind=kind, config=config))
+        out_sources.append(row)
+    return {"default_path": discovered.get("default_path", DEFAULT_REPLAY_PATH), "sources": out_sources}
+
+
+def _coerce_replay_contract_policy(config: Any) -> str:
+    raw = getattr(config, "replay_contract_policy", REPLAY_CONTRACT_POLICY_REJECT_POINT_LIKE)
+    policy = str(raw).strip().lower() if raw is not None else REPLAY_CONTRACT_POLICY_REJECT_POINT_LIKE
+    if policy != REPLAY_CONTRACT_POLICY_REJECT_POINT_LIKE:
+        return REPLAY_CONTRACT_POLICY_REJECT_POINT_LIKE
+    return policy
+
+
+def _coerce_transition_sunset_epoch(config: Any) -> float | None:
+    raw = getattr(config, "replay_point_transition_sunset_epoch", None)
+    if raw in (None, ""):
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _replay_source_contract_signaling(kind: Any, config: Any) -> dict[str, Any]:
+    """
+    Stage 1.5: signal replay contract eligibility without enforcing it.
+    Runner remains final authority; this mirrors the Stage 1 gate surface for UI/discovery transparency.
+    """
+    k = str(kind).strip().lower() if isinstance(kind, str) else ""
+    if k != "point":
+        return {
+            "selectable": True,
+            "contract_class": "canonical_raw",
+            "reason_code": None,
+            "requires_transition_mode": False,
+            "transition_window_valid": False,
+        }
+
+    policy = _coerce_replay_contract_policy(config)
+    transition_enabled = bool(getattr(config, "replay_point_transition_enabled", False))
+    sunset_epoch = _coerce_transition_sunset_epoch(config)
+    now = time.time()
+    transition_window_valid = bool(transition_enabled and sunset_epoch is not None and sunset_epoch > now)
+
+    if policy != REPLAY_CONTRACT_POLICY_REJECT_POINT_LIKE:
+        reason = REPLAY_POINT_REJECT_REASON_UNSUPPORTED_POLICY
+        selectable = False
+    elif not transition_enabled:
+        reason = REPLAY_POINT_REJECT_REASON_DEFAULT_POLICY
+        selectable = False
+    elif sunset_epoch is None:
+        reason = REPLAY_POINT_REJECT_REASON_TRANSITION_SUNSET_MISSING
+        selectable = False
+    elif sunset_epoch <= now:
+        reason = REPLAY_POINT_REJECT_REASON_TRANSITION_SUNSET_EXPIRED
+        selectable = False
+    else:
+        reason = None
+        selectable = True
+
+    return {
+        "selectable": bool(selectable),
+        "contract_class": "non_canonical_point",
+        "reason_code": reason,
+        "requires_transition_mode": True,
+        "transition_window_valid": bool(transition_window_valid),
+    }
 
 
 def _team_name_from_side(payload: dict, side: str) -> str:
@@ -232,7 +317,34 @@ async def replay_load(
     if isinstance(profile, str) and profile.strip().lower() in ("current", "learned_v1", "learned_v2", "learned_fit"):
         partial["midround_v2_weight_profile"] = profile.strip().lower()
     await store.update_config(partial)
-    return await store.get_current()
+    config = await store.get_config()
+    kind = _infer_replay_kind_from_path(getattr(config, "replay_path", None))
+    preflight = _replay_source_contract_signaling(kind=kind, config=config)
+    cur = await store.get_current()
+    if not isinstance(cur, dict):
+        cur = {}
+    cur["replay_load_preflight"] = preflight
+    return cur
+
+
+def _infer_replay_kind_from_path(path: Any) -> str:
+    """
+    Lightweight kind inference for /replay/load preflight.
+    Prefer discovered sources; fallback to filename heuristic.
+    """
+    if not isinstance(path, str) or not path.strip():
+        return "raw"
+    p = path.strip()
+    # Match discovered sources first (rel paths).
+    discovered = _discover_replay_sources()
+    for s in (discovered.get("sources") or []):
+        if isinstance(s, dict) and s.get("path") == p:
+            k = s.get("kind")
+            return str(k).strip().lower() if isinstance(k, str) else "raw"
+    name = Path(p).name.lower()
+    if "history_points" in name:
+        return "point"
+    return "raw"
 
 
 @router.post("/stop")

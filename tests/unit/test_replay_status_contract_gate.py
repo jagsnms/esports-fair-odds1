@@ -50,7 +50,8 @@ async def test_replay_load_accepts_contract_gate_fields() -> None:
         "replay_point_transition_enabled": True,
         "replay_point_transition_sunset_epoch": 4102444800,  # year 2100
     }
-    await replay_load(body=body, store=store)
+    resp = await replay_load(body=body, store=store)
+    assert isinstance(resp.get("replay_load_preflight"), dict)
     status = await replay_status(store=store)
     assert status["replay_contract_policy"] == "reject_point_like"
     assert status["replay_point_transition_enabled"] is True
