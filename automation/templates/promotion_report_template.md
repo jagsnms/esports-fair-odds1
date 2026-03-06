@@ -1,5 +1,12 @@
 # Promotion report
 
+branch: fast/run-YYYYMMDD-HHMM-short-slug
+base_branch: agent-base
+lane: fast
+run_type: maintenance
+status: proposed | implemented | promoted | held
+recommendation: promote | hold | discard
+
 ## Selected issue
 
 - **Issue:** (link or ID)
@@ -37,6 +44,8 @@
 
 ## Recommendation
 
-- [ ] **Promote** — ready for human review/merge
-- [ ] **Hold** — keep branch for later review
-- [ ] **Discard** — do not promote
+Set `recommendation` at the top metadata block to one of:
+
+- `promote`
+- `hold`
+- `discard`
