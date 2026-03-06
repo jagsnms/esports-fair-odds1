@@ -20,6 +20,8 @@ def _frame(
     hp_totals: tuple[float, float] = (0.0, 0.0),
     cash_loadout_totals: tuple[float, float] = (0.0, 0.0),
     loadout_totals: tuple[float, float] | None = None,
+    cash_totals: tuple[float, float] | None = None,
+    armor_totals: tuple[float, float] | None = None,
     bomb_phase_time_remaining: Any = None,
 ) -> Frame:
     return Frame(
@@ -33,6 +35,8 @@ def _frame(
         hp_totals=hp_totals,
         cash_loadout_totals=cash_loadout_totals,
         loadout_totals=loadout_totals,
+        cash_totals=cash_totals,
+        armor_totals=armor_totals,
         bomb_phase_time_remaining=bomb_phase_time_remaining,
     )
 
@@ -195,6 +199,29 @@ def test_contract_rails_align_with_bounds_at_map_point_for_b() -> None:
     assert abs(rail_lo - series_lo) <= 1e-3
 
 
+def test_map_point_alignment_preserved_when_v2_strict_activates() -> None:
+    """Map-point alignment remains correct even when v2_strict is active (all required fields valid)."""
+    config = _config(prematch_map=0.55)
+    config.rail_input_contract_policy = "v2_strict"
+    state = _state()
+    frame = _frame(
+        scores=(12, 5),
+        series_score=(0, 0),
+        alive_counts=(5, 5),
+        loadout_totals=(9000.0, 6000.0),
+        cash_totals=(3500.0, 2000.0),
+        armor_totals=(500.0, 300.0),
+    )
+    bounds_result = compute_bounds(frame, config, state)
+    bounds = (bounds_result[0], bounds_result[1])
+    rail_lo, rail_hi, debug = compute_rails_cs2(frame, config, state, bounds)
+    assert debug.get("rail_input_v2_activated") is True
+    assert debug.get("rail_input_active_endpoint_semantics") == "v2"
+    assert abs(rail_hi - bounds[1]) <= 1e-3
+    assert rail_lo <= rail_hi
+    assert bounds[0] <= rail_lo <= rail_hi <= bounds[1]
+
+
 class TestRailsCs2Basic(unittest.TestCase):
     """Run the same tests via unittest."""
 
@@ -227,6 +254,9 @@ class TestRailsCs2Basic(unittest.TestCase):
 
     def test_contract_rails_align_with_bounds_at_map_point_for_b(self) -> None:
         test_contract_rails_align_with_bounds_at_map_point_for_b()
+
+    def test_map_point_alignment_preserved_when_v2_strict_activates(self) -> None:
+        test_map_point_alignment_preserved_when_v2_strict_activates()
 
 
 if __name__ == "__main__":

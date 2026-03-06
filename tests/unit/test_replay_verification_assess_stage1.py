@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from tools.replay_verification_assess import run_assessment
+from engine.compute.rails_cs2 import RAIL_INPUT_POLICY_V2_STRICT
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -62,6 +63,10 @@ def test_replay_verification_assess_stage1_deterministic_and_schema_conformant()
     assert first["direct_load_payload_count"] == 6
     assert first["raw_contract_points"] == first["total_points_captured"]
     assert first["point_passthrough_points"] == 0
+    assert first["rail_input_contract_policy_counts"].get(RAIL_INPUT_POLICY_V2_STRICT, 0) == first["total_points_captured"]
+    assert first["rail_input_v2_activated_points"] + first["rail_input_v1_fallback_points"] == first["total_points_captured"]
+    assert sum(first["rail_input_reason_code_counts"].values()) == first["total_points_captured"]
+    assert first["rail_input_active_endpoint_semantics_counts"].get("v1", 0) + first["rail_input_active_endpoint_semantics_counts"].get("v2", 0) == first["total_points_captured"]
     assert first["point_like_inputs_seen"] == 0
     assert first["point_like_inputs_rejected"] == 0
     assert first["point_like_inputs_transition_passthrough"] == 0

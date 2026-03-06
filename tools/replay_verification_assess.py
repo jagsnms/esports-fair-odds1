@@ -139,6 +139,11 @@ async def run_assessment(replay_path: str) -> dict[str, Any]:
     point_passthrough = 0
     non_canonical_point_points = 0
     replay_quarantine_status_counts: dict[str, int] = {}
+    rail_input_contract_policy_counts: dict[str, int] = {}
+    rail_input_active_endpoint_semantics_counts: dict[str, int] = {}
+    rail_input_reason_code_counts: dict[str, int] = {}
+    rail_input_v2_activated_points = 0
+    rail_input_v1_fallback_points = 0
     unknown_replay_mode_points = 0
     structural_violations_total = 0
     behavioral_violations_total = 0
@@ -169,6 +174,21 @@ async def run_assessment(replay_path: str) -> dict[str, Any]:
         qs = debug.get("replay_quarantine_status")
         if isinstance(qs, str) and qs:
             replay_quarantine_status_counts[qs] = replay_quarantine_status_counts.get(qs, 0) + 1
+        rail_policy = debug.get("rail_input_contract_policy")
+        if isinstance(rail_policy, str) and rail_policy:
+            rail_input_contract_policy_counts[rail_policy] = rail_input_contract_policy_counts.get(rail_policy, 0) + 1
+        rail_sem = debug.get("rail_input_active_endpoint_semantics")
+        if isinstance(rail_sem, str) and rail_sem:
+            rail_input_active_endpoint_semantics_counts[rail_sem] = (
+                rail_input_active_endpoint_semantics_counts.get(rail_sem, 0) + 1
+            )
+        rail_reason = debug.get("rail_input_v1_fallback_reason_code")
+        if isinstance(rail_reason, str) and rail_reason:
+            rail_input_reason_code_counts[rail_reason] = rail_input_reason_code_counts.get(rail_reason, 0) + 1
+        if debug.get("rail_input_v2_activated") is True:
+            rail_input_v2_activated_points += 1
+        if debug.get("rail_input_v1_fallback_used") is True:
+            rail_input_v1_fallback_points += 1
 
         cd = debug.get("contract_diagnostics")
         if isinstance(cd, dict):
@@ -223,6 +243,11 @@ async def run_assessment(replay_path: str) -> dict[str, Any]:
         "raw_contract_points": raw_contract,
         "point_passthrough_points": point_passthrough,
         "unknown_replay_mode_points": unknown_replay_mode_points,
+        "rail_input_contract_policy_counts": rail_input_contract_policy_counts,
+        "rail_input_active_endpoint_semantics_counts": rail_input_active_endpoint_semantics_counts,
+        "rail_input_reason_code_counts": rail_input_reason_code_counts,
+        "rail_input_v2_activated_points": rail_input_v2_activated_points,
+        "rail_input_v1_fallback_points": rail_input_v1_fallback_points,
         "non_canonical_point_points": non_canonical_point_points,
         "replay_quarantine_status_counts": replay_quarantine_status_counts,
         "replay_mode_usage_matrix": {

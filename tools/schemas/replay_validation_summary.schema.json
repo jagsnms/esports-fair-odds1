@@ -15,6 +15,11 @@
     "total_points_captured",
     "raw_contract_points",
     "point_passthrough_points",
+    "rail_input_contract_policy_counts",
+    "rail_input_active_endpoint_semantics_counts",
+    "rail_input_reason_code_counts",
+    "rail_input_v2_activated_points",
+    "rail_input_v1_fallback_points",
     "point_like_inputs_seen",
     "point_like_inputs_rejected",
     "point_like_inputs_transition_passthrough",
@@ -71,6 +76,35 @@
       "minimum": 0
     },
     "point_passthrough_points": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "rail_input_contract_policy_counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "rail_input_active_endpoint_semantics_counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "rail_input_reason_code_counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "rail_input_v2_activated_points": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "rail_input_v1_fallback_points": {
       "type": "integer",
       "minimum": 0
     },

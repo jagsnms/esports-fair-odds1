@@ -11,6 +11,7 @@ This module now distinguishes:
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any
 
 from engine.models import Config, Frame, State
@@ -37,10 +38,8 @@ UNCERTAINTY_MULT_MIN = 1.0
 # Contract rails: tiny minimum width epsilon to avoid degenerate collapse.
 CONTRACT_MIN_WIDTH = 1e-4
 
-# --- Rail input contract (v1): observability only; no endpoint redesign. ---
-RAIL_INPUT_CONTRACT_VERSION = "v1"
-# Allowed (v1): round-boundary persistent state; consumed by contract rail computation.
-RAIL_INPUT_ALLOWED_FIELDS = (
+# --- Rail input contract v1 (legacy fallback semantics). ---
+RAIL_INPUT_V1_ALLOWED_FIELDS = (
     "bounds.low",
     "bounds.high",
     "frame.scores",
@@ -48,8 +47,7 @@ RAIL_INPUT_ALLOWED_FIELDS = (
     "frame.series_fmt",
     "config.prematch_map",
 )
-# Forbidden (v1): transient intraround state; must not influence contract rails.
-RAIL_INPUT_FORBIDDEN_FIELDS = (
+RAIL_INPUT_V1_FORBIDDEN_FIELDS = (
     "frame.hp_totals",
     "frame.alive_counts",
     "frame.round_time_remaining_s",
@@ -59,9 +57,17 @@ RAIL_INPUT_FORBIDDEN_FIELDS = (
     "frame.armor_totals",
 )
 
-# --- Rail input contract v2 (carryover-observability), Stage 1: observe only; endpoints stay v1. ---
-RAIL_INPUT_V2_CONTRACT_VERSION = "v2-observe-stage1"
-RAIL_INPUT_V2_POLICY = "observe_v2_use_v1_endpoints"
+# --- Rail input contract v2 (Stage 1 semantic switch). ---
+RAIL_INPUT_CONTRACT_VERSION = "v2-stage1"
+RAIL_INPUT_V2_CONTRACT_VERSION = RAIL_INPUT_CONTRACT_VERSION
+RAIL_INPUT_POLICY_FORCE_V1 = "force_v1"
+RAIL_INPUT_POLICY_V2_STRICT = "v2_strict"
+RAIL_INPUT_POLICY_STATES = (
+    RAIL_INPUT_POLICY_FORCE_V1,
+    RAIL_INPUT_POLICY_V2_STRICT,
+)
+# Default Stage 1 policy: strict activation, deterministic fallback.
+RAIL_INPUT_V2_POLICY = RAIL_INPUT_POLICY_V2_STRICT
 RAIL_INPUT_V2_REQUIRED_FIELDS = (
     "frame.cash_totals",
     "frame.loadout_totals",
@@ -87,9 +93,15 @@ RAIL_INPUT_V2_FORBIDDEN_FIELDS = (
     "frame.bomb_phase_time_remaining",
 )
 # Fallback reason codes (deterministic).
+V2_FALLBACK_POLICY_FORCE_V1 = "POLICY_FORCE_V1"
 V2_FALLBACK_REQUIRED_MISSING = "V2_REQUIRED_FIELDS_MISSING"
 V2_FALLBACK_REQUIRED_INVALID = "V2_REQUIRED_FIELDS_INVALID"
-V2_FALLBACK_STAGE1_LOCKED = "STAGE1_LOCKED_NO_SEMANTIC_SWITCH"
+V2_FALLBACK_POLICY_UNSUPPORTED = "V2_POLICY_UNSUPPORTED"
+V2_ACTIVATED = "V2_STRICT_ACTIVATED"
+
+# Minimal carryover signal scaling used only when v2_strict is activated.
+V2_CARRYOVER_EDGE_SCALE = 0.08
+V2_WINNER_EDGE_BIAS = 0.03
 
 
 def _v2_required_field_valid(key: str, frame: Frame, config: Config) -> bool:
@@ -100,7 +112,7 @@ def _v2_required_field_valid(key: str, frame: Frame, config: Config) -> bool:
             return False
         try:
             f = float(val)
-            return 1e-6 <= f <= 1.0 - 1e-6
+            return math.isfinite(f) and 1e-6 <= f <= 1.0 - 1e-6
         except (TypeError, ValueError):
             return False
     if not key.startswith("frame."):
@@ -138,7 +150,7 @@ def _rail_input_v2_provenance(
     source: str | None = None,
     replay_kind: str | None = None,
 ) -> dict[str, Any]:
-    """Build v2 carryover-observability provenance; Stage 1 always uses v1 endpoints (fallback)."""
+    """Build v2 policy/activation provenance for Stage 1 semantic-switch."""
     present_required: list[str] = []
     missing_required: list[str] = []
     invalid_required: list[str] = []
@@ -169,17 +181,31 @@ def _rail_input_v2_provenance(
     required_coverage_ratio = (n_present / n_required) if n_required else 0.0
     required_complete = len(missing_required) == 0 and len(invalid_required) == 0
 
-    v1_fallback_used = True  # Stage 1 locked: always use v1 endpoints
-    if invalid_required:
-        fallback_reason_code = V2_FALLBACK_REQUIRED_INVALID
-    elif missing_required:
-        fallback_reason_code = V2_FALLBACK_REQUIRED_MISSING
+    policy_state = str(getattr(config, "rail_input_contract_policy", RAIL_INPUT_V2_POLICY) or "").strip()
+    if not policy_state:
+        policy_state = RAIL_INPUT_V2_POLICY
+
+    v2_activated = False
+    if policy_state == RAIL_INPUT_POLICY_FORCE_V1:
+        reason_code = V2_FALLBACK_POLICY_FORCE_V1
+    elif policy_state == RAIL_INPUT_POLICY_V2_STRICT:
+        if invalid_required:
+            reason_code = V2_FALLBACK_REQUIRED_INVALID
+        elif missing_required:
+            reason_code = V2_FALLBACK_REQUIRED_MISSING
+        else:
+            reason_code = V2_ACTIVATED
+            v2_activated = True
     else:
-        fallback_reason_code = V2_FALLBACK_STAGE1_LOCKED
+        reason_code = V2_FALLBACK_POLICY_UNSUPPORTED
+
+    v1_fallback_used = not v2_activated
+    active_semantics = "v2" if v2_activated else "v1"
 
     return {
         "rail_input_contract_version": RAIL_INPUT_V2_CONTRACT_VERSION,
-        "rail_input_contract_policy": RAIL_INPUT_V2_POLICY,
+        "rail_input_contract_policy": policy_state,
+        "rail_input_policy_states_supported": list(RAIL_INPUT_POLICY_STATES),
         "rail_input_v2_required_fields": list(RAIL_INPUT_V2_REQUIRED_FIELDS),
         "rail_input_v2_optional_fields": list(RAIL_INPUT_V2_OPTIONAL_FIELDS),
         "rail_input_v2_forbidden_fields": list(RAIL_INPUT_V2_FORBIDDEN_FIELDS),
@@ -189,9 +215,11 @@ def _rail_input_v2_provenance(
         "rail_input_v2_present_optional_fields": present_optional,
         "rail_input_v2_required_coverage_ratio": required_coverage_ratio,
         "rail_input_v2_required_complete": required_complete,
+        "rail_input_v2_activated": v2_activated,
         "rail_input_v1_fallback_used": v1_fallback_used,
-        "rail_input_v1_fallback_reason_code": fallback_reason_code,
-        "rail_input_active_endpoint_semantics": "v1",
+        "rail_input_v1_fallback_reason_code": reason_code,
+        "rail_input_activation_reason_code": reason_code,
+        "rail_input_active_endpoint_semantics": active_semantics,
         "rail_input_source": source,
         "rail_input_replay_kind": replay_kind,
     }
@@ -199,13 +227,13 @@ def _rail_input_v2_provenance(
 
 def _rail_input_provenance(
     frame: Frame,
-    config: Config,
-    bounds: tuple[float, float],
+    forbidden_fields: tuple[str, ...],
+    allowed_fields: tuple[str, ...],
     allowed_consumed: tuple[str, ...],
 ) -> dict[str, Any]:
     """Build per-evaluation provenance: allowed/forbidden sets and consumed/ignored."""
     forbidden_ignored: list[str] = []
-    for key in RAIL_INPUT_FORBIDDEN_FIELDS:
+    for key in forbidden_fields:
         if not key.startswith("frame."):
             continue
         attr = key.split(".", 1)[1]
@@ -214,10 +242,37 @@ def _rail_input_provenance(
             forbidden_ignored.append(key)
     return {
         "rail_input_contract_version": RAIL_INPUT_CONTRACT_VERSION,
-        "rail_input_allowed_fields": list(RAIL_INPUT_ALLOWED_FIELDS),
-        "rail_input_forbidden_fields": list(RAIL_INPUT_FORBIDDEN_FIELDS),
+        "rail_input_allowed_fields": list(allowed_fields),
+        "rail_input_forbidden_fields": list(forbidden_fields),
         "rail_input_allowed_consumed": list(allowed_consumed),
         "rail_input_forbidden_ignored": forbidden_ignored,
+    }
+
+
+def _safe_norm_delta(a: float, b: float) -> float:
+    denom = abs(a) + abs(b)
+    if denom <= 1e-6:
+        return 0.0
+    return _clip((a - b) / denom, -1.0, 1.0)
+
+
+def _compute_v2_carryover_edge(frame: Frame) -> tuple[float, dict[str, float]]:
+    """Compute deterministic carryover edge from required v2 persistent signals only."""
+    cash = getattr(frame, "cash_totals", (0.0, 0.0))
+    loadout = getattr(frame, "loadout_totals", (0.0, 0.0))
+    armor = getattr(frame, "armor_totals", (0.0, 0.0))
+    cash_a, cash_b = float(cash[0]), float(cash[1])
+    load_a, load_b = float(loadout[0]), float(loadout[1])
+    arm_a, arm_b = float(armor[0]), float(armor[1])
+    d_cash = _safe_norm_delta(cash_a, cash_b)
+    d_load = _safe_norm_delta(load_a, load_b)
+    d_armor = _safe_norm_delta(arm_a, arm_b)
+    carryover_edge = _clip(0.35 * d_cash + 0.45 * d_load + 0.20 * d_armor, -1.0, 1.0)
+    return carryover_edge, {
+        "carryover_edge": carryover_edge,
+        "cash_delta_norm": d_cash,
+        "loadout_delta_norm": d_load,
+        "armor_delta_norm": d_armor,
     }
 
 
@@ -344,21 +399,48 @@ def compute_rails_cs2(
         p0 = 0.5
     wt = _cs2_win_target(ra, rb)
 
-    # Map-level fair probability for counterfactual states; then series_win_prob_live
-    p_map_if_a_val: float | None = None
-    p_map_if_b_val: float | None = None
+    # Map-level fair probability for counterfactual states under v1 baseline.
+    p_map_if_a_v1: float | None = None
+    p_map_if_b_v1: float | None = None
     if (rb + 1) >= wt:
-        canonical_if_b = series_win_prob_live(bo, ma, mb + 1, p0, p0)
+        canonical_if_b_v1 = series_win_prob_live(bo, ma, mb + 1, p0, p0)
     else:
-        p_map_if_b_val = p_map_fair(ra, rb + 1, config=config, state=state, frame=frame)
-        canonical_if_b = series_win_prob_live(bo, ma, mb, p_map_if_b_val, p0)
+        p_map_if_b_v1 = p_map_fair(ra, rb + 1, config=config, state=state, frame=frame)
+        canonical_if_b_v1 = series_win_prob_live(bo, ma, mb, p_map_if_b_v1, p0)
     if (ra + 1) >= wt:
-        canonical_if_a = series_win_prob_live(bo, ma + 1, mb, p0, p0)
+        canonical_if_a_v1 = series_win_prob_live(bo, ma + 1, mb, p0, p0)
     else:
-        p_map_if_a_val = p_map_fair(ra + 1, rb, config=config, state=state, frame=frame)
-        canonical_if_a = series_win_prob_live(bo, ma, mb, p_map_if_a_val, p0)
-    canonical_if_a = _clip01(canonical_if_a)
-    canonical_if_b = _clip01(canonical_if_b)
+        p_map_if_a_v1 = p_map_fair(ra + 1, rb, config=config, state=state, frame=frame)
+        canonical_if_a_v1 = series_win_prob_live(bo, ma, mb, p_map_if_a_v1, p0)
+    canonical_if_a_v1 = _clip01(canonical_if_a_v1)
+    canonical_if_b_v1 = _clip01(canonical_if_b_v1)
+
+    v2_provenance = _rail_input_v2_provenance(frame, config, source=source, replay_kind=replay_kind)
+    use_v2 = bool(v2_provenance.get("rail_input_v2_activated"))
+    policy_state = str(v2_provenance.get("rail_input_contract_policy", RAIL_INPUT_V2_POLICY))
+
+    # Active endpoint semantics: v1 fallback or v2 strict (when all required fields valid).
+    p_map_if_a_val = p_map_if_a_v1
+    p_map_if_b_val = p_map_if_b_v1
+    canonical_if_a = canonical_if_a_v1
+    canonical_if_b = canonical_if_b_v1
+    carryover_debug: dict[str, Any] = {}
+    if use_v2:
+        carryover_edge, carryover_debug = _compute_v2_carryover_edge(frame)
+        if p_map_if_a_v1 is not None:
+            p_map_if_a_val = _clip(
+                p_map_if_a_v1 + (V2_CARRYOVER_EDGE_SCALE * carryover_edge) + V2_WINNER_EDGE_BIAS,
+                1e-6,
+                1.0 - 1e-6,
+            )
+            canonical_if_a = _clip01(series_win_prob_live(bo, ma, mb, p_map_if_a_val, p0))
+        if p_map_if_b_v1 is not None:
+            p_map_if_b_val = _clip(
+                p_map_if_b_v1 + (V2_CARRYOVER_EDGE_SCALE * carryover_edge) - V2_WINNER_EDGE_BIAS,
+                1e-6,
+                1.0 - 1e-6,
+            )
+            canonical_if_b = _clip01(series_win_prob_live(bo, ma, mb, p_map_if_b_val, p0))
 
     # Strict counterfactual endpoints before any envelope/active/context transforms.
     cf_low = min(canonical_if_a, canonical_if_b)
@@ -368,17 +450,24 @@ def compute_rails_cs2(
     cf_low = _clip01(cf_low)
     cf_high = _clip01(cf_high)
 
-    # Provenance: contract v1 allowed inputs consumed for cf_low/cf_high; forbidden inputs ignored.
-    allowed_consumed = (
-        "bounds.low",
-        "bounds.high",
-        "frame.scores",
-        "frame.series_score",
-        "frame.series_fmt",
-        "config.prematch_map",
-    )
-    provenance = _rail_input_provenance(frame, config, bounds, allowed_consumed)
-    v2_provenance = _rail_input_v2_provenance(frame, config, source=source, replay_kind=replay_kind)
+    # Provenance: expose active semantic input contract.
+    if use_v2:
+        allowed_fields = (
+            "bounds.low",
+            "bounds.high",
+            "frame.cash_totals",
+            "frame.loadout_totals",
+            "frame.armor_totals",
+            "frame.scores",
+            "frame.series_score",
+            "frame.series_fmt",
+            "config.prematch_map",
+        )
+        forbidden_fields = RAIL_INPUT_V2_FORBIDDEN_FIELDS
+    else:
+        allowed_fields = RAIL_INPUT_V1_ALLOWED_FIELDS
+        forbidden_fields = RAIL_INPUT_V1_FORBIDDEN_FIELDS
+    provenance = _rail_input_provenance(frame, forbidden_fields, allowed_fields, allowed_fields)
 
     # Envelope around each branch (heuristic rails).
     env = compute_cs2_branch_endpoint_envelope_debug(
@@ -394,16 +483,24 @@ def compute_rails_cs2(
     debug: dict[str, Any] = {
         "canonical_if_a_round": canonical_if_a,
         "canonical_if_b_round": canonical_if_b,
+        "canonical_if_a_round_v1": canonical_if_a_v1,
+        "canonical_if_b_round_v1": canonical_if_b_v1,
         "p_map_if_a": p_map_if_a_val,
         "p_map_if_b": p_map_if_b_val,
+        "p_map_if_a_v1": p_map_if_a_v1,
+        "p_map_if_b_v1": p_map_if_b_v1,
         "rails_cf_low": cf_low,
         "rails_cf_high": cf_high,
         "rails_cf_map_score": (ra, rb),
         "rails_cf_series_score": (ma, mb),
         "rails_cf_series_fmt": series_fmt,
+        "rail_input_semantic_policy_state": policy_state,
+        "rail_input_semantic_v2_activated": use_v2,
         "base_span": env.get("endpoint_base_span_abs"),
         "k": env.get("endpoint_env_fraction_k"),
     }
+    for k, v in carryover_debug.items():
+        debug[f"rail_input_v2_{k}"] = v
     for k, v in provenance.items():
         debug[k] = v
     for k, v in v2_provenance.items():
