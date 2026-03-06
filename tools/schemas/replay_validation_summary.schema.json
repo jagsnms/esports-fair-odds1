@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tools/schemas/replay_validation_summary.schema.json",
+  "title": "ReplayValidationSummaryStage1",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema_version",
+    "fixture_class",
+    "replay_path",
+    "direct_load_payload_count",
+    "replay_payload_count_loaded",
+    "total_points_captured",
+    "raw_contract_points",
+    "point_passthrough_points",
+    "points_with_contract_diagnostics",
+    "structural_violations_total",
+    "behavioral_violations_total",
+    "invariant_violations_total"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "replay_validation_summary.v1"
+    },
+    "fixture_class": {
+      "type": "string",
+      "minLength": 1
+    },
+    "replay_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "direct_load_payload_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "replay_payload_count_loaded": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "total_points_captured": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "raw_contract_points": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "point_passthrough_points": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "points_with_contract_diagnostics": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "structural_violations_total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "behavioral_violations_total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "invariant_violations_total": {
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}
