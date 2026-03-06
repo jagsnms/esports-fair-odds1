@@ -1,16 +1,8 @@
-"""Unit tests for non-fatal corridor invariant checks."""
+"""Unit tests for corridor invariant classification and reporting."""
 
 from __future__ import annotations
 
-import importlib.util
-from pathlib import Path
-
-RUNNER_PATH = Path(__file__).resolve().parents[2] / "backend" / "services" / "runner.py"
-SPEC = importlib.util.spec_from_file_location("runner_module", RUNNER_PATH)
-assert SPEC is not None and SPEC.loader is not None
-RUNNER_MODULE = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(RUNNER_MODULE)
-compute_corridor_invariants = RUNNER_MODULE.compute_corridor_invariants
+from engine.diagnostics.invariants import compute_corridor_invariants
 
 
 def test_corridor_invariants_all_ok() -> None:
@@ -23,6 +15,8 @@ def test_corridor_invariants_all_ok() -> None:
     )
     assert inv["invariant_series_map_order_ok"] is True
     assert inv["invariant_p_hat_in_map_ok"] is True
+    assert inv["invariant_structural_violations"] == []
+    assert inv["invariant_behavioral_violations"] == []
     assert inv["invariant_violations"] == []
 
 
@@ -36,6 +30,8 @@ def test_corridor_invariants_order_violation_only() -> None:
     )
     assert inv["invariant_series_map_order_ok"] is False
     assert inv["invariant_p_hat_in_map_ok"] is True
+    assert inv["invariant_structural_violations"] == ["series_map_order"]
+    assert inv["invariant_behavioral_violations"] == []
     assert inv["invariant_violations"] == ["series_map_order"]
 
 
@@ -49,5 +45,23 @@ def test_corridor_invariants_p_hat_outside_map() -> None:
     )
     assert inv["invariant_series_map_order_ok"] is True
     assert inv["invariant_p_hat_in_map_ok"] is False
+    assert inv["invariant_structural_violations"] == []
+    assert inv["invariant_behavioral_violations"] == ["p_hat_outside_map"]
     assert inv["invariant_violations"] == ["p_hat_outside_map"]
+
+
+def test_corridor_invariants_production_mode_reports_structural_only() -> None:
+    inv = compute_corridor_invariants(
+        series_low=0.2,
+        series_high=0.8,
+        map_low=0.3,
+        map_high=0.6,
+        p_hat=0.75,
+        testing_mode=False,
+    )
+    assert inv["invariant_mode"] == "production"
+    assert inv["invariant_structural_violations"] == []
+    assert inv["invariant_behavioral_violations"] == ["p_hat_outside_map"]
+    # In production mode, primary invariant list remains structural-only.
+    assert inv["invariant_violations"] == []
 

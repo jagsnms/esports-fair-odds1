@@ -15,6 +15,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
+from engine.diagnostics.invariants import compute_corridor_invariants
 from engine.models import Config, Derived, Frame, HistoryPoint, State
 
 from backend.services.trade_episodes import TradeEpisodeManager
@@ -522,30 +523,6 @@ def _bo3_health(
     if age > BO3_STALE_THRESHOLD_SEC:
         return ("STALE", f"no change {int(age)}s", age)
     return ("GOOD", None, None)
-
-
-def compute_corridor_invariants(
-    *,
-    series_low: float,
-    series_high: float,
-    map_low: float,
-    map_high: float,
-    p_hat: float,
-    eps: float = 1e-9,
-) -> dict[str, Any]:
-    """Return non-fatal invariant flags for corridor ordering and p_hat inclusion."""
-    order_ok = (series_low - eps) <= map_low <= map_high <= (series_high + eps)
-    p_in_map_ok = (map_low - eps) <= p_hat <= (map_high + eps)
-    violations: list[str] = []
-    if not order_ok:
-        violations.append("series_map_order")
-    if not p_in_map_ok:
-        violations.append("p_hat_outside_map")
-    return {
-        "invariant_series_map_order_ok": order_ok,
-        "invariant_p_hat_in_map_ok": p_in_map_ok,
-        "invariant_violations": violations,
-    }
 
 
 def compute_breach_flags(
@@ -2515,7 +2492,6 @@ class Runner:
         market_mid, market_dbg = self._get_market_for_point(config)
         dbg.update(market_dbg)
         from engine.compute.breach import compute_breach_flags
-        from engine.diagnostics.invariants import compute_corridor_invariants
         breach_map_hi, breach_map_lo, breach_series_hi, breach_series_lo, breach_mag, breach_type = compute_breach_flags(
             market_mid, bound_low, bound_high, rail_low, rail_high
         )

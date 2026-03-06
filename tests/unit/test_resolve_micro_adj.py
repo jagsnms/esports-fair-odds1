@@ -241,6 +241,61 @@ def test_resolve_debug_contains_explain_with_required_keys() -> None:
     assert "clamp_reason" in explain["final"]
 
 
+def test_contract_target_matches_bible_formula() -> None:
+    """Diagnostics expose target_p_hat = rail_low + q * (rail_high - rail_low)."""
+    frame = _frame(
+        alive_counts=(4, 2),
+        hp_totals=(400.0, 200.0),
+        loadout_totals=(10000.0, 6000.0),
+        bomb_phase_time_remaining={"round_phase": "IN_PROGRESS"},
+    )
+    config = _config(prematch_map=0.5)
+    setattr(config, "contract_testing_mode", True)
+    state = _state()
+    rails = (0.2, 0.8)
+    _, dbg = resolve_p_hat(frame, config, state, rails)
+    diag = dbg["contract_diagnostics"]
+    q = diag["q_intra_total"]
+    assert q is not None
+    expected_target = rails[0] + q * (rails[1] - rails[0])
+    assert diag["target_p_hat"] == expected_target
+
+
+def test_contract_testing_mode_flags_movement_gap() -> None:
+    """In testing mode, behavioral movement gap is reported when runtime differs from contract step."""
+    frame = _frame(
+        alive_counts=(5, 1),
+        hp_totals=(450.0, 100.0),
+        loadout_totals=(12000.0, 3000.0),
+        bomb_phase_time_remaining={"round_phase": "IN_PROGRESS"},
+    )
+    config = _config(prematch_map=0.5)
+    setattr(config, "contract_testing_mode", True)
+    state = _state()
+    rails = (0.2, 0.8)
+    _, dbg = resolve_p_hat(frame, config, state, rails)
+    diag = dbg["contract_diagnostics"]
+    assert diag["contract_testing_mode"] is True
+    assert "movement_contract_gap" in diag["behavioral_violations"]
+
+
+def test_contract_testing_mode_off_suppresses_behavioral_flags() -> None:
+    """When testing mode is off, contract diagnostics do not emit behavioral violations."""
+    frame = _frame(
+        alive_counts=(5, 1),
+        hp_totals=(450.0, 100.0),
+        loadout_totals=(12000.0, 3000.0),
+        bomb_phase_time_remaining={"round_phase": "IN_PROGRESS"},
+    )
+    config = _config(prematch_map=0.5)
+    state = _state()
+    rails = (0.2, 0.8)
+    _, dbg = resolve_p_hat(frame, config, state, rails)
+    diag = dbg["contract_diagnostics"]
+    assert diag["contract_testing_mode"] is False
+    assert diag["behavioral_violations"] == []
+
+
 class TestResolveMicroAdj(unittest.TestCase):
     """Run the same tests via unittest."""
 
@@ -276,6 +331,15 @@ class TestResolveMicroAdj(unittest.TestCase):
 
     def test_resolve_debug_contains_explain_with_required_keys(self) -> None:
         test_resolve_debug_contains_explain_with_required_keys()
+
+    def test_contract_target_matches_bible_formula(self) -> None:
+        test_contract_target_matches_bible_formula()
+
+    def test_contract_testing_mode_flags_movement_gap(self) -> None:
+        test_contract_testing_mode_flags_movement_gap()
+
+    def test_contract_testing_mode_off_suppresses_behavioral_flags(self) -> None:
+        test_contract_testing_mode_off_suppresses_behavioral_flags()
 
 
 if __name__ == "__main__":
