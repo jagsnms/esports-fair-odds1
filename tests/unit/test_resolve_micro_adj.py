@@ -184,10 +184,11 @@ def test_midround_monotonic_higher_q_intra_raises_p_hat() -> None:
     assert p_high >= p_low
 
 
-def test_midround_v2_p_hat_equals_p_mid_clamped_when_rails_wide() -> None:
-    """IN_PROGRESS with wide rails => p_hat_final equals midround_v2 p_mid_clamped."""
+def test_midround_v2_p_hat_follows_movement_formula_when_rails_wide() -> None:
+    """IN_PROGRESS: p_hat_final = p_hat_old + confidence*(target_p_hat - p_hat_old) clamped to rails (Stage 2)."""
     state = _state()
-    rails = (0.01, 0.99)  # wide so clamp to rails does not change p_mid_clamped
+    rail_low, rail_high = 0.01, 0.99
+    rails = (rail_low, rail_high)
     config = _config(prematch_map=0.5)
     frame = _frame(
         alive_counts=(4, 2),
@@ -197,9 +198,14 @@ def test_midround_v2_p_hat_equals_p_mid_clamped_when_rails_wide() -> None:
     )
     p, dbg = resolve_p_hat(frame, config, state, rails)
     assert dbg.get("midround_v2") is not None
-    assert dbg["midround_v2"].get("skipped") is not True  # V2 was applied
-    p_mid_clamped = dbg["midround_v2"]["p_mid_clamped"]
-    assert p == p_mid_clamped
+    assert dbg["midround_v2"].get("skipped") is not True
+    target_p_hat = dbg["midround_v2"]["p_mid"]
+    p_hat_old = dbg["p_hat_old"]
+    confidence = dbg["midround_weight"]
+    expected = p_hat_old + confidence * (target_p_hat - p_hat_old)
+    expected_clamped = max(rail_low, min(rail_high, expected))
+    assert p == expected_clamped
+    assert rail_low <= p <= rail_high
 
 
 REQUIRED_EXPLAIN_KEYS = (
@@ -261,8 +267,8 @@ def test_contract_target_matches_bible_formula() -> None:
     assert diag["target_p_hat"] == expected_target
 
 
-def test_contract_testing_mode_flags_movement_gap() -> None:
-    """In testing mode, behavioral movement gap is reported when runtime differs from contract step."""
+def test_contract_testing_mode_runtime_follows_movement_contract() -> None:
+    """Stage 2: runtime uses movement step so IN_PROGRESS p_hat_final matches contract (no movement_contract_gap)."""
     frame = _frame(
         alive_counts=(5, 1),
         hp_totals=(450.0, 100.0),
@@ -273,10 +279,13 @@ def test_contract_testing_mode_flags_movement_gap() -> None:
     setattr(config, "contract_testing_mode", True)
     state = _state()
     rails = (0.2, 0.8)
-    _, dbg = resolve_p_hat(frame, config, state, rails)
+    p_hat_final, dbg = resolve_p_hat(frame, config, state, rails)
     diag = dbg["contract_diagnostics"]
     assert diag["contract_testing_mode"] is True
-    assert "movement_contract_gap" in diag["behavioral_violations"]
+    expected_after_movement = diag.get("expected_p_hat_after_movement")
+    assert expected_after_movement is not None
+    assert abs(p_hat_final - expected_after_movement) < 1e-9, "runtime p_hat_final should follow movement contract"
+    assert "movement_contract_gap" not in diag["behavioral_violations"]
 
 
 def test_contract_testing_mode_off_suppresses_behavioral_flags() -> None:
@@ -326,8 +335,8 @@ class TestResolveMicroAdj(unittest.TestCase):
     def test_midround_monotonic_higher_q_intra_raises_p_hat(self) -> None:
         test_midround_monotonic_higher_q_intra_raises_p_hat()
 
-    def test_midround_v2_p_hat_equals_p_mid_clamped_when_rails_wide(self) -> None:
-        test_midround_v2_p_hat_equals_p_mid_clamped_when_rails_wide()
+    def test_midround_v2_p_hat_follows_movement_formula_when_rails_wide(self) -> None:
+        test_midround_v2_p_hat_follows_movement_formula_when_rails_wide()
 
     def test_resolve_debug_contains_explain_with_required_keys(self) -> None:
         test_resolve_debug_contains_explain_with_required_keys()
@@ -335,8 +344,8 @@ class TestResolveMicroAdj(unittest.TestCase):
     def test_contract_target_matches_bible_formula(self) -> None:
         test_contract_target_matches_bible_formula()
 
-    def test_contract_testing_mode_flags_movement_gap(self) -> None:
-        test_contract_testing_mode_flags_movement_gap()
+    def test_contract_testing_mode_runtime_follows_movement_contract(self) -> None:
+        test_contract_testing_mode_runtime_follows_movement_contract()
 
     def test_contract_testing_mode_off_suppresses_behavioral_flags(self) -> None:
         test_contract_testing_mode_off_suppresses_behavioral_flags()

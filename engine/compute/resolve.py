@@ -221,8 +221,10 @@ def resolve_p_hat(
             config=config,
         )
         midround_v2_result = result
-        p_mid_clamped = result["p_mid_clamped"]
-        p_hat_final = max(rail_low, min(rail_high, p_mid_clamped))
+        # Stage 2: movement toward target (Bible Ch 6 Step 8), then clamp to rails.
+        target_p_hat = result["p_mid"]
+        p_hat_final = p_hat_old + midround_weight * (target_p_hat - p_hat_old)
+        p_hat_final = max(rail_low, min(rail_high, p_hat_final))
 
     explain = _build_explain(
         phase=phase_upper,
