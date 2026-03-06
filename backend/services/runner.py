@@ -1324,11 +1324,18 @@ class Runner:
         backoff_so_far = 0.0
         for attempt in range(3):
             try:
-                snap = await get_snapshot(
-                    mid,
-                    _rate_debug_retry_count=attempt,
-                    _rate_debug_backoff_s=backoff_so_far if backoff_so_far else None,
-                )
+                try:
+                    snap = await get_snapshot(
+                        mid,
+                        _rate_debug_retry_count=attempt,
+                        _rate_debug_backoff_s=backoff_so_far if backoff_so_far else None,
+                    )
+                except TypeError as e:
+                    # Compatibility path for simplified mocks/clients that only accept match_id.
+                    msg = str(e)
+                    if "_rate_debug_retry_count" not in msg and "_rate_debug_backoff_s" not in msg:
+                        raise
+                    snap = await get_snapshot(mid)
                 if snap and isinstance(snap, dict) and (snap.get("team_one") or snap.get("team_two")):
                     session_runtime.bo3_buf_raw = snap
                     session_runtime.bo3_buf_snapshot_ts = _bo3_extract_snapshot_ts(snap)
