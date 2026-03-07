@@ -1,6 +1,7 @@
 """
 Resolve p_hat from frame/config/state and rails. Base + microstate adjustment, clamped into rails.
 Midround V2 is always computed; applied only when round_phase is IN_PROGRESS (phase-gated).
+Movement confidence is time-varying per Bible Ch 4 / Ch 6 Step 8.
 Returns (p_hat, debug_dict).
 """
 from __future__ import annotations
@@ -21,6 +22,29 @@ from engine.compute.q_intra_cs2 import compute_q_intra_cs2
 IN_PROGRESS_PHASES = frozenset({"IN_PROGRESS"})
 # BUY_TIME / FREEZETIME: freeze p_hat at map rail midpoint (no loadout pegging)
 BUY_TIME_PHASES = frozenset({"BUY_TIME", "FREEZETIME"})
+
+# Movement confidence curve parameters (Bible Ch 4, Ch 6 Step 8).
+# confidence = CONF_MIN + (CONF_MAX - CONF_MIN) * time_progress ** CONF_EXPONENT
+# Calibration may tune these (Ch 8) but must not change the structural
+# property that confidence increases monotonically with round progress.
+CONF_MIN = 0.10
+CONF_MAX = 0.70
+CONF_EXPONENT = 2.0
+
+
+def compute_movement_confidence(time_progress: float) -> float:
+    """Time-varying movement confidence (Bible Ch 4 / Ch 6 Step 8).
+
+    Early round (time_progress ≈ 0) → slow movement (~0.10).
+    Mid round  (time_progress ≈ 0.5) → moderate (~0.25).
+    Late round (time_progress ≈ 1) → rapid convergence (~0.70).
+
+    Uses a power curve so acceleration increases as the round progresses,
+    mirroring the natural flow of CS rounds where decisive events concentrate
+    late in the round.
+    """
+    tp = max(0.0, min(1.0, float(time_progress)))
+    return CONF_MIN + (CONF_MAX - CONF_MIN) * (tp ** CONF_EXPONENT)
 
 
 def _build_explain(
@@ -281,7 +305,6 @@ def resolve_p_hat(
             "round_phase": round_phase,
         }
     else:
-        midround_weight = 0.25
         result = apply_cs2_midround_adjustment_v2_mixture(
             frozen_a=rail_high,
             frozen_b=rail_low,
@@ -290,7 +313,10 @@ def resolve_p_hat(
             frame=frame,
         )
         midround_v2_result = result
-        # Stage 2: movement toward target (Bible Ch 6 Step 8), then clamp to rails.
+        # Bible Ch 4 / Ch 6 Step 8: confidence increases as round progresses.
+        time_progress = float(features.get("time_progress", 0.5))
+        midround_weight = compute_movement_confidence(time_progress)
+        # Stage 2: movement toward target, then clamp to rails.
         target_p_hat = result["p_mid"]
         p_hat_final = p_hat_old + midround_weight * (target_p_hat - p_hat_old)
         p_hat_final = max(rail_low, min(rail_high, p_hat_final))
