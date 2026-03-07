@@ -5,6 +5,7 @@ Policy is explicit (force_v1 | v2_strict), no partial-v2 mode.
 from __future__ import annotations
 
 from engine.compute.bounds import compute_bounds
+from engine.compute.rails import compute_rails
 from engine.compute.rails_cs2 import (
     RAIL_INPUT_V2_CONTRACT_VERSION,
     RAIL_INPUT_POLICY_FORCE_V1,
@@ -267,3 +268,27 @@ def test_v2_policy_unsupported_reason_code() -> None:
     _, _, debug = compute_rails_cs2(frame, config, state, (0.0, 1.0))
     assert debug["rail_input_v2_activated"] is False
     assert debug["rail_input_v1_fallback_reason_code"] == V2_FALLBACK_POLICY_UNSUPPORTED
+
+
+def test_rail_input_source_replay_kind_in_provenance() -> None:
+    """When source and replay_kind are passed to compute_rails_cs2 they appear in debug provenance."""
+    frame = _frame(scores=(0, 0), series_score=(0, 0))
+    config = _config()
+    state = _state()
+    _, _, debug = compute_rails_cs2(
+        frame, config, state, (0.0, 1.0), source="REPLAY", replay_kind="raw"
+    )
+    assert debug.get("rail_input_source") == "REPLAY"
+    assert debug.get("rail_input_replay_kind") == "raw"
+
+
+def test_compute_rails_forwards_source_replay_kind() -> None:
+    """compute_rails (rails.py) forwards source/replay_kind to compute_rails_cs2 and they appear in debug."""
+    frame = _frame(scores=(0, 0), series_score=(0, 0))
+    config = _config()
+    state = _state()
+    _, _, debug = compute_rails(
+        frame, config, state, (0.0, 1.0), source="GRID", replay_kind="live"
+    )
+    assert debug.get("rail_input_source") == "GRID"
+    assert debug.get("rail_input_replay_kind") == "live"

@@ -26,6 +26,7 @@ from engine.models import Config, Derived, State
 from backend.store.memory_store import MemoryStore
 from backend.services.runner import Runner, _is_raw_bo3_snapshot
 from engine.replay.bo3_jsonl import load_bo3_jsonl_entries, iter_payloads, load_generic_jsonl
+from engine.compute.rails_cs2 import RAIL_INPUT_V2_REQUIRED_FIELDS
 
 SCHEMA_VERSION = "replay_validation_summary.v1"
 CONTRACT_DIAGNOSTIC_REQUIRED_KEYS = [
@@ -163,6 +164,7 @@ async def run_assessment(replay_path: str, *, prematch_map: float | None = None)
     rail_input_v2_activated_points = 0
     rail_input_v1_fallback_points = 0
     unknown_replay_mode_points = 0
+    carryover_evidence_by_source_class: dict[str, dict[str, Any]] = {}
     structural_violations_total = 0
     behavioral_violations_total = 0
     invariant_violations_total = 0
@@ -207,6 +209,32 @@ async def run_assessment(replay_path: str, *, prematch_map: float | None = None)
             rail_input_v2_activated_points += 1
         if debug.get("rail_input_v1_fallback_used") is True:
             rail_input_v1_fallback_points += 1
+
+        src = debug.get("rail_input_source") or "unknown"
+        kind = debug.get("rail_input_replay_kind") or "unknown"
+        source_class_key = f"{src}_{kind}"
+        if source_class_key not in carryover_evidence_by_source_class:
+            carryover_evidence_by_source_class[source_class_key] = {
+                "points": 0,
+                "v2_activated_points": 0,
+                "v1_fallback_points": 0,
+                "reason_code_counts": {},
+                "required_complete_points": 0,
+                "required_incomplete_points": 0,
+            }
+        rec = carryover_evidence_by_source_class[source_class_key]
+        rec["points"] += 1
+        if debug.get("rail_input_v2_activated") is True:
+            rec["v2_activated_points"] += 1
+        if debug.get("rail_input_v1_fallback_used") is True:
+            rec["v1_fallback_points"] += 1
+        rc = debug.get("rail_input_v1_fallback_reason_code") or debug.get("rail_input_activation_reason_code")
+        if isinstance(rc, str) and rc:
+            rec["reason_code_counts"][rc] = rec["reason_code_counts"].get(rc, 0) + 1
+        if debug.get("rail_input_v2_required_complete") is True:
+            rec["required_complete_points"] += 1
+        else:
+            rec["required_incomplete_points"] += 1
 
         cd = debug.get("contract_diagnostics")
         if isinstance(cd, dict):
@@ -267,6 +295,8 @@ async def run_assessment(replay_path: str, *, prematch_map: float | None = None)
         "rail_input_reason_code_counts": rail_input_reason_code_counts,
         "rail_input_v2_activated_points": rail_input_v2_activated_points,
         "rail_input_v1_fallback_points": rail_input_v1_fallback_points,
+        "carryover_evidence_by_source_class": carryover_evidence_by_source_class,
+        "carryover_completeness_required_fields": list(RAIL_INPUT_V2_REQUIRED_FIELDS),
         "non_canonical_point_points": non_canonical_point_points,
         "replay_quarantine_status_counts": replay_quarantine_status_counts,
         "replay_mode_usage_matrix": {

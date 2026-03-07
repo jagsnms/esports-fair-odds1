@@ -134,3 +134,40 @@ def test_point_like_replay_is_rejected_and_excluded_from_activation_denominator(
     assert first["point_like_inputs_rejected"] == first["point_like_inputs_seen"]
     assert first["point_like_inputs_transition_passthrough"] == 0
     assert first["points_with_contract_diagnostics"] == 0
+
+
+def test_carryover_evidence_by_source_class_present_and_structured() -> None:
+    """Assessment output includes carryover_evidence_by_source_class with activation/fallback/completeness."""
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    first, _ = _run_deterministic(SPARSE_RAW_FIXTURE_PATH)
+    _assert_schema_conformance(first, schema)
+    assert "carryover_evidence_by_source_class" in first
+    assert "carryover_completeness_required_fields" in first
+    assert isinstance(first["carryover_completeness_required_fields"], list)
+    assert len(first["carryover_completeness_required_fields"]) > 0
+    by_src = first["carryover_evidence_by_source_class"]
+    assert isinstance(by_src, dict)
+    # Sparse raw fixture should have REPLAY_raw with fallback only
+    key = "REPLAY_raw"
+    assert key in by_src, f"expected key {key} in carryover_evidence_by_source_class"
+    rec = by_src[key]
+    assert rec["points"] == first["total_points_captured"]
+    assert rec["v1_fallback_points"] == rec["points"]
+    assert rec["v2_activated_points"] == 0
+    assert rec["required_incomplete_points"] == rec["points"]
+    assert rec["required_complete_points"] == 0
+
+
+def test_carryover_complete_fixture_source_class_shows_activation() -> None:
+    """Carryover-complete fixture has REPLAY_raw with v2 activated and required_complete."""
+    first, _ = _run_deterministic(CARRYOVER_COMPLETE_FIXTURE_PATH, prematch_map=0.55)
+    assert "carryover_evidence_by_source_class" in first
+    by_src = first["carryover_evidence_by_source_class"]
+    key = "REPLAY_raw"
+    assert key in by_src
+    rec = by_src[key]
+    assert rec["points"] == first["total_points_captured"]
+    assert rec["v2_activated_points"] == rec["points"]
+    assert rec["v1_fallback_points"] == 0
+    assert rec["required_complete_points"] == rec["points"]
+    assert rec["required_incomplete_points"] == 0

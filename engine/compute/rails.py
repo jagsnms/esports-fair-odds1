@@ -16,10 +16,13 @@ def compute_rails(
     config: Config,
     state: State,
     bounds: tuple[float, float],
+    *,
+    source: str | None = None,
+    replay_kind: str | None = None,
 ) -> tuple[float, float, dict[str, Any]]:
     """Return (rail_low, rail_high, rails_debug). Uses compute_rails_cs2 (envelope + contextual widening)."""
     try:
-        return compute_rails_cs2(frame, config, state, bounds)
+        return compute_rails_cs2(frame, config, state, bounds, source=source, replay_kind=replay_kind)
     except Exception:
         lo, hi = bounds
         return (max(0.0, min(1.0, lo)), max(0.0, min(1.0, hi)), {})

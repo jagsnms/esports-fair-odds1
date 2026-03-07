@@ -2103,7 +2103,8 @@ class Runner:
             dbg["match_context_diag"] = _match_context_diag(ctx, _sel_decision.to_diag() if _sel_decision else None)
         else:
             bounds = (bound_low, bound_high)
-            rails_result = compute_rails(frame, config, new_state, bounds)
+            _src = getattr(config, "source", None)
+            rails_result = compute_rails(frame, config, new_state, bounds, source=_src, replay_kind=None)
             rail_low, rail_high = rails_result[0], rails_result[1]
             rails_debug = rails_result[2] if len(rails_result) > 2 else {}
             setattr(config, "contract_testing_mode", getattr(config, "invariant_diagnostics", False))
@@ -2568,7 +2569,7 @@ class Runner:
             dbg["match_context_diag"] = _match_context_diag(ctx, _sel_decision.to_diag() if _sel_decision else None)
         else:
             bounds = (bound_low, bound_high)
-            rails_result = compute_rails(frame, config, new_state, bounds)
+            rails_result = compute_rails(frame, config, new_state, bounds, source="GRID", replay_kind=None)
             rail_low, rail_high = rails_result[0], rails_result[1]
             rails_debug = rails_result[2] if len(rails_result) > 2 else {}
             setattr(config, "contract_testing_mode", getattr(config, "invariant_diagnostics", False))
@@ -2924,7 +2925,9 @@ class Runner:
             rail_high = dbg["map_high"]
         else:
             bounds = (bound_low, bound_high)
-            rails_result = compute_rails(frame, config, new_state, bounds)
+            _src = getattr(config, "source", None) or "REPLAY"
+            _kind = getattr(self, "_replay_format", None) or "raw"
+            rails_result = compute_rails(frame, config, new_state, bounds, source=_src, replay_kind=_kind)
             rail_low, rail_high = rails_result[0], rails_result[1]
             rails_debug = rails_result[2] if len(rails_result) > 2 else {}
             setattr(config, "contract_testing_mode", getattr(config, "invariant_diagnostics", False))

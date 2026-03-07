@@ -176,6 +176,24 @@
     "invariant_violations_total": {
       "type": "integer",
       "minimum": 0
+    },
+    "carryover_evidence_by_source_class": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "points": { "type": "integer", "minimum": 0 },
+          "v2_activated_points": { "type": "integer", "minimum": 0 },
+          "v1_fallback_points": { "type": "integer", "minimum": 0 },
+          "reason_code_counts": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } },
+          "required_complete_points": { "type": "integer", "minimum": 0 },
+          "required_incomplete_points": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "carryover_completeness_required_fields": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
     }
   }
 }
