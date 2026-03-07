@@ -50,6 +50,104 @@ CONTRACT_DIAGNOSTIC_REQUIRED_KEYS = [
     "behavioral_violations",
 ]
 
+CONTRACT_DIAGNOSTIC_SEMANTIC_KEYS = CONTRACT_DIAGNOSTIC_REQUIRED_KEYS[:]
+CONTRACT_DIAGNOSTIC_NULLABLE_KEYS = [
+    "round_time_remaining_s",
+    "is_bomb_planted",
+    "round_number",
+    "target_p_hat",
+    "expected_p_hat_after_movement",
+    "movement_gap_abs",
+]
+
+
+def _is_finite_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and math.isfinite(float(value))
+
+
+def _is_probability(value: Any) -> bool:
+    return _is_finite_number(value) and 0.0 <= float(value) <= 1.0
+
+
+def _is_nonnegative_number(value: Any) -> bool:
+    return _is_finite_number(value) and float(value) >= 0.0
+
+
+def _is_pair_of_ints(value: Any, *, lo: int = 0, hi: int | None = None) -> bool:
+    if not isinstance(value, (tuple, list)) or len(value) < 2:
+        return False
+    for item in value[:2]:
+        if not isinstance(item, int):
+            return False
+        if item < lo:
+            return False
+        if hi is not None and item > hi:
+            return False
+    return True
+
+
+def _is_pair_of_nonnegative_numbers(value: Any) -> bool:
+    if not isinstance(value, (tuple, list)) or len(value) < 2:
+        return False
+    return _is_nonnegative_number(value[0]) and _is_nonnegative_number(value[1])
+
+
+def _is_pair_of_hp_totals(value: Any) -> bool:
+    if not isinstance(value, (tuple, list)) or len(value) < 2:
+        return False
+    a, b = value[0], value[1]
+    if not _is_nonnegative_number(a) or not _is_nonnegative_number(b):
+        return False
+    return float(a) <= 500.0 and float(b) <= 500.0
+
+
+def _is_optional_probability(value: Any) -> bool:
+    return value is None or _is_probability(value)
+
+
+def _is_optional_nonnegative_number(value: Any) -> bool:
+    return value is None or _is_nonnegative_number(value)
+
+
+def _is_optional_nonnegative_int(value: Any) -> bool:
+    return value is None or (isinstance(value, int) and value >= 0)
+
+
+def _is_optional_bool(value: Any) -> bool:
+    return value is None or isinstance(value, bool)
+
+
+def _is_nonempty_string(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _is_string_list(value: Any) -> bool:
+    if not isinstance(value, list):
+        return False
+    return all(isinstance(item, str) and bool(item.strip()) for item in value)
+
+
+CONTRACT_DIAGNOSTIC_SEMANTIC_VALIDATORS: dict[str, Any] = {
+    "alive_counts": lambda value: _is_pair_of_ints(value, lo=0, hi=5),
+    "hp_totals": _is_pair_of_hp_totals,
+    "loadout_totals": _is_pair_of_nonnegative_numbers,
+    "round_phase": _is_nonempty_string,
+    "round_number": _is_optional_nonnegative_int,
+    "q_intra_total": _is_probability,
+    "rail_low": _is_probability,
+    "rail_high": _is_probability,
+    "p_hat_prev": _is_probability,
+    "p_hat_final": _is_probability,
+    "round_time_remaining_s": _is_optional_nonnegative_number,
+    "is_bomb_planted": _is_optional_bool,
+    "movement_confidence": _is_probability,
+    "target_p_hat": _is_optional_probability,
+    "expected_p_hat_after_movement": _is_optional_probability,
+    "movement_gap_abs": _is_optional_nonnegative_number,
+    "structural_violations": _is_string_list,
+    "behavioral_violations": _is_string_list,
+}
+
 
 def _fixture_class_from_path(replay_path_str: str) -> str:
     """Derive deterministic fixture class from replay file stem."""
@@ -175,6 +273,15 @@ async def run_assessment(replay_path: str, *, prematch_map: float | None = None)
     contract_diagnostics_missing_key_counts = {
         key: 0 for key in CONTRACT_DIAGNOSTIC_REQUIRED_KEYS
     }
+    contract_diagnostics_semantic_valid_counts = {
+        key: 0 for key in CONTRACT_DIAGNOSTIC_SEMANTIC_KEYS
+    }
+    contract_diagnostics_semantic_invalid_counts = {
+        key: 0 for key in CONTRACT_DIAGNOSTIC_SEMANTIC_KEYS
+    }
+    contract_diagnostics_semantic_null_counts = {
+        key: 0 for key in CONTRACT_DIAGNOSTIC_SEMANTIC_KEYS
+    }
     p_hats: list[float] = []
     rail_lows: list[float] = []
     rail_highs: list[float] = []
@@ -244,6 +351,18 @@ async def run_assessment(replay_path: str, *, prematch_map: float | None = None)
                     contract_diagnostics_key_presence_counts[key] += 1
                 else:
                     contract_diagnostics_missing_key_counts[key] += 1
+            for key in CONTRACT_DIAGNOSTIC_SEMANTIC_KEYS:
+                if key not in cd:
+                    contract_diagnostics_semantic_invalid_counts[key] += 1
+                    continue
+                value = cd.get(key)
+                if value is None:
+                    contract_diagnostics_semantic_null_counts[key] += 1
+                validator = CONTRACT_DIAGNOSTIC_SEMANTIC_VALIDATORS.get(key)
+                if callable(validator) and validator(value):
+                    contract_diagnostics_semantic_valid_counts[key] += 1
+                else:
+                    contract_diagnostics_semantic_invalid_counts[key] += 1
             sv = cd.get("structural_violations") or []
             bv = cd.get("behavioral_violations") or []
             if isinstance(sv, list):
@@ -273,6 +392,14 @@ async def run_assessment(replay_path: str, *, prematch_map: float | None = None)
             else 0.0
         )
         for key in CONTRACT_DIAGNOSTIC_REQUIRED_KEYS
+    }
+    contract_diagnostics_semantic_valid_rates = {
+        key: (
+            contract_diagnostics_semantic_valid_counts[key] / points_with_contract_diagnostics
+            if points_with_contract_diagnostics > 0
+            else 0.0
+        )
+        for key in CONTRACT_DIAGNOSTIC_SEMANTIC_KEYS
     }
 
     return {
@@ -318,6 +445,12 @@ async def run_assessment(replay_path: str, *, prematch_map: float | None = None)
         "contract_diagnostics_key_presence_counts": contract_diagnostics_key_presence_counts,
         "contract_diagnostics_missing_key_counts": contract_diagnostics_missing_key_counts,
         "contract_diagnostics_key_presence_rates": contract_diagnostics_key_presence_rates,
+        "contract_diagnostics_semantic_required_keys": CONTRACT_DIAGNOSTIC_SEMANTIC_KEYS,
+        "contract_diagnostics_semantic_nullable_keys": CONTRACT_DIAGNOSTIC_NULLABLE_KEYS,
+        "contract_diagnostics_semantic_valid_counts": contract_diagnostics_semantic_valid_counts,
+        "contract_diagnostics_semantic_invalid_counts": contract_diagnostics_semantic_invalid_counts,
+        "contract_diagnostics_semantic_null_counts": contract_diagnostics_semantic_null_counts,
+        "contract_diagnostics_semantic_valid_rates": contract_diagnostics_semantic_valid_rates,
         "structural_violations_total": structural_violations_total,
         "behavioral_violations_total": behavioral_violations_total,
         "invariant_violations_total": invariant_violations_total,
