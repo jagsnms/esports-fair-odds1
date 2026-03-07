@@ -18,6 +18,15 @@ SPARSE_MULTIMATCH_FIXTURE_PATH = ROOT / "tools" / "fixtures" / "replay_multimatc
 SPARSE_RAW_FIXTURE_PATH = ROOT / "tools" / "fixtures" / "raw_replay_sample.jsonl"
 CARRYOVER_COMPLETE_FIXTURE_PATH = ROOT / "tools" / "fixtures" / "replay_carryover_complete_v1.jsonl"
 POINT_LIKE_FIXTURE_PATH = ROOT / "logs" / "history_points.jsonl"
+BASELINE_ARTIFACT_PATH = ROOT / "automation" / "reports" / "baseline_replay_carryover_evidence_20260307.json"
+
+
+def _ensure_point_like_fixture() -> None:
+    """Ensure logs/history_points.jsonl exists with minimal point-like content so point-like class test runs."""
+    if POINT_LIKE_FIXTURE_PATH.exists():
+        return
+    POINT_LIKE_FIXTURE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    POINT_LIKE_FIXTURE_PATH.write_text('{"t": 1, "p": 0.5, "lo": 0.0, "hi": 1.0}\n', encoding="utf-8")
 
 
 def _assert_schema_conformance(summary: dict, schema: dict) -> None:
@@ -116,6 +125,7 @@ def test_carryover_complete_fixture_activates_v2_with_valid_prematch_map() -> No
 
 
 def test_point_like_replay_is_rejected_and_excluded_from_activation_denominator() -> None:
+    _ensure_point_like_fixture()
     schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
 
     first, second = _run_deterministic(POINT_LIKE_FIXTURE_PATH)
@@ -171,3 +181,94 @@ def test_carryover_complete_fixture_source_class_shows_activation() -> None:
     assert rec["v1_fallback_points"] == 0
     assert rec["required_complete_points"] == rec["points"]
     assert rec["required_incomplete_points"] == 0
+
+
+# Stage 0 evidence gate keys required in each run summary (baseline artifact structure)
+STAGE0_EVIDENCE_TOP_LEVEL = [
+    "total_points_captured",
+    "rail_input_v2_activated_points",
+    "rail_input_v1_fallback_points",
+    "rail_input_reason_code_counts",
+    "structural_violations_total",
+    "behavioral_violations_total",
+    "invariant_violations_total",
+    "carryover_evidence_by_source_class",
+    "carryover_completeness_required_fields",
+    "point_like_inputs_seen",
+    "point_like_inputs_rejected",
+    "point_like_reject_reason_counts",
+]
+
+
+def test_stage0_evidence_gate_keys_present_in_assessment_output() -> None:
+    """Each assessment run includes all Stage 0 evidence gate top-level keys."""
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    for fixture_path, prematch_map in [
+        (SPARSE_RAW_FIXTURE_PATH, None),
+        (SPARSE_MULTIMATCH_FIXTURE_PATH, None),
+        (CARRYOVER_COMPLETE_FIXTURE_PATH, 0.55),
+    ]:
+        first, _ = _run_deterministic(fixture_path, prematch_map=prematch_map)
+        _assert_schema_conformance(first, schema)
+        for key in STAGE0_EVIDENCE_TOP_LEVEL:
+            assert key in first, f"Stage 0 evidence gate key missing: {key} (fixture={fixture_path.name})"
+    _ensure_point_like_fixture()
+    first, _ = _run_deterministic(POINT_LIKE_FIXTURE_PATH)
+    _assert_schema_conformance(first, schema)
+    for key in STAGE0_EVIDENCE_TOP_LEVEL:
+        assert key in first, f"Stage 0 evidence gate key missing: {key} (point-like)"
+
+
+# Expected repo-relative replay_path per run (portable baseline; must match script)
+BASELINE_RELATIVE_PATHS = {
+    "raw_replay_sample": "tools/fixtures/raw_replay_sample.jsonl",
+    "replay_multimatch_small_v1": "tools/fixtures/replay_multimatch_small_v1.jsonl",
+    "replay_carryover_complete_v1": "tools/fixtures/replay_carryover_complete_v1.jsonl",
+    "history_points": "logs/history_points.jsonl",
+}
+
+
+def test_baseline_artifact_structure_when_present() -> None:
+    """When baseline artifact exists, it has four runs and expected parity (Stage 1 Option A)."""
+    if not BASELINE_ARTIFACT_PATH.exists():
+        return
+    data = json.loads(BASELINE_ARTIFACT_PATH.read_text(encoding="utf-8"))
+    assert data.get("schema_version") == "replay_carryover_baseline.v1"
+    runs = data.get("runs", {})
+    assert "raw_replay_sample" in runs
+    assert "replay_multimatch_small_v1" in runs
+    assert "replay_carryover_complete_v1" in runs
+    assert "history_points" in runs
+    for key, run in runs.items():
+        if run.get("_skipped"):
+            continue
+        for field in STAGE0_EVIDENCE_TOP_LEVEL:
+            assert field in run, f"baseline run {key} missing {field}"
+        # Portable artifact: replay_path must be repo-relative (no absolute paths)
+        rp = run.get("replay_path", "")
+        assert rp == BASELINE_RELATIVE_PATHS.get(key), (
+            f"baseline run {key} replay_path must be repo-relative: got {rp!r}"
+        )
+        assert "\\" not in rp and "C:" not in rp and not rp.startswith("/"), (
+            f"baseline run {key} replay_path must be portable: {rp!r}"
+        )
+    # Parity: sparse fallback-only
+    r1 = runs["raw_replay_sample"]
+    if not r1.get("_skipped"):
+        assert r1["rail_input_v2_activated_points"] == 0
+        assert r1["rail_input_v1_fallback_points"] == r1["total_points_captured"]
+    r2 = runs["replay_multimatch_small_v1"]
+    if not r2.get("_skipped"):
+        assert r2["rail_input_v2_activated_points"] == 0
+        assert r2["rail_input_v1_fallback_points"] == r2["total_points_captured"]
+    # Carryover-complete: activation-capable
+    r3 = runs["replay_carryover_complete_v1"]
+    if not r3.get("_skipped"):
+        assert r3["rail_input_v2_activated_points"] == r3["total_points_captured"]
+        assert r3["rail_input_v1_fallback_points"] == 0
+    # Point-like: rejected, excluded
+    r4 = runs["history_points"]
+    if not r4.get("_skipped"):
+        assert r4["total_points_captured"] == 0
+        assert r4["point_like_inputs_seen"] > 0
+        assert r4["point_like_inputs_rejected"] == r4["point_like_inputs_seen"]
