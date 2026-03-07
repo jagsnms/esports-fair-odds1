@@ -31,9 +31,30 @@ def _frame(
     )
 
 
-def _config(context_widening_enabled: bool = False) -> Config:
+def _config(
+    context_widening_enabled: bool = False,
+    *,
+    context_widen_beta: float | None = None,
+    uncertainty_mult_min: float | None = None,
+    uncertainty_mult_max: float | None = None,
+    context_risk_weight_leverage: float | None = None,
+    context_risk_weight_fragility: float | None = None,
+    context_risk_weight_missingness: float | None = None,
+) -> Config:
     c = Config()
     c.context_widening_enabled = context_widening_enabled
+    if context_widen_beta is not None:
+        c.context_widen_beta = context_widen_beta
+    if uncertainty_mult_min is not None:
+        c.uncertainty_mult_min = uncertainty_mult_min
+    if uncertainty_mult_max is not None:
+        c.uncertainty_mult_max = uncertainty_mult_max
+    if context_risk_weight_leverage is not None:
+        c.context_risk_weight_leverage = context_risk_weight_leverage
+    if context_risk_weight_fragility is not None:
+        c.context_risk_weight_fragility = context_risk_weight_fragility
+    if context_risk_weight_missingness is not None:
+        c.context_risk_weight_missingness = context_risk_weight_missingness
     return c
 
 
@@ -102,6 +123,44 @@ def test_debug_contains_context_risk_and_widths() -> None:
     assert "width_cap_used" in debug
 
 
+def test_context_widen_beta_knob_increases_widening() -> None:
+    """Higher context_widen_beta should not produce less widening for same frame/risk."""
+    state = _state()
+    frame = _frame(scores=(8, 8), loadout_totals=(9000.0, 1200.0))
+    base_cfg = _config(context_widening_enabled=True, context_widen_beta=0.0)
+    hi_cfg = _config(context_widening_enabled=True, context_widen_beta=1.0)
+    b = compute_bounds(frame, base_cfg, state)
+    bounds = (b[0], b[1])
+    _, _, debug_base = compute_rails_cs2(frame, base_cfg, state, bounds)
+    _, _, debug_hi = compute_rails_cs2(frame, hi_cfg, state, bounds)
+    w_base = debug_base.get("map_width_after_widen")
+    w_hi = debug_hi.get("map_width_after_widen")
+    assert w_base is not None and w_hi is not None
+    assert w_hi >= w_base
+
+
+def test_context_risk_weight_knobs_affect_mix() -> None:
+    """Weights should control the context_risk blend; missingness-only uses missingness_risk."""
+    config = _config(
+        context_widening_enabled=True,
+        context_risk_weight_leverage=0.0,
+        context_risk_weight_fragility=0.0,
+        context_risk_weight_missingness=1.0,
+    )
+    state = _state()
+    frame = _frame(scores=(11, 11), alive_counts=(5, 5), loadout_totals=None)
+    b = compute_bounds(frame, config, state)
+    bounds = (b[0], b[1])
+    _, _, debug = compute_rails_cs2(frame, config, state, bounds)
+    risk = debug.get("context_risk")
+    comps = debug.get("context_risk_components") or {}
+    missingness = comps.get("missingness_risk")
+    assert risk is not None and missingness is not None
+    assert abs(float(risk) - float(missingness)) <= 1e-9
+    weights = comps.get("weights") or {}
+    assert weights.get("missingness") == 1.0
+
+
 class TestRailsCs2ContextWidening(unittest.TestCase):
     def test_early_round_width_capped(self) -> None:
         test_early_round_width_capped()
@@ -111,6 +170,12 @@ class TestRailsCs2ContextWidening(unittest.TestCase):
 
     def test_debug_contains_context_risk_and_widths(self) -> None:
         test_debug_contains_context_risk_and_widths()
+
+    def test_context_widen_beta_knob_increases_widening(self) -> None:
+        test_context_widen_beta_knob_increases_widening()
+
+    def test_context_risk_weight_knobs_affect_mix(self) -> None:
+        test_context_risk_weight_knobs_affect_mix()
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ fields that were not sent.
 """
 from __future__ import annotations
 
+import math
 from typing import Any, Optional
 
 from engine.models import Config
@@ -43,6 +44,12 @@ DEFAULTS: dict[str, Any] = {
     "replay_point_transition_enabled": False,
     "replay_point_transition_sunset_epoch": None,
     "context_widening_enabled": False,
+    "context_widen_beta": 0.25,
+    "uncertainty_mult_min": 1.0,
+    "uncertainty_mult_max": 1.35,
+    "context_risk_weight_leverage": 0.4,
+    "context_risk_weight_fragility": 0.4,
+    "context_risk_weight_missingness": 0.2,
     "market_enabled": True,
     "kalshi_url": None,
     "kalshi_ticker": None,
@@ -93,6 +100,15 @@ def _coerce_match_id(value: Any) -> Optional[int]:
     if isinstance(value, str) and value.strip().isdigit():
         return int(value.strip())
     raise ValueError(f"invalid match_id: {value!r}")
+
+
+def _coerce_finite_float(value: Any, fallback: float) -> float:
+    """Coerce finite float, else fallback."""
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return fallback
+    return f if math.isfinite(f) else fallback
 
 
 def merge_config(current: Config, partial: dict[str, Any]) -> Config:
@@ -189,6 +205,50 @@ def merge_config(current: Config, partial: dict[str, Any]) -> Config:
                 updates["replay_point_transition_sunset_epoch"] = float(v)
             except (TypeError, ValueError):
                 updates["replay_point_transition_sunset_epoch"] = None
+    if "context_widening_enabled" in updates:
+        updates["context_widening_enabled"] = bool(updates["context_widening_enabled"])
+    if "context_widen_beta" in updates:
+        default_beta = float(getattr(current, "context_widen_beta", 0.25))
+        beta = _coerce_finite_float(updates["context_widen_beta"], default_beta)
+        updates["context_widen_beta"] = max(0.0, min(2.0, beta))
+    if "uncertainty_mult_min" in updates or "uncertainty_mult_max" in updates:
+        default_min = max(1.0, _coerce_finite_float(getattr(current, "uncertainty_mult_min", 1.0), 1.0))
+        default_max = max(default_min, _coerce_finite_float(getattr(current, "uncertainty_mult_max", 1.35), 1.35))
+        umin = _coerce_finite_float(updates.get("uncertainty_mult_min"), default_min) if "uncertainty_mult_min" in updates else default_min
+        umax = _coerce_finite_float(updates.get("uncertainty_mult_max"), default_max) if "uncertainty_mult_max" in updates else default_max
+        umin = max(1.0, min(3.0, umin))
+        umax = max(1.0, min(3.0, umax))
+        if umax < umin:
+            umax = umin
+        updates["uncertainty_mult_min"] = umin
+        updates["uncertainty_mult_max"] = umax
+    if (
+        "context_risk_weight_leverage" in updates
+        or "context_risk_weight_fragility" in updates
+        or "context_risk_weight_missingness" in updates
+    ):
+        w_lev = _coerce_finite_float(
+            updates.get("context_risk_weight_leverage", getattr(current, "context_risk_weight_leverage", 0.4)),
+            0.4,
+        )
+        w_frag = _coerce_finite_float(
+            updates.get("context_risk_weight_fragility", getattr(current, "context_risk_weight_fragility", 0.4)),
+            0.4,
+        )
+        w_miss = _coerce_finite_float(
+            updates.get("context_risk_weight_missingness", getattr(current, "context_risk_weight_missingness", 0.2)),
+            0.2,
+        )
+        w_lev = max(0.0, min(10.0, w_lev))
+        w_frag = max(0.0, min(10.0, w_frag))
+        w_miss = max(0.0, min(10.0, w_miss))
+        total = w_lev + w_frag + w_miss
+        if total <= 1e-9:
+            w_lev, w_frag, w_miss = 0.4, 0.4, 0.2
+            total = 1.0
+        updates["context_risk_weight_leverage"] = w_lev / total
+        updates["context_risk_weight_fragility"] = w_frag / total
+        updates["context_risk_weight_missingness"] = w_miss / total
     d = {
         "source": getattr(current, "source"),
         "match_id": getattr(current, "match_id"),
@@ -221,6 +281,12 @@ def merge_config(current: Config, partial: dict[str, Any]) -> Config:
         "replay_point_transition_enabled": getattr(current, "replay_point_transition_enabled", False),
         "replay_point_transition_sunset_epoch": getattr(current, "replay_point_transition_sunset_epoch", None),
         "context_widening_enabled": getattr(current, "context_widening_enabled", False),
+        "context_widen_beta": getattr(current, "context_widen_beta", 0.25),
+        "uncertainty_mult_min": getattr(current, "uncertainty_mult_min", 1.0),
+        "uncertainty_mult_max": getattr(current, "uncertainty_mult_max", 1.35),
+        "context_risk_weight_leverage": getattr(current, "context_risk_weight_leverage", 0.4),
+        "context_risk_weight_fragility": getattr(current, "context_risk_weight_fragility", 0.4),
+        "context_risk_weight_missingness": getattr(current, "context_risk_weight_missingness", 0.2),
         "market_enabled": getattr(current, "market_enabled", True),
         "kalshi_url": getattr(current, "kalshi_url", None),
         "kalshi_ticker": getattr(current, "kalshi_ticker", None),

@@ -53,6 +53,13 @@ class Config:
     replay_point_transition_enabled: bool = False
     replay_point_transition_sunset_epoch: Optional[float] = None
     context_widening_enabled: bool = False  # gate context_risk widening + width cap (default OFF)
+    # Context widening tuning knobs (defaults preserve current behavior).
+    context_widen_beta: float = 0.25
+    uncertainty_mult_min: float = 1.0
+    uncertainty_mult_max: float = 1.35
+    context_risk_weight_leverage: float = 0.4
+    context_risk_weight_fragility: float = 0.4
+    context_risk_weight_missingness: float = 0.2
     # Kalshi market
     market_enabled: bool = True
     kalshi_url: Optional[str] = None
