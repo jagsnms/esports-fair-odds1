@@ -5,9 +5,13 @@ from pathlib import Path
 
 from tools.replay_verification_assess import run_assessment
 from tools.synthetic_state_generator import (
+    EXECUTE_POST_PLANT_PHASES,
+    EXECUTE_PRE_PLANT_PHASES,
     POLICY_FAMILIES,
     POLICY_PHASE_ORDER,
     POLICY_ROUND_INTENTS,
+    RETAKE_POST_PLANT_PHASES,
+    RETAKE_PRE_PLANT_PHASES,
     generate_synthetic_raw_replay,
     write_synthetic_raw_replay_jsonl,
 )
@@ -151,6 +155,71 @@ def test_policy_phase_progression_is_monotonic_within_round() -> None:
         assert all(phase in rank for phase in phases)
         phase_ranks = [rank[phase] for phase in phases]
         assert phase_ranks == sorted(phase_ranks)
+
+
+def test_execute_policy_phase_planted_contract_enforced() -> None:
+    payloads = generate_synthetic_raw_replay(seed=99, rounds=16, ticks_per_round=4)
+    by_round = _rows_by_round(payloads)
+    execute_rounds = 0
+    for rows in by_round.values():
+        family = str(rows[0].get("synthetic_policy_family", ""))
+        if family != "execute":
+            continue
+        execute_rounds += 1
+        planted_flags: list[bool] = []
+        saw_post_plant_phase = False
+        for row in rows:
+            phase = str(row.get("synthetic_policy_phase", ""))
+            planted = bool(row.get("is_bomb_planted"))
+            if phase in EXECUTE_PRE_PLANT_PHASES:
+                assert planted is False
+            if phase in EXECUTE_POST_PLANT_PHASES:
+                assert planted is True
+                saw_post_plant_phase = True
+            planted_flags.append(planted)
+        assert saw_post_plant_phase
+        assert any(planted_flags), "execute round cannot remain entirely pre-plant"
+        seen_true = False
+        for flag in planted_flags:
+            if flag:
+                seen_true = True
+            if seen_true:
+                assert flag is True
+    assert execute_rounds > 0
+
+
+def test_retake_policy_phase_planted_contract_enforced() -> None:
+    payloads = generate_synthetic_raw_replay(seed=99, rounds=16, ticks_per_round=4)
+    by_round = _rows_by_round(payloads)
+    retake_rounds = 0
+    for rows in by_round.values():
+        family = str(rows[0].get("synthetic_policy_family", ""))
+        if family != "retake":
+            continue
+        retake_rounds += 1
+        planted_flags: list[bool] = []
+        retake_attempt_started = False
+        for row in rows:
+            phase = str(row.get("synthetic_policy_phase", ""))
+            planted = bool(row.get("is_bomb_planted"))
+            if phase in RETAKE_PRE_PLANT_PHASES:
+                assert planted is False
+            if phase in RETAKE_POST_PLANT_PHASES:
+                assert planted is True
+                if phase == "retake_attempt":
+                    retake_attempt_started = True
+            planted_flags.append(planted)
+        assert retake_attempt_started, "retake round must include retake_attempt phase"
+        seen_attempt_true = False
+        for row in rows:
+            phase = str(row.get("synthetic_policy_phase", ""))
+            planted = bool(row.get("is_bomb_planted"))
+            if phase in RETAKE_POST_PLANT_PHASES and phase == "retake_attempt":
+                seen_attempt_true = True
+            if seen_attempt_true:
+                assert planted is True
+        assert any(planted_flags), "retake round must become post-plant"
+    assert retake_rounds > 0
 
 
 def test_policy_label_coherence_for_retake_and_clutch() -> None:

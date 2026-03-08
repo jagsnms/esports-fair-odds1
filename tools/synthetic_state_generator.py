@@ -33,6 +33,10 @@ POLICY_PHASE_ORDER: dict[str, tuple[str, ...]] = {
     "clutch": ("isolation", "duel_setup", "duel_resolution", "terminal"),
     "eco_force": ("economy_setup", "contact", "trade_or_save", "terminal"),
 }
+EXECUTE_PRE_PLANT_PHASES = ("setup", "commit")
+EXECUTE_POST_PLANT_PHASES = ("pressure", "resolution")
+RETAKE_PRE_PLANT_PHASES = ("site_loss", "retake_setup")
+RETAKE_POST_PLANT_PHASES = ("retake_attempt", "retake_resolution")
 
 
 def _regime_from_index(idx: int) -> str:
@@ -97,6 +101,26 @@ def _policy_phase_for_tick(
     total_ticks = max(2, int(ticks_per_round))
     bucket = min(len(phases) - 1, int((max(0, int(tick_idx)) * len(phases)) / total_ticks))
     return str(phases[bucket])
+
+
+def _shape_planted_state_for_policy(*, family: str, phase: str, base_planted: bool) -> bool:
+    """
+    Stage 2A bounded policy shaping:
+    - execute: setup/commit pre-plant; pressure/resolution post-plant.
+    - retake: site_loss/retake_setup pre-plant; retake_attempt/resolution post-plant.
+    - clutch/eco_force: metadata-only (no behavior mutation in Stage 2A).
+    """
+    if family == "execute":
+        if phase in EXECUTE_PRE_PLANT_PHASES:
+            return False
+        if phase in EXECUTE_POST_PLANT_PHASES:
+            return True
+    if family == "retake":
+        if phase in RETAKE_PRE_PLANT_PHASES:
+            return False
+        if phase in RETAKE_POST_PLANT_PHASES:
+            return True
+    return bool(base_planted)
 
 
 def _loadout_range_for_regime(regime: str) -> tuple[int, int]:
@@ -215,7 +239,12 @@ def generate_synthetic_raw_replay(
                 tick_idx=t,
                 ticks_per_round=ticks,
             )
-            planted = bool((t >= 2) and (r % 2 == 0))
+            base_planted = bool((t >= 2) and (r % 2 == 0))
+            planted = _shape_planted_state_for_policy(
+                family=policy_family,
+                phase=policy_phase,
+                base_planted=base_planted,
+            )
             timer_ms = timer_template_ms[min(t, len(timer_template_ms) - 1)]
             if planted:
                 timer_ms = min(timer_ms, 35_000 if t == 2 else 9_000)
