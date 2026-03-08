@@ -222,6 +222,91 @@ def test_retake_policy_phase_planted_contract_enforced() -> None:
     assert retake_rounds > 0
 
 
+def test_execute_retake_contract_with_literal_phase_names() -> None:
+    """Hard contract check using literal phase names to prevent shared-constant drift."""
+    payloads = generate_synthetic_raw_replay(seed=99, rounds=16, ticks_per_round=4)
+    by_round = _rows_by_round(payloads)
+    execute_phase_planted = {
+        "setup": False,
+        "commit": False,
+        "pressure": True,
+        "resolution": True,
+    }
+    retake_phase_planted = {
+        "site_loss": False,
+        "retake_setup": False,
+        "retake_attempt": True,
+        "retake_resolution": True,
+    }
+    saw_execute = False
+    saw_retake = False
+    for rows in by_round.values():
+        family = str(rows[0].get("synthetic_policy_family", ""))
+        if family == "execute":
+            saw_execute = True
+            phases = [str(row.get("synthetic_policy_phase", "")) for row in rows]
+            assert set(phases) == set(execute_phase_planted)
+            seen_true = False
+            for row in rows:
+                phase = str(row.get("synthetic_policy_phase", ""))
+                planted = bool(row.get("is_bomb_planted"))
+                assert phase in execute_phase_planted
+                assert planted is execute_phase_planted[phase]
+                if planted:
+                    seen_true = True
+                if seen_true:
+                    assert planted is True
+        if family == "retake":
+            saw_retake = True
+            phases = [str(row.get("synthetic_policy_phase", "")) for row in rows]
+            assert set(phases) == set(retake_phase_planted)
+            seen_true = False
+            for row in rows:
+                phase = str(row.get("synthetic_policy_phase", ""))
+                planted = bool(row.get("is_bomb_planted"))
+                assert phase in retake_phase_planted
+                assert planted is retake_phase_planted[phase]
+                if phase == "retake_attempt":
+                    seen_true = True
+                if seen_true:
+                    assert planted is True
+    assert saw_execute
+    assert saw_retake
+
+
+def test_low_tick_policy_guard_behavior_is_explicit() -> None:
+    """Low-tick behavior guard: ticks=2 constrains families; ticks=3 keeps retake semantics."""
+    payloads_2 = generate_synthetic_raw_replay(seed=99, rounds=8, ticks_per_round=2)
+    by_round_2 = _rows_by_round(payloads_2)
+    families_2 = {str(rows[0].get("synthetic_policy_family", "")) for rows in by_round_2.values()}
+    assert families_2.issubset({"execute", "eco_force"})
+    assert "retake" not in families_2
+    assert "clutch" not in families_2
+    for rows in by_round_2.values():
+        if str(rows[0].get("synthetic_policy_family", "")) == "execute":
+            phases = [str(row.get("synthetic_policy_phase", "")) for row in rows]
+            planted = [bool(row.get("is_bomb_planted")) for row in rows]
+            assert phases == ["setup", "pressure"]
+            assert planted == [False, True]
+
+    payloads_3 = generate_synthetic_raw_replay(seed=99, rounds=12, ticks_per_round=3)
+    by_round_3 = _rows_by_round(payloads_3)
+    families_3 = {str(rows[0].get("synthetic_policy_family", "")) for rows in by_round_3.values()}
+    assert "clutch" not in families_3
+    assert "execute" in families_3
+    assert "retake" in families_3
+    for rows in by_round_3.values():
+        family = str(rows[0].get("synthetic_policy_family", ""))
+        phases = [str(row.get("synthetic_policy_phase", "")) for row in rows]
+        planted = [bool(row.get("is_bomb_planted")) for row in rows]
+        if family == "execute":
+            assert phases == ["setup", "commit", "pressure"]
+            assert planted == [False, False, True]
+        if family == "retake":
+            assert phases == ["site_loss", "retake_setup", "retake_attempt"]
+            assert planted == [False, False, True]
+
+
 def test_policy_label_coherence_for_retake_and_clutch() -> None:
     payloads = generate_synthetic_raw_replay(seed=99, rounds=16, ticks_per_round=4)
     by_round = _rows_by_round(payloads)
