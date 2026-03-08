@@ -1,5 +1,20 @@
 # Initiative proposal
 
+## Required stale-proposal prevention checklist
+
+- [ ] Checked `automation/PROMOTED_INITIATIVES.md`
+- [ ] Checked `automation/BANKED_INITIATIVES.md`
+- [ ] Checked shared/origin truth (`origin/agent-base` and `origin/agent-initiative-base`)
+- [ ] Confirmed this proposal is **not already promoted/shared truth**
+- [ ] Confirmed this proposal is not banked/deferred without new evidence
+
+### Check results (required)
+
+- Promoted registry findings:
+- Banked registry findings:
+- Shared/origin truth findings:
+- Non-duplication confirmation:
+
 ## Initiative title
 
 (Title of the major initiative.)

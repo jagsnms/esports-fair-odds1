@@ -4,7 +4,10 @@ Concise setup and verification guide for Cursor Automation runs against this rep
 
 ## Required starting branch
 
-Every run must start from **agent-base**. Create the run branch from it; do not run from `main`, `master`, `dev`, `release`, or any human-owned feature branch.
+- **Maintenance/bounded-fix runs**: start from **agent-base**.
+- **Initiative proposal/planning runs**: start from **agent-initiative-base**.
+
+Do not run from `main`, `master`, `dev`, `release`, or any human-owned feature branch.
 
 ## Required run branch naming
 
@@ -25,15 +28,26 @@ Read these in order before starting work:
 3. **automation/README.md** — branch purpose, push/merge rules, report requirement
 4. **automation/templates/promotion_report_template.md** — report structure to fill
 
+For initiative proposal/planning runs, also read:
+
+5. **automation/INITIATIVE_RUN_POLICY.md**
+6. **automation/PROMOTED_INITIATIVES.md**
+7. **automation/BANKED_INITIATIVES.md**
+
 ## Required per-run behavior
 
 - **Rank** candidate issues using the fixed ladder in AUTOMATION_RUN_POLICY.md (structural invariants → failing tests → replay mismatches → … → cleanup/docs).
 - **Choose** exactly one primary issue per run.
+- **Before proposing/planning initiatives**, explicitly check promoted initiatives, banked initiatives, and shared/origin branch truth; do not re-propose already promoted work.
 - **Gather** baseline evidence (branch, commit, tests, logs) before making edits.
 - **Make** the smallest viable change that addresses the primary issue.
 - **Validate** repeatedly in sandbox (canonical tests, replays, checks as applicable).
 - **Stop** at diminishing returns (issue resolved, no clear progress, or limit reached).
 - **Write** a promotion report to `automation/reports/` using the template.
+
+For initiative lane work, use the preferred sequence:
+
+proposal → decision memo / contract freeze → implementation → code-first promotion review → revise if needed → promote → reconverge
 
 ## Report filename convention
 

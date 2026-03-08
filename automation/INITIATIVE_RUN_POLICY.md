@@ -24,6 +24,17 @@ Each run should identify **one** highest-value major issue, or execute **one** a
 
 If no initiative has been explicitly approved for implementation, **default behavior is proposal/report generation**, not broad code changes. Produce initiative proposals that scope the work, break it into stages, and document risks and branch strategy. Do not perform large-scale implementation unless a specific initiative stage has been approved.
 
+## Mandatory stale-proposal prevention checks (before proposing/planning)
+
+Before drafting any new proposal, runs must explicitly verify all three:
+
+1. **Promoted initiatives registry**: `automation/PROMOTED_INITIATIVES.md`
+2. **Banked initiatives registry**: `automation/BANKED_INITIATIVES.md`
+3. **Shared/origin branch truth**: current promoted state on shared branches (including `origin/agent-base` and `origin/agent-initiative-base`)
+
+If the candidate initiative/stage is already promoted/shared truth, it must **not** be re-proposed.
+If the candidate initiative/stage is banked/deferred, it must not be re-proposed unless new evidence justifies reopening.
+
 ## Proposal requirements
 
 Proposals must include:
@@ -33,6 +44,19 @@ Proposals must include:
 - **Validation checkpoints** — how each stage will be validated
 - **Risks** — technical and rollout risks
 - **Recommended branch strategy** — how work should be branched and integrated
+- **Stale-proposal check record** — explicit confirmation of promoted-registry, banked-registry, and shared/origin checks
+
+## Preferred initiative workflow (simplified)
+
+Use this sequence for initiative work:
+
+1. proposal
+2. decision memo / contract freeze
+3. implementation
+4. code-first promotion review
+5. revise if needed
+6. promote
+7. reconverge
 
 Use `automation/templates/initiative_proposal_template.md` as the starting point.
 
