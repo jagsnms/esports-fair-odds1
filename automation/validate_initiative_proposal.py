@@ -15,6 +15,7 @@ import re
 from typing import Iterable
 
 REVIEW_READY_MARKER = "Review-ready: yes"
+REVIEW_READY_MARKER_LINE = re.compile(rf"^{re.escape(REVIEW_READY_MARKER)}$", re.MULTILINE)
 
 REQUIRED_CORE_SECTION_HEADINGS = (
     "## Initiative title",
@@ -86,7 +87,7 @@ def _count_selected_dispositions(text: str, options: Iterable[str]) -> tuple[int
 
 
 def validate_proposal_markdown(text: str, artifact_path: str) -> ValidationResult:
-    review_ready = REVIEW_READY_MARKER in text
+    review_ready = bool(REVIEW_READY_MARKER_LINE.search(text))
     if not review_ready:
         return ValidationResult(
             status="draft",

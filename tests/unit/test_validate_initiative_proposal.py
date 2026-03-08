@@ -34,6 +34,15 @@ def test_draft_artifact_is_non_blocking() -> None:
     assert "Draft/not-applicable" in data["message"]
 
 
+def test_draft_artifact_with_marker_phrase_in_prose_is_non_blocking() -> None:
+    proc = _run_validator(FIXTURES / "draft_marker_phrase_in_prose.md")
+    data = _parse_json_stdout(proc)
+    assert proc.returncode == 0
+    assert data["status"] == "draft"
+    assert data["review_ready"] is False
+    assert "Draft/not-applicable" in data["message"]
+
+
 def test_review_ready_missing_checkpoint_fails() -> None:
     proc = _run_validator(FIXTURES / "review_ready_missing_checkpoint.md")
     data = _parse_json_stdout(proc)
