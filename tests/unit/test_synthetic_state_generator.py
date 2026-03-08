@@ -8,10 +8,13 @@ from tools.synthetic_state_generator import (
     EXECUTE_POST_PLANT_PHASES,
     EXECUTE_PRE_PLANT_PHASES,
     POLICY_FAMILIES,
+    POLICY_PROFILE_QUOTAS_32,
+    POLICY_PROFILES,
     POLICY_PHASE_ORDER,
     POLICY_ROUND_INTENTS,
     RETAKE_POST_PLANT_PHASES,
     RETAKE_PRE_PLANT_PHASES,
+    generate_synthetic_distribution_summary,
     generate_synthetic_raw_replay,
     write_synthetic_raw_replay_jsonl,
 )
@@ -460,6 +463,125 @@ def test_eco_force_low_tick_behavior_is_explicit() -> None:
         assert (setup_ratio[0] >= 1.5) or (setup_ratio[1] >= 1.5)
         assert (contact_ratio[0] >= 1.5) or (contact_ratio[1] >= 1.5)
         assert (trade_ratio[0] >= 1.2) or (trade_ratio[1] >= 1.2)
+
+
+def test_stage3a_distribution_summary_same_seed_is_identical() -> None:
+    a = generate_synthetic_distribution_summary(
+        seed=99,
+        rounds=32,
+        ticks_per_round=4,
+        policy_profile="balanced_v1",
+    )
+    b = generate_synthetic_distribution_summary(
+        seed=99,
+        rounds=32,
+        ticks_per_round=4,
+        policy_profile="balanced_v1",
+    )
+    c = generate_synthetic_distribution_summary(
+        seed=100,
+        rounds=32,
+        ticks_per_round=4,
+        policy_profile="balanced_v1",
+    )
+    assert a == b
+    assert a["family_sequence"] != c["family_sequence"]
+
+
+def test_stage3a_profile_quota_conformance_reference_run() -> None:
+    for profile in POLICY_PROFILES:
+        summary = generate_synthetic_distribution_summary(
+            seed=99,
+            rounds=32,
+            ticks_per_round=4,
+            policy_profile=profile,
+        )
+        expected = POLICY_PROFILE_QUOTAS_32[profile]
+        assert summary["policy_profile"] == profile
+        assert summary["target_family_quotas"] == expected
+        assert summary["effective_family_quotas"] == expected
+        assert summary["realized_family_counts"] == expected
+        assert all(int(v) == 0 for v in summary["quota_delta"].values())
+        assert summary["feasibility_adjustment_applied"] is False
+        assert summary["feasibility_adjustment_reason"] == ""
+        for key in (
+            "one_family_per_round_violations",
+            "family_immutability_violations",
+            "phase_monotonicity_violations",
+            "intent_family_mismatch_violations",
+            "execute_retake_contract_violations",
+            "clutch_contract_violations",
+            "eco_force_contract_violations",
+        ):
+            assert int(summary[key]) == 0
+
+
+def test_stage3a_profile_redistribution_is_deterministic_and_reported() -> None:
+    summary_ticks_2 = generate_synthetic_distribution_summary(
+        seed=99,
+        rounds=32,
+        ticks_per_round=2,
+        policy_profile="balanced_v1",
+    )
+    summary_ticks_2_again = generate_synthetic_distribution_summary(
+        seed=99,
+        rounds=32,
+        ticks_per_round=2,
+        policy_profile="balanced_v1",
+    )
+    assert summary_ticks_2 == summary_ticks_2_again
+    assert summary_ticks_2["feasibility_adjustment_applied"] is True
+    assert "reduced by" in str(summary_ticks_2["feasibility_adjustment_reason"])
+    assert int(summary_ticks_2["effective_family_quotas"]["retake"]) == 0
+    assert int(summary_ticks_2["effective_family_quotas"]["clutch"]) == 0
+    assert summary_ticks_2["realized_family_counts"] == summary_ticks_2["effective_family_quotas"]
+
+    summary_ticks_3 = generate_synthetic_distribution_summary(
+        seed=99,
+        rounds=32,
+        ticks_per_round=3,
+        policy_profile="eco_bias_v1",
+    )
+    assert summary_ticks_3["feasibility_adjustment_applied"] is True
+    assert int(summary_ticks_3["effective_family_quotas"]["clutch"]) == 0
+    assert int(summary_ticks_3["effective_family_quotas"]["retake"]) > 0
+    assert summary_ticks_3["realized_family_counts"] == summary_ticks_3["effective_family_quotas"]
+
+
+def test_stage3a_distribution_summary_fields_present_and_typed() -> None:
+    summary = generate_synthetic_distribution_summary(
+        seed=99,
+        rounds=32,
+        ticks_per_round=4,
+        policy_profile="execute_bias_v1",
+    )
+    required = {
+        "seed",
+        "rounds",
+        "ticks_per_round",
+        "policy_profile",
+        "target_family_quotas",
+        "effective_family_quotas",
+        "realized_family_counts",
+        "realized_family_rates",
+        "quota_delta",
+        "family_sequence",
+        "feasibility_adjustment_applied",
+        "feasibility_adjustment_reason",
+        "one_family_per_round_violations",
+        "family_immutability_violations",
+        "phase_monotonicity_violations",
+        "intent_family_mismatch_violations",
+        "execute_retake_contract_violations",
+        "clutch_contract_violations",
+        "eco_force_contract_violations",
+    }
+    assert required.issubset(summary.keys())
+    assert isinstance(summary["family_sequence"], list)
+    assert len(summary["family_sequence"]) == 32
+    assert set(summary["realized_family_counts"]) == set(POLICY_FAMILIES)
+    assert set(summary["realized_family_rates"]) == set(POLICY_FAMILIES)
+    assert set(summary["quota_delta"]) == set(POLICY_FAMILIES)
 
 
 def test_policy_label_coherence_for_retake_and_clutch() -> None:
