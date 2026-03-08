@@ -1,6 +1,8 @@
 # Initiative run policy
 
 Operational policy for the major-initiative planning lane on agent-initiative-base.
+This document is lane-specific authority for initiative rules.
+Initiative proposal/planning runs and approved-stage implementation/review runs must start from `agent-initiative-base`, unless an explicit human promotion instruction says otherwise.
 
 ## Scope
 

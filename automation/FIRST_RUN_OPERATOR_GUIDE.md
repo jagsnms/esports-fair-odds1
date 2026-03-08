@@ -4,8 +4,11 @@ Concise setup and verification guide for Cursor Automation runs against this rep
 
 ## Required starting branch
 
-- **Maintenance/bounded-fix runs**: start from **agent-base**.
-- **Initiative proposal/planning runs**: start from **agent-initiative-base**.
+This file is the authoritative operational guide for start-branch rules.
+
+- **Maintenance/bounded-fix runs** must start from **agent-base**.
+- **Initiative proposal/planning runs** must start from **agent-initiative-base**.
+- **Initiative implementation/review runs for approved initiative stages** must start from **agent-initiative-base**, unless an explicit human promotion instruction says otherwise.
 
 Do not run from `main`, `master`, `dev`, `release`, or any human-owned feature branch.
 

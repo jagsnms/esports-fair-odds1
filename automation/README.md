@@ -2,9 +2,14 @@
 
 Run policy: [AUTOMATION_RUN_POLICY.md](AUTOMATION_RUN_POLICY.md).
 
-## Purpose of agent-base
+## Branch-discipline summary
 
-`agent-base` is the approved starting branch for all autonomous automation work. Every automation run must branch from `agent-base`—never from `main`, `master`, `dev`, `release`, or any human-owned feature branch.
+- **Maintenance/bounded-fix runs** must start from `agent-base`.
+- **Initiative proposal/planning runs** must start from `agent-initiative-base`.
+- **Initiative implementation/review runs for approved initiative stages** must start from `agent-initiative-base`, unless an explicit human promotion instruction says otherwise.
+
+For operational branch-start rules, `automation/FIRST_RUN_OPERATOR_GUIDE.md` is authoritative.
+For initiative-lane governance rules, `automation/INITIATIVE_RUN_POLICY.md` is lane-specific authority.
 
 ## Run-branch naming
 
