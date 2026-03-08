@@ -53,14 +53,6 @@ ECO_FORCE_MILD_RATIO = 1.2
 FAMILY_ASSIGNMENT_PRIORITY = ("retake", "clutch", "execute", "eco_force")
 
 
-def _policy_profile_priority(profile: str) -> tuple[str, ...]:
-    if profile == "eco_bias_v1":
-        return ("eco_force", "execute", "retake", "clutch")
-    if profile == "execute_bias_v1":
-        return ("execute", "eco_force", "retake", "clutch")
-    return ("execute", "eco_force", "retake", "clutch")
-
-
 def _normalize_policy_profile(profile: str) -> str:
     out = str(profile or "balanced_v1")
     if out not in POLICY_PROFILES:
@@ -114,6 +106,7 @@ def _effective_family_quotas(
     n_rounds = max(1, int(rounds))
     ticks = max(2, int(ticks_per_round))
     profile = _normalize_policy_profile(policy_profile)
+    proportions = POLICY_PROFILE_PROPORTIONS[profile]
     capacities = {
         family: sum(
             1
@@ -132,20 +125,62 @@ def _effective_family_quotas(
             overflow += clipped
             effective[family] = cap
             reasons.append(f"{family} reduced by {clipped} due to feasibility")
-    priority = _policy_profile_priority(profile)
+    redistributed_total = 0
     while overflow > 0:
+        feasible = [family for family in POLICY_FAMILIES if (capacities[family] - effective[family]) > 0]
+        if not feasible:
+            raise ValueError("unable to redistribute infeasible policy quota")
+        total_weight = sum(float(proportions[family]) for family in feasible)
+        if total_weight <= 0.0:
+            weights = {family: 1.0 for family in feasible}
+            total_weight = float(len(feasible))
+        else:
+            weights = {family: float(proportions[family]) for family in feasible}
+
+        # Largest-remainder style redistribution across feasible families.
+        base_add: dict[str, int] = {}
+        raw_remainder: dict[str, float] = {}
+        allocated = 0
+        for family in feasible:
+            cap_left = capacities[family] - effective[family]
+            raw = (float(overflow) * weights[family]) / float(total_weight)
+            base = int(min(cap_left, math.floor(raw)))
+            base_add[family] = base
+            raw_remainder[family] = float(raw - math.floor(raw))
+            allocated += base
+        for family, add in base_add.items():
+            if add > 0:
+                effective[family] += add
+                redistributed_total += add
+        overflow -= allocated
+        if overflow <= 0:
+            break
+
+        ranked = sorted(
+            feasible,
+            key=lambda family: (
+                raw_remainder.get(family, 0.0),
+                float(weights[family]),
+                -POLICY_FAMILIES.index(family),
+            ),
+            reverse=True,
+        )
         moved = False
-        for family in priority:
+        for family in ranked:
+            if overflow <= 0:
+                break
             cap_left = capacities[family] - effective[family]
             if cap_left <= 0:
                 continue
             effective[family] += 1
             overflow -= 1
+            redistributed_total += 1
             moved = True
-            if overflow <= 0:
-                break
         if not moved:
             raise ValueError("unable to redistribute infeasible policy quota")
+
+    if redistributed_total > 0:
+        reasons.append(f"redistributed {redistributed_total} overflow by largest_remainder_feasible")
     if sum(effective.values()) != n_rounds:
         raise ValueError("effective quotas must sum to rounds")
     applied = bool(reasons)

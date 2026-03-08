@@ -532,8 +532,12 @@ def test_stage3a_profile_redistribution_is_deterministic_and_reported() -> None:
     assert summary_ticks_2 == summary_ticks_2_again
     assert summary_ticks_2["feasibility_adjustment_applied"] is True
     assert "reduced by" in str(summary_ticks_2["feasibility_adjustment_reason"])
+    assert "largest_remainder_feasible" in str(summary_ticks_2["feasibility_adjustment_reason"])
     assert int(summary_ticks_2["effective_family_quotas"]["retake"]) == 0
     assert int(summary_ticks_2["effective_family_quotas"]["clutch"]) == 0
+    # balanced_v1 on ticks=2 redistributes evenly across feasible execute/eco_force.
+    assert int(summary_ticks_2["effective_family_quotas"]["execute"]) == 16
+    assert int(summary_ticks_2["effective_family_quotas"]["eco_force"]) == 16
     assert summary_ticks_2["realized_family_counts"] == summary_ticks_2["effective_family_quotas"]
 
     summary_ticks_3 = generate_synthetic_distribution_summary(
@@ -543,8 +547,12 @@ def test_stage3a_profile_redistribution_is_deterministic_and_reported() -> None:
         policy_profile="eco_bias_v1",
     )
     assert summary_ticks_3["feasibility_adjustment_applied"] is True
+    assert "largest_remainder_feasible" in str(summary_ticks_3["feasibility_adjustment_reason"])
     assert int(summary_ticks_3["effective_family_quotas"]["clutch"]) == 0
-    assert int(summary_ticks_3["effective_family_quotas"]["retake"]) > 0
+    # eco_bias_v1 on ticks=3 redistributes clutch overflow by feasible largest remainder.
+    assert int(summary_ticks_3["effective_family_quotas"]["execute"]) == 9
+    assert int(summary_ticks_3["effective_family_quotas"]["retake"]) == 6
+    assert int(summary_ticks_3["effective_family_quotas"]["eco_force"]) == 17
     assert summary_ticks_3["realized_family_counts"] == summary_ticks_3["effective_family_quotas"]
 
 
