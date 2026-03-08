@@ -46,6 +46,15 @@ Proposals must include:
 - **Recommended branch strategy** — how work should be branched and integrated
 - **Stale-proposal check record** — explicit confirmation of promoted-registry, banked-registry, and shared/origin checks
 
+## Review-ready marker + thin validation gate
+
+The initiative proposal validator applies only to artifacts marked with the exact marker:
+
+- `Review-ready: yes`
+
+Unmarked or differently marked artifacts are treated as draft/not-applicable and are non-blocking.
+Validator scope is syntactic contract completeness only; it does not perform semantic novelty checks or automated git/origin truth verification.
+
 ## Preferred initiative workflow (simplified)
 
 Use this sequence for initiative work:

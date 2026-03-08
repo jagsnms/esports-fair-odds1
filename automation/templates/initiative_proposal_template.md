@@ -1,5 +1,7 @@
 # Initiative proposal
 
+Review-ready: no
+
 ## Required stale-proposal prevention checklist
 
 - [ ] Checked `automation/PROMOTED_INITIATIVES.md`
@@ -8,12 +10,16 @@
 - [ ] Confirmed this proposal is **not already promoted/shared truth**
 - [ ] Confirmed this proposal is not banked/deferred without new evidence
 
+Review-ready marker contract:
+- Set exactly `Review-ready: yes` only when this artifact is ready for formal review.
+- Validator enforcement applies only when that exact marker is present.
+
 ### Check results (required)
 
-- Promoted registry findings:
-- Banked registry findings:
-- Shared/origin truth findings:
-- Non-duplication confirmation:
+- Promoted registry findings: REQUIRED_NONEMPTY
+- Banked registry findings: REQUIRED_NONEMPTY
+- Shared/origin truth findings: REQUIRED_NONEMPTY
+- Non-duplication confirmation: REQUIRED_NONEMPTY
 
 ## Initiative title
 
@@ -53,7 +59,7 @@
 
 (How to branch and integrate: e.g. initiative branch per stage, merge order, protection of main/dev.)
 
-## Recommendation
+## Recommendation / disposition
 
 - [ ] **Approve planning only** — accept proposal; do not start implementation
 - [ ] **Approve stage 1** — approve first stage for implementation
