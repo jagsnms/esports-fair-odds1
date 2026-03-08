@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import random
 from pathlib import Path
 from typing import Any
@@ -37,6 +38,8 @@ EXECUTE_PRE_PLANT_PHASES = ("setup", "commit")
 EXECUTE_POST_PLANT_PHASES = ("pressure", "resolution")
 RETAKE_PRE_PLANT_PHASES = ("site_loss", "retake_setup")
 RETAKE_POST_PLANT_PHASES = ("retake_attempt", "retake_resolution")
+ECO_FORCE_STRICT_RATIO = 1.5
+ECO_FORCE_MILD_RATIO = 1.2
 
 
 def _regime_from_index(idx: int) -> str:
@@ -121,6 +124,102 @@ def _shape_planted_state_for_policy(*, family: str, phase: str, base_planted: bo
         if phase in RETAKE_POST_PLANT_PHASES:
             return True
     return bool(base_planted)
+
+
+def _shape_alive_counts_for_policy(
+    *,
+    family: str,
+    phase: str,
+    winner_team_one: bool,
+    base_alive_one: int,
+    base_alive_two: int,
+) -> tuple[int, int]:
+    """
+    Stage 2B clutch shaping:
+    - isolation: both teams start at >=2 alive.
+    - duel_setup: no increase from isolation baseline.
+    - duel_resolution + terminal: low-man condition must exist and persist.
+    """
+    if family != "clutch":
+        return base_alive_one, base_alive_two
+    if phase == "isolation":
+        return 3, 3
+    if phase == "duel_setup":
+        return (3, 2) if winner_team_one else (2, 3)
+    if phase in ("duel_resolution", "terminal"):
+        return (2, 1) if winner_team_one else (1, 2)
+    return base_alive_one, base_alive_two
+
+
+def _team_state_totals(states: list[dict[str, Any]]) -> tuple[int, int]:
+    cash_total = sum(max(0, int(row.get("balance", 0) or 0)) for row in states)
+    loadout_total = sum(max(0, int(row.get("equipment_value", 0) or 0)) for row in states)
+    return cash_total, loadout_total
+
+
+def _ensure_ratio_for_key(
+    *,
+    advantaged_states: list[dict[str, Any]],
+    disadvantaged_states: list[dict[str, Any]],
+    key: str,
+    min_ratio: float,
+) -> None:
+    adv_total = sum(max(0, int(row.get(key, 0) or 0)) for row in advantaged_states)
+    dis_total = sum(max(0, int(row.get(key, 0) or 0)) for row in disadvantaged_states)
+    target = int(math.ceil(float(min_ratio) * max(1, dis_total)))
+    if adv_total >= target:
+        return
+    if not advantaged_states:
+        return
+    if adv_total <= 0:
+        base = max(1, target // len(advantaged_states))
+        for row in advantaged_states:
+            row[key] = base
+    else:
+        scale = float(target) / float(max(1, adv_total))
+        for row in advantaged_states:
+            cur = max(0, int(row.get(key, 0) or 0))
+            row[key] = int(math.ceil(cur * scale))
+    new_total = sum(max(0, int(row.get(key, 0) or 0)) for row in advantaged_states)
+    if new_total < target:
+        advantaged_states[0][key] = int(max(0, int(advantaged_states[0].get(key, 0) or 0)) + (target - new_total))
+
+
+def _shape_eco_force_team_states(
+    *,
+    phase: str,
+    team_one_states: list[dict[str, Any]],
+    team_two_states: list[dict[str, Any]],
+    advantaged_team_one: bool,
+) -> None:
+    """
+    Stage 2B eco_force shaping:
+    - economy_setup/contact: strict asymmetry (>=1.5 on cash/loadout ratios).
+    - trade_or_save: mild asymmetry (>=1.2).
+    - terminal: no inversion versus setup winner side (>=1.0).
+    """
+    if phase in ("economy_setup", "contact"):
+        min_ratio = ECO_FORCE_STRICT_RATIO
+    elif phase == "trade_or_save":
+        min_ratio = ECO_FORCE_MILD_RATIO
+    elif phase == "terminal":
+        min_ratio = 1.0
+    else:
+        min_ratio = ECO_FORCE_MILD_RATIO
+    advantaged_states = team_one_states if advantaged_team_one else team_two_states
+    disadvantaged_states = team_two_states if advantaged_team_one else team_one_states
+    _ensure_ratio_for_key(
+        advantaged_states=advantaged_states,
+        disadvantaged_states=disadvantaged_states,
+        key="balance",
+        min_ratio=min_ratio,
+    )
+    _ensure_ratio_for_key(
+        advantaged_states=advantaged_states,
+        disadvantaged_states=disadvantaged_states,
+        key="equipment_value",
+        min_ratio=min_ratio,
+    )
 
 
 def _loadout_range_for_regime(regime: str) -> tuple[int, int]:
@@ -217,6 +316,7 @@ def generate_synthetic_raw_replay(
     for r in range(n_rounds):
         policy_family = policy_families_by_round[r]
         policy_round_intent = POLICY_ROUND_INTENTS.get(policy_family, "site_take_attempt")
+        eco_force_advantaged_team_one = bool(rng.random() < 0.5)
         # Carryover swing pattern: winner previous round tends to keep stronger regime.
         if prev_round_winner_one is None:
             regime_one = _regime_from_index(r)
@@ -249,6 +349,13 @@ def generate_synthetic_raw_replay(
             if planted:
                 timer_ms = min(timer_ms, 35_000 if t == 2 else 9_000)
             alive_one, alive_two = _alive_pattern_for_winner(winner_one, min(t, 3))
+            alive_one, alive_two = _shape_alive_counts_for_policy(
+                family=policy_family,
+                phase=policy_phase,
+                winner_team_one=winner_one,
+                base_alive_one=alive_one,
+                base_alive_two=alive_two,
+            )
             # Encourage late fragility pressure.
             hp_bias = 5.0 * t
             team_one_states = _build_team_player_states(
@@ -265,6 +372,13 @@ def generate_synthetic_raw_replay(
                 regime=regime_two,
                 hp_low_bias=hp_bias if not winner_one else hp_bias + 5.0,
             )
+            if policy_family == "eco_force":
+                _shape_eco_force_team_states(
+                    phase=policy_phase,
+                    team_one_states=team_one_states,
+                    team_two_states=team_two_states,
+                    advantaged_team_one=eco_force_advantaged_team_one,
+                )
             payload: dict[str, Any] = {
                 "team_one": {
                     "name": "Synthetic A",

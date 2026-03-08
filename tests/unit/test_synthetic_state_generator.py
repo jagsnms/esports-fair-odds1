@@ -30,6 +30,29 @@ def _policy_family_sequence(payloads: list[dict]) -> list[str]:
     return [str(by_round[rn][0].get("synthetic_policy_family", "")) for rn in sorted(by_round)]
 
 
+def _team_totals(row: dict, team_key: str) -> tuple[int, int]:
+    states = ((row.get(team_key) or {}).get("player_states") or [])
+    cash = sum(max(0, int(p.get("balance", 0) or 0)) for p in states)
+    loadout = sum(max(0, int(p.get("equipment_value", 0) or 0)) for p in states)
+    return cash, loadout
+
+
+def _eco_force_ratios(row: dict) -> tuple[float, float]:
+    cash_a, load_a = _team_totals(row, "team_one")
+    cash_b, load_b = _team_totals(row, "team_two")
+    cash_ratio = max(cash_a, cash_b) / max(1, min(cash_a, cash_b))
+    load_ratio = max(load_a, load_b) / max(1, min(load_a, load_b))
+    return cash_ratio, load_ratio
+
+
+def _eco_force_winner_side_by_cash(row: dict) -> str:
+    cash_a, _ = _team_totals(row, "team_one")
+    cash_b, _ = _team_totals(row, "team_two")
+    if cash_a == cash_b:
+        return "tie"
+    return "team_one" if cash_a > cash_b else "team_two"
+
+
 def test_synthetic_generator_is_seed_deterministic() -> None:
     a = generate_synthetic_raw_replay(seed=123, rounds=6, ticks_per_round=4)
     b = generate_synthetic_raw_replay(seed=123, rounds=6, ticks_per_round=4)
@@ -305,6 +328,138 @@ def test_low_tick_policy_guard_behavior_is_explicit() -> None:
         if family == "retake":
             assert phases == ["site_loss", "retake_setup", "retake_attempt"]
             assert planted == [False, False, True]
+
+
+def test_clutch_policy_alive_contract_enforced() -> None:
+    payloads = generate_synthetic_raw_replay(seed=99, rounds=16, ticks_per_round=4)
+    by_round = _rows_by_round(payloads)
+    clutch_rounds = 0
+    for rows in by_round.values():
+        family = str(rows[0].get("synthetic_policy_family", ""))
+        if family != "clutch":
+            continue
+        clutch_rounds += 1
+        alive_series: list[tuple[int, int]] = []
+        phase_seen: list[str] = []
+        for row in rows:
+            phase = str(row.get("synthetic_policy_phase", ""))
+            phase_seen.append(phase)
+            states_a = ((row.get("team_one") or {}).get("player_states") or [])
+            states_b = ((row.get("team_two") or {}).get("player_states") or [])
+            alive_a = sum(1 for p in states_a if p.get("is_alive") is True)
+            alive_b = sum(1 for p in states_b if p.get("is_alive") is True)
+            alive_series.append((alive_a, alive_b))
+            if phase == "isolation":
+                assert alive_a >= 2 and alive_b >= 2
+        assert phase_seen == ["isolation", "duel_setup", "duel_resolution", "terminal"]
+        # No resurrection artifacts: alive counts are non-increasing per team.
+        for i in range(1, len(alive_series)):
+            prev_a, prev_b = alive_series[i - 1]
+            cur_a, cur_b = alive_series[i]
+            assert cur_a <= prev_a
+            assert cur_b <= prev_b
+        duel_res_a, duel_res_b = alive_series[2]
+        terminal_a, terminal_b = alive_series[3]
+        assert min(duel_res_a, duel_res_b) <= 2
+        assert min(terminal_a, terminal_b) <= 2
+        assert terminal_a <= duel_res_a
+        assert terminal_b <= duel_res_b
+    assert clutch_rounds > 0
+
+
+def test_eco_force_asymmetry_contract_enforced() -> None:
+    payloads = generate_synthetic_raw_replay(seed=99, rounds=20, ticks_per_round=4)
+    by_round = _rows_by_round(payloads)
+    eco_rounds = 0
+    for rows in by_round.values():
+        family = str(rows[0].get("synthetic_policy_family", ""))
+        if family != "eco_force":
+            continue
+        eco_rounds += 1
+        assert [str(r.get("synthetic_policy_phase", "")) for r in rows] == [
+            "economy_setup",
+            "contact",
+            "trade_or_save",
+            "terminal",
+        ]
+        phase_map = {str(r.get("synthetic_policy_phase", "")): r for r in rows}
+        setup_cash_ratio, setup_load_ratio = _eco_force_ratios(phase_map["economy_setup"])
+        contact_cash_ratio, contact_load_ratio = _eco_force_ratios(phase_map["contact"])
+        trade_cash_ratio, trade_load_ratio = _eco_force_ratios(phase_map["trade_or_save"])
+        assert (setup_cash_ratio >= 1.5) or (setup_load_ratio >= 1.5)
+        assert (contact_cash_ratio >= 1.5) or (contact_load_ratio >= 1.5)
+        assert (trade_cash_ratio >= 1.2) or (trade_load_ratio >= 1.2)
+        # Forbidden early inversion: setup winner side must match contact winner side.
+        setup_winner = _eco_force_winner_side_by_cash(phase_map["economy_setup"])
+        contact_winner = _eco_force_winner_side_by_cash(phase_map["contact"])
+        assert setup_winner != "tie"
+        assert contact_winner == setup_winner
+        # Terminal may narrow but must not invert relative to setup.
+        terminal_winner = _eco_force_winner_side_by_cash(phase_map["terminal"])
+        assert terminal_winner in (setup_winner, "tie")
+    assert eco_rounds > 0
+
+
+def test_clutch_eco_literal_phase_contract_hardening() -> None:
+    """Literal phase-name contract hardening for Stage 2B."""
+    payloads = generate_synthetic_raw_replay(seed=99, rounds=20, ticks_per_round=4)
+    by_round = _rows_by_round(payloads)
+    saw_clutch = False
+    saw_eco = False
+    for rows in by_round.values():
+        family = str(rows[0].get("synthetic_policy_family", ""))
+        phases = [str(r.get("synthetic_policy_phase", "")) for r in rows]
+        if family == "clutch":
+            saw_clutch = True
+            assert phases == ["isolation", "duel_setup", "duel_resolution", "terminal"]
+            alive_min = []
+            for row in rows:
+                states_a = ((row.get("team_one") or {}).get("player_states") or [])
+                states_b = ((row.get("team_two") or {}).get("player_states") or [])
+                alive_a = sum(1 for p in states_a if p.get("is_alive") is True)
+                alive_b = sum(1 for p in states_b if p.get("is_alive") is True)
+                alive_min.append(min(alive_a, alive_b))
+            assert alive_min[2] <= 2
+            assert alive_min[3] <= 2
+        if family == "eco_force":
+            saw_eco = True
+            assert phases == ["economy_setup", "contact", "trade_or_save", "terminal"]
+            setup_ratio = _eco_force_ratios(rows[0])
+            contact_ratio = _eco_force_ratios(rows[1])
+            trade_ratio = _eco_force_ratios(rows[2])
+            assert (setup_ratio[0] >= 1.5) or (setup_ratio[1] >= 1.5)
+            assert (contact_ratio[0] >= 1.5) or (contact_ratio[1] >= 1.5)
+            assert (trade_ratio[0] >= 1.2) or (trade_ratio[1] >= 1.2)
+    assert saw_clutch
+    assert saw_eco
+
+
+def test_eco_force_low_tick_behavior_is_explicit() -> None:
+    payloads_2 = generate_synthetic_raw_replay(seed=99, rounds=12, ticks_per_round=2)
+    for rows in _rows_by_round(payloads_2).values():
+        family = str(rows[0].get("synthetic_policy_family", ""))
+        if family != "eco_force":
+            continue
+        phases = [str(r.get("synthetic_policy_phase", "")) for r in rows]
+        assert phases == ["economy_setup", "trade_or_save"]
+        setup_ratio = _eco_force_ratios(rows[0])
+        trade_ratio = _eco_force_ratios(rows[1])
+        assert (setup_ratio[0] >= 1.5) or (setup_ratio[1] >= 1.5)
+        assert (trade_ratio[0] >= 1.2) or (trade_ratio[1] >= 1.2)
+
+    payloads_3 = generate_synthetic_raw_replay(seed=99, rounds=12, ticks_per_round=3)
+    for rows in _rows_by_round(payloads_3).values():
+        family = str(rows[0].get("synthetic_policy_family", ""))
+        if family != "eco_force":
+            continue
+        phases = [str(r.get("synthetic_policy_phase", "")) for r in rows]
+        assert phases == ["economy_setup", "contact", "trade_or_save"]
+        setup_ratio = _eco_force_ratios(rows[0])
+        contact_ratio = _eco_force_ratios(rows[1])
+        trade_ratio = _eco_force_ratios(rows[2])
+        assert (setup_ratio[0] >= 1.5) or (setup_ratio[1] >= 1.5)
+        assert (contact_ratio[0] >= 1.5) or (contact_ratio[1] >= 1.5)
+        assert (trade_ratio[0] >= 1.2) or (trade_ratio[1] >= 1.2)
 
 
 def test_policy_label_coherence_for_retake_and_clutch() -> None:
