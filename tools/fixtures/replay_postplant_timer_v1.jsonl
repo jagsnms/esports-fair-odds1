@@ -1,0 +1,4 @@
+{"team_one":{"name":"Team A","score":7,"id":1},"team_two":{"name":"Team B","score":8,"id":2},"round_phase":"IN_PROGRESS","round_time_remaining":40000,"is_bomb_planted":true}
+{"team_one":{"name":"Team A","score":7,"id":1},"team_two":{"name":"Team B","score":8,"id":2},"round_phase":"IN_PROGRESS","round_time_remaining":32000,"is_bomb_planted":true}
+{"team_one":{"name":"Team A","score":7,"id":1},"team_two":{"name":"Team B","score":8,"id":2},"round_phase":"IN_PROGRESS","round_time_remaining":20000,"is_bomb_planted":true}
+{"team_one":{"name":"Team A","score":7,"id":1},"team_two":{"name":"Team B","score":8,"id":2},"round_phase":"IN_PROGRESS","round_time_remaining":9000,"is_bomb_planted":true}

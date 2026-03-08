@@ -25,10 +25,20 @@
     "point_like_inputs_transition_passthrough",
     "point_like_reject_reason_counts",
     "points_with_contract_diagnostics",
+    "contract_diagnostics_bomb_planted_true_points",
+    "contract_diagnostics_bomb_planted_false_points",
+    "contract_diagnostics_round_time_present_points",
+    "contract_diagnostics_postplant_timer_points",
     "contract_diagnostics_required_keys",
     "contract_diagnostics_key_presence_counts",
     "contract_diagnostics_missing_key_counts",
     "contract_diagnostics_key_presence_rates",
+    "contract_diagnostics_semantic_required_keys",
+    "contract_diagnostics_semantic_nullable_keys",
+    "contract_diagnostics_semantic_valid_counts",
+    "contract_diagnostics_semantic_invalid_counts",
+    "contract_diagnostics_semantic_null_counts",
+    "contract_diagnostics_semantic_valid_rates",
     "structural_violations_total",
     "behavioral_violations_total",
     "invariant_violations_total"
@@ -135,6 +145,22 @@
       "type": "integer",
       "minimum": 0
     },
+    "contract_diagnostics_bomb_planted_true_points": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "contract_diagnostics_bomb_planted_false_points": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "contract_diagnostics_round_time_present_points": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "contract_diagnostics_postplant_timer_points": {
+      "type": "integer",
+      "minimum": 0
+    },
     "contract_diagnostics_required_keys": {
       "type": "array",
       "minItems": 1,
@@ -158,6 +184,50 @@
       }
     },
     "contract_diagnostics_key_presence_rates": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      }
+    },
+    "contract_diagnostics_semantic_required_keys": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "contract_diagnostics_semantic_nullable_keys": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "contract_diagnostics_semantic_valid_counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "contract_diagnostics_semantic_invalid_counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "contract_diagnostics_semantic_null_counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "contract_diagnostics_semantic_valid_rates": {
       "type": "object",
       "additionalProperties": {
         "type": "number",

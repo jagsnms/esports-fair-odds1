@@ -30,10 +30,13 @@ WIN_TARGET_REG = 13
 OT_BLOCK = 3
 MAX_ROUNDS_MAP = 24
 
-# Contextual widening (only when context_widening_enabled=True)
-CONTEXT_WIDEN_BETA = 0.25
-UNCERTAINTY_MULT_MAX = 1.35
-UNCERTAINTY_MULT_MIN = 1.0
+# Contextual widening defaults (overridable via Config knobs).
+DEFAULT_CONTEXT_WIDEN_BETA = 0.25
+DEFAULT_UNCERTAINTY_MULT_MAX = 1.35
+DEFAULT_UNCERTAINTY_MULT_MIN = 1.0
+DEFAULT_CONTEXT_RISK_WEIGHT_LEVERAGE = 0.4
+DEFAULT_CONTEXT_RISK_WEIGHT_FRAGILITY = 0.4
+DEFAULT_CONTEXT_RISK_WEIGHT_MISSINGNESS = 0.2
 
 # Contract rails: tiny minimum width epsilon to avoid degenerate collapse.
 CONTRACT_MIN_WIDTH = 1e-4
@@ -284,6 +287,63 @@ def _clip01(x: float) -> float:
     return _clip(x, 0.0, 1.0)
 
 
+def _coerce_finite_float(value: Any, fallback: float) -> float:
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return fallback
+    return f if math.isfinite(f) else fallback
+
+
+def _context_risk_weights(config: Config) -> tuple[float, float, float]:
+    """Return normalized non-negative context-risk weights (leverage/fragility/missingness)."""
+    w_lev = _coerce_finite_float(
+        getattr(config, "context_risk_weight_leverage", DEFAULT_CONTEXT_RISK_WEIGHT_LEVERAGE),
+        DEFAULT_CONTEXT_RISK_WEIGHT_LEVERAGE,
+    )
+    w_frag = _coerce_finite_float(
+        getattr(config, "context_risk_weight_fragility", DEFAULT_CONTEXT_RISK_WEIGHT_FRAGILITY),
+        DEFAULT_CONTEXT_RISK_WEIGHT_FRAGILITY,
+    )
+    w_miss = _coerce_finite_float(
+        getattr(config, "context_risk_weight_missingness", DEFAULT_CONTEXT_RISK_WEIGHT_MISSINGNESS),
+        DEFAULT_CONTEXT_RISK_WEIGHT_MISSINGNESS,
+    )
+    w_lev = max(0.0, w_lev)
+    w_frag = max(0.0, w_frag)
+    w_miss = max(0.0, w_miss)
+    total = w_lev + w_frag + w_miss
+    if total <= 1e-9:
+        return (
+            DEFAULT_CONTEXT_RISK_WEIGHT_LEVERAGE,
+            DEFAULT_CONTEXT_RISK_WEIGHT_FRAGILITY,
+            DEFAULT_CONTEXT_RISK_WEIGHT_MISSINGNESS,
+        )
+    return w_lev / total, w_frag / total, w_miss / total
+
+
+def _context_widening_params(config: Config) -> tuple[float, float, float]:
+    """Return sanitized (beta, uncertainty_min, uncertainty_max) contextual widening params."""
+    beta = _coerce_finite_float(
+        getattr(config, "context_widen_beta", DEFAULT_CONTEXT_WIDEN_BETA),
+        DEFAULT_CONTEXT_WIDEN_BETA,
+    )
+    beta = max(0.0, min(2.0, beta))
+    umin = _coerce_finite_float(
+        getattr(config, "uncertainty_mult_min", DEFAULT_UNCERTAINTY_MULT_MIN),
+        DEFAULT_UNCERTAINTY_MULT_MIN,
+    )
+    umax = _coerce_finite_float(
+        getattr(config, "uncertainty_mult_max", DEFAULT_UNCERTAINTY_MULT_MAX),
+        DEFAULT_UNCERTAINTY_MULT_MAX,
+    )
+    umin = max(1.0, min(3.0, umin))
+    umax = max(1.0, min(3.0, umax))
+    if umax < umin:
+        umax = umin
+    return beta, umin, umax
+
+
 def _cs2_win_target(rounds_a: int, rounds_b: int) -> int:
     """Current win target: 13 regulation; 16/19/... in OT (MR3 blocks)."""
     ra, rb = int(rounds_a), int(rounds_b)
@@ -301,7 +361,7 @@ def _n_maps_from_series_fmt(series_fmt: str) -> int:
     return 3 if n not in (3, 5) else n
 
 
-def _compute_context_risk(frame: Frame) -> tuple[float, dict[str, Any]]:
+def _compute_context_risk(frame: Frame, config: Config) -> tuple[float, dict[str, Any]]:
     """Context risk [0,1] from leverage/fragility/missingness. Used only when context_widening_enabled."""
     components: dict[str, Any] = {}
     scores = getattr(frame, "scores", (0, 0))
@@ -331,12 +391,17 @@ def _compute_context_risk(frame: Frame) -> tuple[float, dict[str, Any]]:
         components["fragility_note"] = "loadout_totals_missing"
     components["fragility_risk"] = fragility_risk
     alive = getattr(frame, "alive_counts", None)
-    hp = getattr(frame, "hp_totals", (0.0, 0.0))
     has_alive = isinstance(alive, (tuple, list)) and len(alive) >= 2 and alive[0] is not None and alive[1] is not None
     has_loadout = isinstance(loadout, (tuple, list)) and len(loadout) >= 2
     missingness_risk = 0.3 if not (has_alive and has_loadout) else 0.0
     components["missingness_risk"] = missingness_risk
-    context_risk = _clip01(0.4 * leverage_risk + 0.4 * fragility_risk + 0.2 * missingness_risk)
+    w_lev, w_frag, w_miss = _context_risk_weights(config)
+    components["weights"] = {
+        "leverage": w_lev,
+        "fragility": w_frag,
+        "missingness": w_miss,
+    }
+    context_risk = _clip01((w_lev * leverage_risk) + (w_frag * fragility_risk) + (w_miss * missingness_risk))
     return context_risk, components
 
 
@@ -601,12 +666,13 @@ def compute_rails_cs2(
 
     # Optional: context widening + width cap (gated) – applied only to heuristic rails.
     if getattr(config, "context_widening_enabled", False):
-        context_risk, risk_components = _compute_context_risk(frame)
-        uncertainty_mult = UNCERTAINTY_MULT_MIN + context_risk * (UNCERTAINTY_MULT_MAX - UNCERTAINTY_MULT_MIN)
-        uncertainty_mult = max(UNCERTAINTY_MULT_MIN, min(UNCERTAINTY_MULT_MAX, uncertainty_mult))
+        context_risk, risk_components = _compute_context_risk(frame, config)
+        context_widen_beta, uncertainty_mult_min, uncertainty_mult_max = _context_widening_params(config)
+        uncertainty_mult = uncertainty_mult_min + context_risk * (uncertainty_mult_max - uncertainty_mult_min)
+        uncertainty_mult = max(uncertainty_mult_min, min(uncertainty_mult_max, uncertainty_mult))
         map_width_before = rail_hi_heur - rail_lo_heur
         current_halfwidth = map_width_before / 2.0
-        widened_halfwidth = current_halfwidth * (1.0 + CONTEXT_WIDEN_BETA * context_risk)
+        widened_halfwidth = current_halfwidth * (1.0 + context_widen_beta * context_risk)
         mid_h = (rail_lo_heur + rail_hi_heur) / 2.0
         rail_lo_heur = mid_h - widened_halfwidth
         rail_hi_heur = mid_h + widened_halfwidth
@@ -637,6 +703,9 @@ def compute_rails_cs2(
         debug["map_width_after_cap"] = rail_hi_heur - rail_lo_heur
         debug["width_cap_used"] = width_cap_used
         debug["width_cap_meta"] = cap_meta
+        debug["context_widen_beta"] = context_widen_beta
+        debug["uncertainty_mult_min"] = uncertainty_mult_min
+        debug["uncertainty_mult_max"] = uncertainty_mult_max
     else:
         debug["context_widening_enabled"] = False
 

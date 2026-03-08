@@ -17,6 +17,7 @@ SCHEMA_PATH = ROOT / "tools" / "schemas" / "replay_validation_summary.schema.jso
 SPARSE_MULTIMATCH_FIXTURE_PATH = ROOT / "tools" / "fixtures" / "replay_multimatch_small_v1.jsonl"
 SPARSE_RAW_FIXTURE_PATH = ROOT / "tools" / "fixtures" / "raw_replay_sample.jsonl"
 CARRYOVER_COMPLETE_FIXTURE_PATH = ROOT / "tools" / "fixtures" / "replay_carryover_complete_v1.jsonl"
+POSTPLANT_TIMER_FIXTURE_PATH = ROOT / "tools" / "fixtures" / "replay_postplant_timer_v1.jsonl"
 POINT_LIKE_FIXTURE_PATH = ROOT / "logs" / "history_points.jsonl"
 BASELINE_ARTIFACT_PATH = ROOT / "automation" / "reports" / "baseline_replay_carryover_evidence_20260307.json"
 
@@ -99,6 +100,24 @@ def test_sparse_fallback_classes_remain_deterministic_and_fallback_only() -> Non
             assert first["contract_diagnostics_key_presence_counts"][key] == first["points_with_contract_diagnostics"]
             assert first["contract_diagnostics_missing_key_counts"][key] == 0
             assert first["contract_diagnostics_key_presence_rates"][key] == 1.0
+        semantic_keys = first["contract_diagnostics_semantic_required_keys"]
+        nullable_keys = set(first["contract_diagnostics_semantic_nullable_keys"])
+        for key in semantic_keys:
+            valid = first["contract_diagnostics_semantic_valid_counts"][key]
+            invalid = first["contract_diagnostics_semantic_invalid_counts"][key]
+            nulls = first["contract_diagnostics_semantic_null_counts"][key]
+            rate = first["contract_diagnostics_semantic_valid_rates"][key]
+            assert valid + invalid == first["points_with_contract_diagnostics"]
+            assert 0 <= nulls <= first["points_with_contract_diagnostics"]
+            if key not in nullable_keys:
+                # Non-nullable keys can still be null in sparse fixtures; that should count as invalid.
+                assert nulls <= invalid
+            expected_rate = (
+                valid / first["points_with_contract_diagnostics"]
+                if first["points_with_contract_diagnostics"] > 0
+                else 0.0
+            )
+            assert abs(rate - expected_rate) <= 1e-12
 
 
 def test_carryover_complete_fixture_activates_v2_with_valid_prematch_map() -> None:
@@ -122,6 +141,37 @@ def test_carryover_complete_fixture_activates_v2_with_valid_prematch_map() -> No
     assert first["structural_violations_total"] == 0
     assert first["invariant_violations_total"] == 0
     assert first["behavioral_violations_total"] == 0
+    # Core probabilities/rails should stay semantically valid for the complete carryover fixture.
+    for key in (
+        "q_intra_total",
+        "rail_low",
+        "rail_high",
+        "p_hat_prev",
+        "p_hat_final",
+        "movement_confidence",
+    ):
+        assert first["contract_diagnostics_semantic_invalid_counts"][key] == 0
+
+
+def test_postplant_timer_fixture_exercises_planted_timer_coverage() -> None:
+    """Post-plant fixture should produce measurable planted+timer diagnostics coverage."""
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    first, second = _run_deterministic(POSTPLANT_TIMER_FIXTURE_PATH)
+    _assert_schema_conformance(first, schema)
+    _assert_schema_conformance(second, schema)
+
+    assert first == second, "postplant fixture summary must be deterministic"
+    assert first["fixture_class"] == "replay_postplant_timer_v1"
+    assert first["total_points_captured"] > 0
+    assert first["raw_contract_points"] == first["total_points_captured"]
+    assert first["points_with_contract_diagnostics"] == first["total_points_captured"]
+    assert first["contract_diagnostics_bomb_planted_true_points"] == first["points_with_contract_diagnostics"]
+    assert first["contract_diagnostics_bomb_planted_false_points"] == 0
+    assert first["contract_diagnostics_round_time_present_points"] == first["points_with_contract_diagnostics"]
+    assert first["contract_diagnostics_postplant_timer_points"] == first["points_with_contract_diagnostics"]
+    assert first["contract_diagnostics_semantic_null_counts"]["is_bomb_planted"] == 0
+    assert first["contract_diagnostics_semantic_invalid_counts"]["is_bomb_planted"] == 0
+    assert first["contract_diagnostics_semantic_invalid_counts"]["round_time_remaining_s"] == 0
 
 
 def test_point_like_replay_is_rejected_and_excluded_from_activation_denominator() -> None:
@@ -144,6 +194,11 @@ def test_point_like_replay_is_rejected_and_excluded_from_activation_denominator(
     assert first["point_like_inputs_rejected"] == first["point_like_inputs_seen"]
     assert first["point_like_inputs_transition_passthrough"] == 0
     assert first["points_with_contract_diagnostics"] == 0
+    for key in first["contract_diagnostics_semantic_required_keys"]:
+        assert first["contract_diagnostics_semantic_valid_counts"][key] == 0
+        assert first["contract_diagnostics_semantic_invalid_counts"][key] == 0
+        assert first["contract_diagnostics_semantic_null_counts"][key] == 0
+        assert first["contract_diagnostics_semantic_valid_rates"][key] == 0.0
 
 
 def test_carryover_evidence_by_source_class_present_and_structured() -> None:
