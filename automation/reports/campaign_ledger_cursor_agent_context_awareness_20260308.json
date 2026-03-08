@@ -1,0 +1,141 @@
+{
+  "ledger_version": "campaign_ledger.v1",
+  "generated_at_utc": "2026-03-08T07:14:42Z",
+  "branch": "cursor/agent-context-awareness-f3ff",
+  "remote_tracking": "origin/cursor/agent-context-awareness-f3ff",
+  "scope_note": "Reference ledger only; priority can change based on fresh evidence.",
+  "commits": [
+    {
+      "sha": "7928f4850c22a7ebe81e396df14e2e74fe47c64d",
+      "short_sha": "7928f48",
+      "committed_at_utc": "2026-03-07T22:34:45+00:00",
+      "title": "phase3d: make context widening knobs configurable",
+      "files": [
+        "engine/compute/rails_cs2.py",
+        "engine/config.py",
+        "engine/models.py",
+        "tests/unit/test_config_context_widening_knobs.py",
+        "tests/unit/test_rails_cs2_context_widening.py"
+      ],
+      "behavior_delta": [
+        "Context widening moved from hardcoded constants to runtime config knobs.",
+        "Config merge now clamps/coerces widening params and normalizes context-risk weights.",
+        "rails_cs2 emits active widening params in debug for auditability."
+      ],
+      "tests_evidence": [
+        {
+          "command": "python3 -m pytest -q tests/unit/test_config_context_widening_knobs.py tests/unit/test_rails_cs2_context_widening.py tests/unit/test_rails_cs2_basic.py tests/unit/test_rails_input_contract.py tests/unit/test_rails_carryover_scenarios.py tests/unit/test_compute_slice1.py tests/unit/test_resolve_micro_adj.py",
+          "result": "pass",
+          "artifact": "/opt/cursor/artifacts/context_widening_knobs_pytest.log"
+        }
+      ],
+      "risks_reduced": [
+        "Reduces calibration friction by exposing widening controls without code edits.",
+        "Prevents unstable config updates via bounded coercion."
+      ]
+    },
+    {
+      "sha": "3dddbca808b01e33dfec0e1987529d11f3c5d0f0",
+      "short_sha": "3dddbca",
+      "committed_at_utc": "2026-03-07T23:20:53+00:00",
+      "title": "stage1: add contract diagnostics semantic validity metrics",
+      "files": [
+        "tests/unit/test_replay_verification_assess_stage1.py",
+        "tools/replay_verification_assess.py",
+        "tools/schemas/replay_validation_summary.schema.json"
+      ],
+      "behavior_delta": [
+        "Replay assessment now computes semantic valid/invalid/null counts and rates per contract-diagnostics key.",
+        "Schema enforces semantic metric fields as required output."
+      ],
+      "tests_evidence": [
+        {
+          "command": "python3 -m pytest -q tests/unit/test_replay_verification_assess_stage1.py",
+          "result": "pass",
+          "artifact": "/opt/cursor/artifacts/replay_semantic_metrics_checks.log"
+        },
+        {
+          "command": "python3 -c \"import asyncio; from tools.replay_verification_assess import run_assessment; s=asyncio.run(run_assessment('tools/fixtures/raw_replay_sample.jsonl')); print('semantic_keys', len(s['contract_diagnostics_semantic_required_keys']))\"",
+          "result": "pass",
+          "artifact": "/opt/cursor/artifacts/replay_semantic_metrics_checks.log"
+        }
+      ],
+      "risks_reduced": [
+        "Closes presence-only observability gap with per-key semantic quality accounting."
+      ]
+    },
+    {
+      "sha": "8b70b4f0e3b8362df8b985870646175de8c19ffd",
+      "short_sha": "8b70b4f",
+      "committed_at_utc": "2026-03-08T01:52:31+00:00",
+      "title": "stage1: add postplant timer coverage diagnostics",
+      "files": [
+        "tests/unit/test_replay_verification_assess_stage1.py",
+        "tools/fixtures/replay_postplant_timer_v1.jsonl",
+        "tools/replay_verification_assess.py",
+        "tools/schemas/replay_validation_summary.schema.json"
+      ],
+      "behavior_delta": [
+        "Replay summary now reports planted-bomb and post-plant timer coverage counters.",
+        "Dedicated post-plant fixture added to assert deterministic planted+timer diagnostics coverage."
+      ],
+      "tests_evidence": [
+        {
+          "command": "python3 -m pytest -q tests/unit/test_replay_verification_assess_stage1.py",
+          "result": "pass",
+          "artifact": "/opt/cursor/artifacts/postplant_timer_coverage_checks.log"
+        },
+        {
+          "command": "python3 - <<'PY' ... run_assessment('tools/fixtures/replay_postplant_timer_v1.jsonl') ... PY",
+          "result": "pass",
+          "artifact": "/opt/cursor/artifacts/postplant_timer_coverage_checks.log"
+        }
+      ],
+      "risks_reduced": [
+        "Makes planted-bomb timer-state coverage measurable and regressions detectable."
+      ]
+    },
+    {
+      "sha": "43758e96d3ded4e275649e40f873dbc8e5eec2f0",
+      "short_sha": "43758e9",
+      "committed_at_utc": "2026-03-08T02:49:23+00:00",
+      "title": "stage1: add seeded synthetic replay generator harness",
+      "files": [
+        "tests/unit/test_synthetic_state_generator.py",
+        "tools/synthetic_state_generator.py"
+      ],
+      "behavior_delta": [
+        "Introduces deterministic synthetic raw replay generation for stress/simulation coverage.",
+        "Generated replays encode alive trajectories, economy regimes, planted countdown, near-zero timer pressure, and carryover regime swings."
+      ],
+      "tests_evidence": [
+        {
+          "command": "python3 -m pytest -q tests/unit/test_synthetic_state_generator.py tests/unit/test_replay_verification_assess_stage1.py",
+          "result": "pass",
+          "artifact": "/opt/cursor/artifacts/synthetic_generator_checks.log"
+        },
+        {
+          "command": "python3 tools/synthetic_state_generator.py --out /tmp/replay_synth_check.jsonl --seed 99 --rounds 4 --ticks_per_round 4",
+          "result": "pass",
+          "artifact": "/opt/cursor/artifacts/synthetic_generator_checks.log"
+        }
+      ],
+      "risks_reduced": [
+        "Creates a reproducible base for Bible-required simulation/stress suites."
+      ]
+    }
+  ],
+  "aggregate": {
+    "commits_count": 4,
+    "unique_files_touched_count": 11,
+    "primary_outcomes": [
+      "Context widening is configurable and bounded.",
+      "Replay diagnostics now include semantic quality and post-plant timer coverage metrics.",
+      "Synthetic replay generation harness exists with deterministic tests."
+    ],
+    "known_remaining_gaps": [
+      "Policy-driven simulation layer (execute/retake/clutch style trajectories) is not yet implemented.",
+      "Broader simulation/stress suite integration into canonical test workflow remains pending."
+    ]
+  }
+}
