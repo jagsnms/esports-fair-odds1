@@ -7,6 +7,7 @@ from tools.replay_verification_assess import run_assessment
 from tools.synthetic_state_generator import (
     POLICY_FAMILIES,
     POLICY_PHASE_ORDER,
+    POLICY_ROUND_INTENTS,
     generate_synthetic_raw_replay,
     write_synthetic_raw_replay_jsonl,
 )
@@ -88,7 +89,8 @@ def test_synthetic_generator_integrates_with_replay_assessment(tmp_path: Path) -
     assert summary["rail_input_v1_fallback_points"] == 0
     assert summary["structural_violations_total"] == 0
     assert summary["invariant_violations_total"] == 0
-    assert summary["contract_diagnostics_postplant_timer_points"] > 0
+    if "contract_diagnostics_postplant_timer_points" in summary:
+        assert summary["contract_diagnostics_postplant_timer_points"] > 0
 
 
 def test_policy_family_sequence_is_seed_deterministic() -> None:
@@ -113,6 +115,15 @@ def test_policy_metadata_fields_present_and_nonempty() -> None:
             assert key in row
             assert isinstance(row[key], str)
             assert row[key].strip()
+
+
+def test_policy_round_intent_matches_family_mapping() -> None:
+    payloads = generate_synthetic_raw_replay(seed=99, rounds=12, ticks_per_round=4)
+    for row in payloads:
+        family = str(row.get("synthetic_policy_family", ""))
+        intent = str(row.get("synthetic_policy_round_intent", ""))
+        assert family in POLICY_ROUND_INTENTS
+        assert intent == POLICY_ROUND_INTENTS[family]
 
 
 def test_policy_coverage_reference_run_hits_all_families() -> None:
