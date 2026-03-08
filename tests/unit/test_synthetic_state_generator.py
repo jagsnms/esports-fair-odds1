@@ -5,9 +5,24 @@ from pathlib import Path
 
 from tools.replay_verification_assess import run_assessment
 from tools.synthetic_state_generator import (
+    POLICY_FAMILIES,
+    POLICY_PHASE_ORDER,
     generate_synthetic_raw_replay,
     write_synthetic_raw_replay_jsonl,
 )
+
+
+def _rows_by_round(payloads: list[dict]) -> dict[int, list[dict]]:
+    by_round: dict[int, list[dict]] = {}
+    for row in payloads:
+        rn = int(row.get("round_number", 0))
+        by_round.setdefault(rn, []).append(row)
+    return by_round
+
+
+def _policy_family_sequence(payloads: list[dict]) -> list[str]:
+    by_round = _rows_by_round(payloads)
+    return [str(by_round[rn][0].get("synthetic_policy_family", "")) for rn in sorted(by_round)]
 
 
 def test_synthetic_generator_is_seed_deterministic() -> None:
@@ -74,3 +89,74 @@ def test_synthetic_generator_integrates_with_replay_assessment(tmp_path: Path) -
     assert summary["structural_violations_total"] == 0
     assert summary["invariant_violations_total"] == 0
     assert summary["contract_diagnostics_postplant_timer_points"] > 0
+
+
+def test_policy_family_sequence_is_seed_deterministic() -> None:
+    a = generate_synthetic_raw_replay(seed=99, rounds=16, ticks_per_round=4)
+    b = generate_synthetic_raw_replay(seed=99, rounds=16, ticks_per_round=4)
+    c = generate_synthetic_raw_replay(seed=100, rounds=16, ticks_per_round=4)
+    seq_a = _policy_family_sequence(a)
+    seq_b = _policy_family_sequence(b)
+    seq_c = _policy_family_sequence(c)
+    assert seq_a == seq_b
+    assert seq_a != seq_c
+
+
+def test_policy_metadata_fields_present_and_nonempty() -> None:
+    payloads = generate_synthetic_raw_replay(seed=7, rounds=6, ticks_per_round=4)
+    for row in payloads:
+        for key in (
+            "synthetic_policy_family",
+            "synthetic_policy_phase",
+            "synthetic_policy_round_intent",
+        ):
+            assert key in row
+            assert isinstance(row[key], str)
+            assert row[key].strip()
+
+
+def test_policy_coverage_reference_run_hits_all_families() -> None:
+    payloads = generate_synthetic_raw_replay(seed=99, rounds=16, ticks_per_round=4)
+    families = set(_policy_family_sequence(payloads))
+    assert families == set(POLICY_FAMILIES)
+
+
+def test_policy_family_is_immutable_within_round() -> None:
+    payloads = generate_synthetic_raw_replay(seed=99, rounds=12, ticks_per_round=4)
+    by_round = _rows_by_round(payloads)
+    for rows in by_round.values():
+        labels = {str(row.get("synthetic_policy_family", "")) for row in rows}
+        assert len(labels) == 1
+
+
+def test_policy_phase_progression_is_monotonic_within_round() -> None:
+    payloads = generate_synthetic_raw_replay(seed=99, rounds=12, ticks_per_round=4)
+    by_round = _rows_by_round(payloads)
+    for rows in by_round.values():
+        family = str(rows[0].get("synthetic_policy_family", ""))
+        allowed = POLICY_PHASE_ORDER[family]
+        rank = {phase: idx for idx, phase in enumerate(allowed)}
+        phases = [str(row.get("synthetic_policy_phase", "")) for row in rows]
+        assert all(phase in rank for phase in phases)
+        phase_ranks = [rank[phase] for phase in phases]
+        assert phase_ranks == sorted(phase_ranks)
+
+
+def test_policy_label_coherence_for_retake_and_clutch() -> None:
+    payloads = generate_synthetic_raw_replay(seed=99, rounds=16, ticks_per_round=4)
+    by_round = _rows_by_round(payloads)
+    for rows in by_round.values():
+        family = str(rows[0].get("synthetic_policy_family", ""))
+        if family == "retake":
+            assert any(row.get("is_bomb_planted") is True for row in rows)
+        if family == "clutch":
+            has_low_man_tick = False
+            for row in rows:
+                states_a = ((row.get("team_one") or {}).get("player_states") or [])
+                states_b = ((row.get("team_two") or {}).get("player_states") or [])
+                alive_a = sum(1 for p in states_a if p.get("is_alive") is True)
+                alive_b = sum(1 for p in states_b if p.get("is_alive") is True)
+                if min(alive_a, alive_b) <= 2:
+                    has_low_man_tick = True
+                    break
+            assert has_low_man_tick

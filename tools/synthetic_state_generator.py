@@ -20,10 +20,83 @@ from typing import Any
 
 
 REGIMES = ("eco", "half", "full")
+POLICY_FAMILIES = ("execute", "retake", "clutch", "eco_force")
+POLICY_ROUND_INTENTS: dict[str, str] = {
+    "execute": "site_take_attempt",
+    "retake": "postplant_retake_attempt",
+    "clutch": "man_disadvantage_conversion",
+    "eco_force": "economy_pressure_round",
+}
+POLICY_PHASE_ORDER: dict[str, tuple[str, ...]] = {
+    "execute": ("setup", "commit", "pressure", "resolution"),
+    "retake": ("site_loss", "retake_setup", "retake_attempt", "retake_resolution"),
+    "clutch": ("isolation", "duel_setup", "duel_resolution", "terminal"),
+    "eco_force": ("economy_setup", "contact", "trade_or_save", "terminal"),
+}
 
 
 def _regime_from_index(idx: int) -> str:
     return REGIMES[idx % len(REGIMES)]
+
+
+def _allowed_policy_families_for_round(round_idx: int, ticks_per_round: int) -> tuple[str, ...]:
+    """Allowed metadata families for a round shape; excludes obviously incoherent labels."""
+    allow_retake = (ticks_per_round >= 3) and (round_idx % 2 == 0)
+    allow_clutch = ticks_per_round >= 4
+    out = ["execute", "eco_force"]
+    if allow_clutch:
+        out.append("clutch")
+    if allow_retake:
+        out.append("retake")
+    return tuple(out)
+
+
+def _select_policy_family_sequence(
+    *,
+    rng: random.Random,
+    rounds: int,
+    ticks_per_round: int,
+) -> list[str]:
+    """
+    Deterministically select one policy family per round from seeded RNG.
+
+    Guarantees coverage for bounded runs when feasible:
+    - if rounds >= len(POLICY_FAMILIES), tries to place each family at least once
+      using coherence-constrained candidate rounds.
+    """
+    n_rounds = max(1, int(rounds))
+    families: list[str | None] = [None] * n_rounds
+    if n_rounds >= len(POLICY_FAMILIES):
+        mandatory = list(POLICY_FAMILIES)
+        rng.shuffle(mandatory)
+        for family in mandatory:
+            candidates = [
+                idx
+                for idx in range(n_rounds)
+                if families[idx] is None
+                and family in _allowed_policy_families_for_round(idx, ticks_per_round)
+            ]
+            if candidates:
+                families[rng.choice(candidates)] = family
+    for idx in range(n_rounds):
+        if families[idx] is not None:
+            continue
+        allowed = _allowed_policy_families_for_round(idx, ticks_per_round)
+        families[idx] = rng.choice(list(allowed))
+    return [str(fam) for fam in families]
+
+
+def _policy_phase_for_tick(
+    *,
+    family: str,
+    tick_idx: int,
+    ticks_per_round: int,
+) -> str:
+    """Monotonic finite-state phase label for metadata-only Stage 1."""
+    phases = POLICY_PHASE_ORDER.get(family, POLICY_PHASE_ORDER["execute"])
+    total_ticks = max(2, int(ticks_per_round))
+    bucket = min(len(phases) - 1, int((max(0, int(tick_idx)) * len(phases)) / total_ticks))
+    return str(phases[bucket])
 
 
 def _loadout_range_for_regime(regime: str) -> tuple[int, int]:
@@ -105,6 +178,11 @@ def generate_synthetic_raw_replay(
     ticks = max(2, int(ticks_per_round))
     n_rounds = max(1, int(rounds))
     out: list[dict[str, Any]] = []
+    policy_families_by_round = _select_policy_family_sequence(
+        rng=rng,
+        rounds=n_rounds,
+        ticks_per_round=ticks,
+    )
     score_one = 0
     score_two = 0
     prev_round_winner_one: bool | None = None
@@ -113,6 +191,8 @@ def generate_synthetic_raw_replay(
     timer_template_ms = [115_000, 80_000, 42_000, 9_000]
 
     for r in range(n_rounds):
+        policy_family = policy_families_by_round[r]
+        policy_round_intent = POLICY_ROUND_INTENTS.get(policy_family, "site_take_attempt")
         # Carryover swing pattern: winner previous round tends to keep stronger regime.
         if prev_round_winner_one is None:
             regime_one = _regime_from_index(r)
@@ -130,6 +210,11 @@ def generate_synthetic_raw_replay(
             winner_one = not winner_one
 
         for t in range(ticks):
+            policy_phase = _policy_phase_for_tick(
+                family=policy_family,
+                tick_idx=t,
+                ticks_per_round=ticks,
+            )
             planted = bool((t >= 2) and (r % 2 == 0))
             timer_ms = timer_template_ms[min(t, len(timer_template_ms) - 1)]
             if planted:
@@ -178,6 +263,9 @@ def generate_synthetic_raw_replay(
                 "synthetic_regime_team_one": regime_one,
                 "synthetic_regime_team_two": regime_two,
                 "synthetic_target_winner_team_one": bool(winner_one),
+                "synthetic_policy_family": policy_family,
+                "synthetic_policy_phase": policy_phase,
+                "synthetic_policy_round_intent": policy_round_intent,
             }
             out.append(payload)
 
