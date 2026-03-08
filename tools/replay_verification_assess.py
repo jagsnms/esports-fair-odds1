@@ -267,6 +267,10 @@ async def run_assessment(replay_path: str, *, prematch_map: float | None = None)
     behavioral_violations_total = 0
     invariant_violations_total = 0
     points_with_contract_diagnostics = 0
+    contract_diagnostics_bomb_planted_true_points = 0
+    contract_diagnostics_bomb_planted_false_points = 0
+    contract_diagnostics_round_time_present_points = 0
+    contract_diagnostics_postplant_timer_points = 0
     contract_diagnostics_key_presence_counts = {
         key: 0 for key in CONTRACT_DIAGNOSTIC_REQUIRED_KEYS
     }
@@ -346,6 +350,16 @@ async def run_assessment(replay_path: str, *, prematch_map: float | None = None)
         cd = debug.get("contract_diagnostics")
         if isinstance(cd, dict):
             points_with_contract_diagnostics += 1
+            bomb_planted = cd.get("is_bomb_planted")
+            if bomb_planted is True:
+                contract_diagnostics_bomb_planted_true_points += 1
+            elif bomb_planted is False:
+                contract_diagnostics_bomb_planted_false_points += 1
+            round_time_remaining_s = cd.get("round_time_remaining_s")
+            if round_time_remaining_s is not None:
+                contract_diagnostics_round_time_present_points += 1
+                if bomb_planted is True:
+                    contract_diagnostics_postplant_timer_points += 1
             for key in CONTRACT_DIAGNOSTIC_REQUIRED_KEYS:
                 if key in cd:
                     contract_diagnostics_key_presence_counts[key] += 1
@@ -441,6 +455,10 @@ async def run_assessment(replay_path: str, *, prematch_map: float | None = None)
         "point_like_reject_reason_counts": replay_contract_status.get("point_like_reject_reason_counts", {}),
         "raw_mode_point_like_skipped": int(replay_contract_status.get("raw_mode_point_like_skipped", 0)),
         "points_with_contract_diagnostics": points_with_contract_diagnostics,
+        "contract_diagnostics_bomb_planted_true_points": contract_diagnostics_bomb_planted_true_points,
+        "contract_diagnostics_bomb_planted_false_points": contract_diagnostics_bomb_planted_false_points,
+        "contract_diagnostics_round_time_present_points": contract_diagnostics_round_time_present_points,
+        "contract_diagnostics_postplant_timer_points": contract_diagnostics_postplant_timer_points,
         "contract_diagnostics_required_keys": CONTRACT_DIAGNOSTIC_REQUIRED_KEYS,
         "contract_diagnostics_key_presence_counts": contract_diagnostics_key_presence_counts,
         "contract_diagnostics_missing_key_counts": contract_diagnostics_missing_key_counts,
