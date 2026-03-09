@@ -229,6 +229,30 @@ def test_invalid_packet_due_to_disallowed_gate_status(tmp_path: Path) -> None:
     assert "manifest gate_status invalid: must be one of pass, incomplete_evidence, fail" in result["errors"]
 
 
+def test_invalid_packet_when_manifest_and_evidence_gate_status_differ(tmp_path: Path) -> None:
+    tmp = tmp_path
+    packet_root = tmp / "packets"
+    run_id = "packet_mismatched_gate_status"
+    packet_dir = _build_packet(packet_root, run_id, gate_status="pass")
+    evidence_path = packet_dir / "artifacts" / "evidence_summary.json"
+    evidence_payload = json.loads(evidence_path.read_text(encoding="utf-8"))
+    evidence_payload["gate_status"] = "fail"
+    _write_json(evidence_path, evidence_payload)
+    manifest_path = packet_dir / "packet_manifest.json"
+    manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest_payload["artifact_hashes"]["artifacts/evidence_summary.json"] = _sha(evidence_path)
+    _write_json(manifest_path, manifest_payload)
+
+    exit_code, result = validate_promotion_packet(
+        run_id=run_id,
+        validated_at="2026-03-15T00:00:00Z",
+        packet_root=packet_root,
+    )
+    assert exit_code == 2
+    assert result["status"] == "invalid_packet"
+    assert any("gate_status mismatch" in err for err in result["errors"])
+
+
 def test_extra_files_are_warning_only_not_invalidating(tmp_path: Path) -> None:
     tmp = tmp_path
     packet_root = tmp / "packets"

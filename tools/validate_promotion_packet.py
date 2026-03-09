@@ -173,6 +173,7 @@ def validate_promotion_packet(
     manifest_obj: dict[str, Any] | None = None
     evidence_obj: Any | None = None
     proof_obj: dict[str, Any] | None = None
+    evidence_gate_status: str | None = None
 
     # Unreadable/invalid required JSON files are blocked.
     if required_paths["packet_manifest.json"].exists():
@@ -223,6 +224,9 @@ def validate_promotion_packet(
             }
         evidence_obj = parsed
         checks["evidence_json_readable"] = True
+        evidence_gate_status_value = evidence_obj.get("gate_status")
+        if isinstance(evidence_gate_status_value, str):
+            evidence_gate_status = evidence_gate_status_value
 
         if Draft202012Validator is None:
             errors.append("evidence_summary schema validator unavailable: jsonschema import failed")
@@ -343,6 +347,12 @@ def validate_promotion_packet(
                 checks["gate_status_allowed"] = True
             else:
                 errors.append("manifest gate_status invalid: must be one of pass, incomplete_evidence, fail")
+
+    if isinstance(gate_status, str) and isinstance(evidence_gate_status, str):
+        if gate_status != evidence_gate_status:
+            errors.append(
+                "gate_status mismatch: packet_manifest.gate_status and evidence_summary.gate_status must match exactly"
+            )
 
     if proof_obj is not None:
         missing_proof = [k for k in REQUIRED_BRANCH_PROOF_FIELDS if k not in proof_obj]
