@@ -6,6 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import tools.validate_promotion_packet as promotion_packet_validator
 from tools.validate_promotion_packet import validate_promotion_packet
 
 
@@ -96,6 +97,69 @@ def test_pass_case_validates_complete_packet(tmp_path: Path) -> None:
     assert result["errors"] == []
     assert result["warnings"] == []
     assert result["checks"]["artifact_hashes_match"] is True
+
+
+def test_invalid_packet_when_evidence_summary_schema_nonconformant(tmp_path: Path) -> None:
+    tmp = tmp_path
+    packet_root = tmp / "packets"
+    run_id = "packet_bad_evidence_shape"
+    packet_dir = _build_packet(packet_root, run_id)
+    evidence_path = packet_dir / "artifacts" / "evidence_summary.json"
+    payload = json.loads(evidence_path.read_text(encoding="utf-8"))
+    del payload["baseline_ref"]
+    _write_json(evidence_path, payload)
+    manifest_path = packet_dir / "packet_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["artifact_hashes"]["artifacts/evidence_summary.json"] = _sha(evidence_path)
+    _write_json(manifest_path, manifest)
+
+    exit_code, result = validate_promotion_packet(
+        run_id=run_id,
+        validated_at="2026-03-15T00:00:00Z",
+        packet_root=packet_root,
+    )
+    assert exit_code == 2
+    assert result["status"] == "invalid_packet"
+    assert any("evidence_summary schema nonconformant" in err for err in result["errors"])
+
+
+def test_blocked_when_schema_validator_engine_unavailable(tmp_path: Path, monkeypatch) -> None:
+    tmp = tmp_path
+    packet_root = tmp / "packets"
+    run_id = "packet_schema_engine_missing"
+    _build_packet(packet_root, run_id)
+    monkeypatch.setattr(promotion_packet_validator, "Draft202012Validator", None)
+
+    exit_code, result = validate_promotion_packet(
+        run_id=run_id,
+        validated_at="2026-03-15T00:00:00Z",
+        packet_root=packet_root,
+    )
+    assert exit_code == 1
+    assert result["status"] == "blocked"
+    assert any("schema validator unavailable" in err for err in result["errors"])
+
+
+def test_blocked_when_evidence_summary_wrong_top_level_type(tmp_path: Path) -> None:
+    tmp = tmp_path
+    packet_root = tmp / "packets"
+    run_id = "packet_bad_evidence_top_level"
+    packet_dir = _build_packet(packet_root, run_id)
+    evidence_path = packet_dir / "artifacts" / "evidence_summary.json"
+    evidence_path.write_text("[]", encoding="utf-8")
+    manifest_path = packet_dir / "packet_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["artifact_hashes"]["artifacts/evidence_summary.json"] = _sha(evidence_path)
+    _write_json(manifest_path, manifest)
+
+    exit_code, result = validate_promotion_packet(
+        run_id=run_id,
+        validated_at="2026-03-15T00:00:00Z",
+        packet_root=packet_root,
+    )
+    assert exit_code == 1
+    assert result["status"] == "blocked"
+    assert any("evidence_summary must be a top-level JSON object" in err for err in result["errors"])
 
 
 def test_blocked_case_when_packet_directory_missing(tmp_path: Path) -> None:

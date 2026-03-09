@@ -11,6 +11,11 @@ import re
 from pathlib import Path
 from typing import Any
 
+try:
+    from jsonschema import Draft202012Validator
+except Exception:  # pragma: no cover - exercised in runtime environments without jsonschema
+    Draft202012Validator = None
+
 RUN_ID_PATTERN = re.compile(r"^[a-z0-9_-]+$")
 ALLOWED_GATE_STATUSES = {"pass", "incomplete_evidence", "fail"}
 REQUIRED_PACKET_FILES = (
@@ -46,6 +51,7 @@ REQUIRED_BRANCH_PROOF_FIELDS = (
 )
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_PACKET_ROOT = ROOT / "automation" / "reports" / "promotion_packets"
+CALIBRATION_EVIDENCE_SCHEMA_PATH = ROOT / "tools" / "schemas" / "calibration_reliability_evidence.schema.json"
 
 CHECK_KEYS = (
     "packet_dir_exists",
@@ -78,6 +84,19 @@ def _parse_json_file(path: Path, label: str) -> tuple[Any | None, str | None]:
         return json.loads(text), None
     except json.JSONDecodeError as exc:
         return None, f"{label} invalid JSON: {path} ({exc})"
+
+
+def _path_to_str(path_parts: list[Any]) -> str:
+    path = "$"
+    for part in path_parts:
+        if isinstance(part, int):
+            path += f"[{part}]"
+            continue
+        if isinstance(part, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", part):
+            path += f".{part}"
+            continue
+        path += f"[{json.dumps(part, ensure_ascii=True)}]"
+    return path
 
 
 def validate_promotion_packet(
@@ -190,8 +209,90 @@ def validate_promotion_packet(
                 "gate_status": gate_status,
                 "validated_at": validated_at,
             }
+        if not isinstance(parsed, dict):
+            errors.append("evidence_summary must be a top-level JSON object")
+            return 1, {
+                "status": "blocked",
+                "packet_dir": str(packet_dir),
+                "run_id": run_id,
+                "checks": checks,
+                "errors": errors,
+                "warnings": warnings,
+                "gate_status": gate_status,
+                "validated_at": validated_at,
+            }
         evidence_obj = parsed
         checks["evidence_json_readable"] = True
+
+        if Draft202012Validator is None:
+            errors.append("evidence_summary schema validator unavailable: jsonschema import failed")
+            return 1, {
+                "status": "blocked",
+                "packet_dir": str(packet_dir),
+                "run_id": run_id,
+                "checks": checks,
+                "errors": errors,
+                "warnings": warnings,
+                "gate_status": gate_status,
+                "validated_at": validated_at,
+            }
+        schema_obj, schema_err = _parse_json_file(
+            CALIBRATION_EVIDENCE_SCHEMA_PATH,
+            "calibration_evidence_schema",
+        )
+        if schema_err is not None:
+            errors.append(schema_err)
+            return 1, {
+                "status": "blocked",
+                "packet_dir": str(packet_dir),
+                "run_id": run_id,
+                "checks": checks,
+                "errors": errors,
+                "warnings": warnings,
+                "gate_status": gate_status,
+                "validated_at": validated_at,
+            }
+        if not isinstance(schema_obj, dict):
+            errors.append("calibration_evidence_schema must be a top-level JSON object")
+            return 1, {
+                "status": "blocked",
+                "packet_dir": str(packet_dir),
+                "run_id": run_id,
+                "checks": checks,
+                "errors": errors,
+                "warnings": warnings,
+                "gate_status": gate_status,
+                "validated_at": validated_at,
+            }
+        try:
+            validator = Draft202012Validator(schema_obj)
+        except Exception as exc:
+            errors.append(f"calibration_evidence_schema unusable validator setup: {exc}")
+            return 1, {
+                "status": "blocked",
+                "packet_dir": str(packet_dir),
+                "run_id": run_id,
+                "checks": checks,
+                "errors": errors,
+                "warnings": warnings,
+                "gate_status": gate_status,
+                "validated_at": validated_at,
+            }
+        schema_violations = sorted(
+            list(validator.iter_errors(evidence_obj)),
+            key=lambda err: (
+                tuple(str(part) for part in err.absolute_path),
+                err.message,
+                err.validator,
+            ),
+        )
+        if schema_violations:
+            errors.extend(
+                [
+                    f"evidence_summary schema nonconformant: {_path_to_str(list(err.absolute_path))}: {err.message}"
+                    for err in schema_violations
+                ]
+            )
 
     if required_paths["artifacts/branch_commit_proof.json"].exists():
         parsed, err = _parse_json_file(required_paths["artifacts/branch_commit_proof.json"], "branch_commit_proof")
@@ -283,7 +384,6 @@ def validate_promotion_packet(
         else:
             checks["artifact_hashes_match"] = True
 
-    # evidence_summary JSON parseability is enforced above; semantic contents not validated.
     _ = evidence_obj
 
     status = "pass" if not errors else "invalid_packet"
