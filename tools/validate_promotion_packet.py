@@ -372,6 +372,14 @@ def validate_promotion_packet(
                 val = proof_obj.get(key)
                 if not isinstance(val, str) or not val.strip():
                     sanity_errors.append(f"branch proof {key} must be a non-empty string")
+            if (
+                isinstance(proof_obj.get("local_source_head"), str)
+                and isinstance(proof_obj.get("origin_source_head"), str)
+                and proof_obj["local_source_head"] != proof_obj["origin_source_head"]
+            ):
+                sanity_errors.append(
+                    "branch proof head mismatch: local_source_head and origin_source_head must match exactly"
+                )
             if sanity_errors:
                 errors.extend(sanity_errors)
             else:

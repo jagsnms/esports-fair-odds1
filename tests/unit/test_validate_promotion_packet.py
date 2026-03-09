@@ -253,6 +253,31 @@ def test_invalid_packet_when_manifest_and_evidence_gate_status_differ(tmp_path: 
     assert any("gate_status mismatch" in err for err in result["errors"])
 
 
+def test_invalid_packet_when_branch_proof_heads_differ(tmp_path: Path) -> None:
+    tmp = tmp_path
+    packet_root = tmp / "packets"
+    run_id = "packet_mismatched_branch_heads"
+    packet_dir = _build_packet(packet_root, run_id, gate_status="pass")
+    proof_path = packet_dir / "artifacts" / "branch_commit_proof.json"
+    proof_payload = json.loads(proof_path.read_text(encoding="utf-8"))
+    proof_payload["local_source_head"] = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    proof_payload["origin_source_head"] = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    _write_json(proof_path, proof_payload)
+    manifest_path = packet_dir / "packet_manifest.json"
+    manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest_payload["artifact_hashes"]["artifacts/branch_commit_proof.json"] = _sha(proof_path)
+    _write_json(manifest_path, manifest_payload)
+
+    exit_code, result = validate_promotion_packet(
+        run_id=run_id,
+        validated_at="2026-03-15T00:00:00Z",
+        packet_root=packet_root,
+    )
+    assert exit_code == 2
+    assert result["status"] == "invalid_packet"
+    assert any("branch proof head mismatch" in err for err in result["errors"])
+
+
 def test_extra_files_are_warning_only_not_invalidating(tmp_path: Path) -> None:
     tmp = tmp_path
     packet_root = tmp / "packets"
