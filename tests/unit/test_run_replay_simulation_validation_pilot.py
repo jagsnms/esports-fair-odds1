@@ -6,7 +6,9 @@ from pathlib import Path
 import tools.run_replay_simulation_validation_pilot as pilot
 
 ROOT = Path(__file__).resolve().parents[2]
+FIRST_SLICE_FIXTURE = ROOT / "tools" / "fixtures" / "raw_replay_sample.jsonl"
 SECOND_SLICE_FIXTURE = ROOT / "tools" / "fixtures" / "replay_carryover_complete_v1.jsonl"
+NON_TINY_SLICE_FIXTURE = ROOT / "tools" / "fixtures" / "replay_non_tiny_canonical_v1.jsonl"
 
 
 def _summary(
@@ -483,3 +485,57 @@ def test_second_slice_fixture_coherence_and_determinism(tmp_path: Path) -> None:
     assert first_payload["comparison"]["mismatch_class"] == second_payload["comparison"]["mismatch_class"]
     assert first_payload["alignment"]["attempted_synthetic_rounds"] == second_payload["alignment"]["attempted_synthetic_rounds"]
     assert first_payload["alignment"]["selected_synthetic_rounds"] == second_payload["alignment"]["selected_synthetic_rounds"]
+
+
+def test_non_tiny_slice_depth_and_outcome_coherence_are_deterministic(tmp_path: Path) -> None:
+    output_path = tmp_path / "non_tiny_pilot.json"
+    kwargs = {
+        "replay_input_path": str(NON_TINY_SLICE_FIXTURE),
+        "run_id": "replay_sim_pilot_non_tiny_slice",
+        "synthetic_seed": 1337,
+        "synthetic_policy_profile": "balanced_v1",
+        "synthetic_rounds": 10,
+        "synthetic_ticks_per_round": 4,
+        "generated_at": "2026-03-09T00:00:00Z",
+        "output_path": output_path,
+    }
+
+    first = pilot.run_replay_simulation_validation_pilot(**kwargs)
+    first_payload = json.loads(output_path.read_text(encoding="utf-8"))
+    _assert_decision_contract_coherence(first_payload)
+    assert int(first_payload["replay"]["total_points_captured"]) >= 20
+    assert int(first_payload["replay"]["p_hat_count"]) >= 20
+
+    second = pilot.run_replay_simulation_validation_pilot(**kwargs)
+    second_payload = json.loads(output_path.read_text(encoding="utf-8"))
+    _assert_decision_contract_coherence(second_payload)
+    assert int(second_payload["replay"]["total_points_captured"]) >= 20
+    assert int(second_payload["replay"]["p_hat_count"]) >= 20
+    assert first.decision == second.decision
+    assert first_payload["decision"] == second_payload["decision"]
+
+    if first_payload["decision"] == "inconclusive":
+        assert first_payload["decision_reasons"] == second_payload["decision_reasons"]
+    else:
+        assert first_payload["comparison"]["failed_checks"] == second_payload["comparison"]["failed_checks"]
+
+
+def test_existing_canonical_slice_pass_baseline_remains_unchanged(tmp_path: Path) -> None:
+    fixtures = (FIRST_SLICE_FIXTURE, SECOND_SLICE_FIXTURE)
+    for idx, fixture_path in enumerate(fixtures):
+        output_path = tmp_path / f"baseline_{idx}.json"
+        payload = pilot.run_replay_simulation_validation_pilot(
+            replay_input_path=str(fixture_path),
+            run_id=f"replay_sim_pilot_baseline_{idx}",
+            synthetic_seed=1337,
+            synthetic_policy_profile="balanced_v1",
+            synthetic_rounds=10,
+            synthetic_ticks_per_round=4,
+            generated_at="2026-03-09T00:00:00Z",
+            output_path=output_path,
+        )
+        assert payload.decision == "pass"
+        artifact = json.loads(output_path.read_text(encoding="utf-8"))
+        _assert_decision_contract_coherence(artifact)
+        assert artifact["comparison"]["failed_checks"] == []
+        assert artifact["comparison"]["mismatch_class"] == "none"
