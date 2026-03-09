@@ -5,6 +5,9 @@ from pathlib import Path
 
 import tools.run_replay_simulation_validation_pilot as pilot
 
+ROOT = Path(__file__).resolve().parents[2]
+SECOND_SLICE_FIXTURE = ROOT / "tools" / "fixtures" / "replay_carryover_complete_v1.jsonl"
+
 
 def _summary(
     *,
@@ -25,6 +28,36 @@ def _summary(
         "p_hat_min": p_hat_min,
         "p_hat_max": p_hat_max,
     }
+
+
+def _assert_decision_contract_coherence(payload: dict[str, object]) -> None:
+    decision = payload["decision"]
+    comparison = payload["comparison"]
+    assert isinstance(comparison, dict)
+    failed_checks = comparison["failed_checks"]
+    mismatch_class = comparison["mismatch_class"]
+    decision_reasons = payload["decision_reasons"]
+
+    if decision == "pass":
+        assert failed_checks == []
+        assert mismatch_class == "none"
+        assert decision_reasons == []
+        return
+    if decision == "mismatch":
+        assert isinstance(failed_checks, list)
+        assert len(failed_checks) > 0
+        if failed_checks == ["total_points_captured_abs_delta_lte_1"]:
+            assert mismatch_class == "volume_alignment_only"
+        else:
+            assert mismatch_class == "cross_surface_behavioral_or_metric"
+        assert isinstance(decision_reasons, list) and len(decision_reasons) > 0
+        return
+    if decision == "inconclusive":
+        assert failed_checks == []
+        assert mismatch_class == "none"
+        assert isinstance(decision_reasons, list) and len(decision_reasons) > 0
+        return
+    raise AssertionError(f"unexpected decision: {decision!r}")
 
 
 def test_build_pilot_decision_artifact_pass_when_local_and_cross_checks_hold() -> None:
@@ -359,3 +392,35 @@ def test_alignment_stops_inconclusive_when_fixed_candidate_budget_cannot_align(t
         {"attempted_rounds": 1, "synthetic_total_points": 8, "abs_delta": 2},
         {"attempted_rounds": 3, "synthetic_total_points": 10, "abs_delta": 4},
     ]
+
+
+def test_second_slice_fixture_coherence_and_determinism(tmp_path: Path) -> None:
+    output_path = tmp_path / "slice2_pilot.json"
+    kwargs = {
+        "replay_input_path": str(SECOND_SLICE_FIXTURE),
+        "run_id": "replay_sim_pilot_slice2",
+        "synthetic_seed": 1337,
+        "synthetic_policy_profile": "balanced_v1",
+        "synthetic_rounds": 10,
+        "synthetic_ticks_per_round": 4,
+        "generated_at": "2026-03-09T00:00:00Z",
+        "output_path": output_path,
+    }
+
+    first = pilot.run_replay_simulation_validation_pilot(**kwargs)
+    first_payload = json.loads(output_path.read_text(encoding="utf-8"))
+    _assert_decision_contract_coherence(first_payload)
+    assert first_payload["slice"]["replay_input_path"] == str(SECOND_SLICE_FIXTURE)
+    assert first_payload["slice"]["synthetic_policy_profile"] == "balanced_v1"
+    assert first_payload["slice"]["synthetic_seed"] == 1337
+
+    second = pilot.run_replay_simulation_validation_pilot(**kwargs)
+    second_payload = json.loads(output_path.read_text(encoding="utf-8"))
+    _assert_decision_contract_coherence(second_payload)
+
+    assert first.decision == second.decision
+    assert first_payload["decision"] == second_payload["decision"]
+    assert first_payload["comparison"]["failed_checks"] == second_payload["comparison"]["failed_checks"]
+    assert first_payload["comparison"]["mismatch_class"] == second_payload["comparison"]["mismatch_class"]
+    assert first_payload["alignment"]["attempted_synthetic_rounds"] == second_payload["alignment"]["attempted_synthetic_rounds"]
+    assert first_payload["alignment"]["selected_synthetic_rounds"] == second_payload["alignment"]["selected_synthetic_rounds"]
