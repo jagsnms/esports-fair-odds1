@@ -298,6 +298,34 @@ def test_invalid_packet_when_branch_proof_heads_differ(tmp_path: Path) -> None:
     assert any("branch proof head mismatch" in err for err in result["errors"])
 
 
+def test_invalid_packet_when_initiative_commits_excludes_local_source_head(tmp_path: Path) -> None:
+    tmp = tmp_path
+    packet_root = tmp / "packets"
+    run_id = "packet_mismatched_commit_chain"
+    packet_dir = _build_packet(packet_root, run_id, gate_status="pass")
+    proof_path = packet_dir / "artifacts" / "branch_commit_proof.json"
+    proof_payload = json.loads(proof_path.read_text(encoding="utf-8"))
+    proof_payload["local_source_head"] = "c28486cc0b4c015b5fd763079f23ca977f3aa1f8"
+    proof_payload["initiative_commits"] = ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
+    _write_json(proof_path, proof_payload)
+    manifest_path = packet_dir / "packet_manifest.json"
+    manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest_payload["artifact_hashes"]["artifacts/branch_commit_proof.json"] = _sha(proof_path)
+    _write_json(manifest_path, manifest_payload)
+
+    exit_code, result = validate_promotion_packet(
+        run_id=run_id,
+        validated_at="2026-03-15T00:00:00Z",
+        packet_root=packet_root,
+    )
+    assert exit_code == 2
+    assert result["status"] == "invalid_packet"
+    assert (
+        "branch proof commit-chain mismatch: initiative_commits must include local_source_head exactly"
+        in result["errors"]
+    )
+
+
 def test_extra_files_are_warning_only_not_invalidating(tmp_path: Path) -> None:
     tmp = tmp_path
     packet_root = tmp / "packets"

@@ -383,6 +383,15 @@ def validate_promotion_packet(
                 sanity_errors.append(
                     "branch proof head mismatch: local_source_head and origin_source_head must match exactly"
                 )
+            if (
+                isinstance(proof_obj.get("local_source_head"), str)
+                and isinstance(proof_obj.get("initiative_commits"), list)
+                and len(proof_obj["initiative_commits"]) > 0
+                and proof_obj["local_source_head"] not in proof_obj["initiative_commits"]
+            ):
+                sanity_errors.append(
+                    "branch proof commit-chain mismatch: initiative_commits must include local_source_head exactly"
+                )
             if sanity_errors:
                 errors.extend(sanity_errors)
             else:
