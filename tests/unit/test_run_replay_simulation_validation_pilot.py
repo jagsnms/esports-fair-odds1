@@ -1,0 +1,152 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import tools.run_replay_simulation_validation_pilot as pilot
+
+
+def _summary(
+    *,
+    total_points_captured: int = 10,
+    raw_contract_points: int = 10,
+    unknown_replay_mode_points: int = 0,
+    invariant_violations_total: int = 0,
+    behavioral_violations_total: int = 0,
+    p_hat_min: float = 0.41,
+    p_hat_max: float = 0.58,
+) -> dict[str, object]:
+    return {
+        "total_points_captured": total_points_captured,
+        "raw_contract_points": raw_contract_points,
+        "unknown_replay_mode_points": unknown_replay_mode_points,
+        "invariant_violations_total": invariant_violations_total,
+        "behavioral_violations_total": behavioral_violations_total,
+        "p_hat_min": p_hat_min,
+        "p_hat_max": p_hat_max,
+    }
+
+
+def test_build_pilot_decision_artifact_pass_when_local_and_cross_checks_hold() -> None:
+    replay_summary = _summary()
+    synthetic_summary = _summary(p_hat_min=0.42, p_hat_max=0.57)
+
+    artifact = pilot.build_pilot_decision_artifact(
+        run_id="pilot_pass",
+        replay_input_path="tools/fixtures/raw_replay_sample.jsonl",
+        synthetic_seed=1337,
+        synthetic_policy_profile="balanced_v1",
+        synthetic_rounds=10,
+        synthetic_ticks_per_round=4,
+        generated_at="2026-03-09T00:00:00Z",
+        replay_summary=replay_summary,
+        synthetic_summary=synthetic_summary,
+    )
+
+    assert artifact["decision"] == "pass"
+    assert artifact["decision_reasons"] == []
+    assert artifact["replay"]["local_sanity_pass"] is True
+    assert artifact["synthetic"]["local_sanity_pass"] is True
+    assert artifact["replay"]["raw_contract_coverage_rate"] == 1.0
+    assert artifact["synthetic"]["raw_contract_coverage_rate"] == 1.0
+    assert artifact["comparison"]["cross_surface_pass"] is True
+
+
+def test_build_pilot_decision_artifact_mismatch_when_cross_surface_delta_exceeds_tolerance() -> None:
+    replay_summary = _summary(p_hat_min=0.10, p_hat_max=0.50)
+    synthetic_summary = _summary(p_hat_min=0.17, p_hat_max=0.62)
+
+    artifact = pilot.build_pilot_decision_artifact(
+        run_id="pilot_mismatch",
+        replay_input_path="tools/fixtures/raw_replay_sample.jsonl",
+        synthetic_seed=1337,
+        synthetic_policy_profile="balanced_v1",
+        synthetic_rounds=10,
+        synthetic_ticks_per_round=4,
+        generated_at="2026-03-09T00:00:00Z",
+        replay_summary=replay_summary,
+        synthetic_summary=synthetic_summary,
+    )
+
+    assert artifact["decision"] == "mismatch"
+    assert artifact["replay"]["local_sanity_pass"] is True
+    assert artifact["synthetic"]["local_sanity_pass"] is True
+    assert artifact["comparison"]["cross_surface_pass"] is False
+    assert any("abs(replay.p_hat_min - synthetic.p_hat_min)" in reason for reason in artifact["decision_reasons"])
+    assert any("abs(replay.p_hat_max - synthetic.p_hat_max)" in reason for reason in artifact["decision_reasons"])
+
+
+def test_build_pilot_decision_artifact_inconclusive_when_required_field_unreadable() -> None:
+    replay_summary = _summary(total_points_captured=0)
+    synthetic_summary = _summary()
+
+    artifact = pilot.build_pilot_decision_artifact(
+        run_id="pilot_inconclusive",
+        replay_input_path="tools/fixtures/raw_replay_sample.jsonl",
+        synthetic_seed=1337,
+        synthetic_policy_profile="balanced_v1",
+        synthetic_rounds=10,
+        synthetic_ticks_per_round=4,
+        generated_at="2026-03-09T00:00:00Z",
+        replay_summary=replay_summary,
+        synthetic_summary=synthetic_summary,
+    )
+
+    assert artifact["decision"] == "inconclusive"
+    assert artifact["replay"]["local_sanity_pass"] is False
+    assert any("total_points_captured must be > 0" in reason for reason in artifact["decision_reasons"])
+
+
+def test_runner_writes_stable_artifact_for_fixed_inputs(tmp_path: Path, monkeypatch) -> None:
+    replay_input = tmp_path / "replay.jsonl"
+    replay_input.write_text('{"dummy": true}\n', encoding="utf-8")
+    output_path = tmp_path / "pilot.json"
+
+    def _fake_write_synthetic(path: Path, **_: object) -> int:
+        path.write_text('{"dummy": true}\n', encoding="utf-8")
+        return 1
+
+    async def _fake_run_assessment(path: str, *, prematch_map: float | None = None) -> dict[str, object]:
+        _ = prematch_map
+        if "synthetic_raw_replay.jsonl" in path:
+            return _summary(p_hat_min=0.43, p_hat_max=0.59)
+        return _summary(p_hat_min=0.41, p_hat_max=0.58)
+
+    monkeypatch.setattr(pilot, "write_synthetic_raw_replay_jsonl", _fake_write_synthetic)
+    monkeypatch.setattr(pilot, "run_assessment", _fake_run_assessment)
+
+    first = pilot.run_replay_simulation_validation_pilot(
+        replay_input_path=str(replay_input),
+        run_id="pilot_stable",
+        synthetic_seed=1337,
+        synthetic_policy_profile="balanced_v1",
+        synthetic_rounds=10,
+        synthetic_ticks_per_round=4,
+        generated_at="2026-03-09T00:00:00Z",
+        output_path=output_path,
+    )
+    second = pilot.run_replay_simulation_validation_pilot(
+        replay_input_path=str(replay_input),
+        run_id="pilot_stable",
+        synthetic_seed=1337,
+        synthetic_policy_profile="balanced_v1",
+        synthetic_rounds=10,
+        synthetic_ticks_per_round=4,
+        generated_at="2026-03-09T00:00:00Z",
+        output_path=output_path,
+    )
+
+    assert first.exit_code == 0
+    assert second.exit_code == 0
+    assert first.decision == "pass"
+    assert second.decision == "pass"
+
+    first_text = output_path.read_text(encoding="utf-8")
+    second_text = output_path.read_text(encoding="utf-8")
+    assert first_text == second_text
+
+    payload = json.loads(first_text)
+    assert payload["schema_version"] == "replay_simulation_validation_pilot.v1"
+    assert payload["decision"] == "pass"
+    assert payload["slice"]["replay_input_path"] == str(replay_input)
+    assert payload["slice"]["synthetic_seed"] == 1337
