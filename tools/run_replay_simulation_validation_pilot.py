@@ -33,6 +33,23 @@ P_HAT_ABS_DELTA_TOLERANCE = 0.05
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_REPORTS_DIR = ROOT / "automation" / "reports"
 OUTPUT_PREFIX = "replay_simulation_validation_pilot_"
+CHECK_ID_TOTAL_POINTS_CAPTURED_EQUALITY = "total_points_captured_equality"
+CHECK_ID_RAW_CONTRACT_COVERAGE_RATE_EQUALITY = "raw_contract_coverage_rate_equality"
+CHECK_ID_INVARIANT_VIOLATIONS_TOTAL_EQUALITY = "invariant_violations_total_equality"
+CHECK_ID_BEHAVIORAL_VIOLATIONS_TOTAL_EQUALITY = "behavioral_violations_total_equality"
+CHECK_ID_P_HAT_MIN_ABS_DELTA_LTE_0_05 = "p_hat_min_abs_delta_lte_0_05"
+CHECK_ID_P_HAT_MAX_ABS_DELTA_LTE_0_05 = "p_hat_max_abs_delta_lte_0_05"
+FAILED_CHECK_ORDER = (
+    CHECK_ID_TOTAL_POINTS_CAPTURED_EQUALITY,
+    CHECK_ID_RAW_CONTRACT_COVERAGE_RATE_EQUALITY,
+    CHECK_ID_INVARIANT_VIOLATIONS_TOTAL_EQUALITY,
+    CHECK_ID_BEHAVIORAL_VIOLATIONS_TOTAL_EQUALITY,
+    CHECK_ID_P_HAT_MIN_ABS_DELTA_LTE_0_05,
+    CHECK_ID_P_HAT_MAX_ABS_DELTA_LTE_0_05,
+)
+MISMATCH_CLASS_VOLUME_ALIGNMENT_ONLY = "volume_alignment_only"
+MISMATCH_CLASS_CROSS_SURFACE_BEHAVIORAL_OR_METRIC = "cross_surface_behavioral_or_metric"
+MISMATCH_CLASS_NONE = "none"
 
 
 @dataclass(frozen=True)
@@ -146,10 +163,14 @@ def build_pilot_decision_artifact(
 
     decision_reasons: list[str] = []
     comparison_reasons: list[str] = []
+    failed_check_set: set[str] = set()
+    failed_checks: list[str] = []
     comparison: dict[str, Any] = {
         "p_hat_min_abs_delta": None,
         "p_hat_max_abs_delta": None,
         "total_points_captured_abs_delta": None,
+        "failed_checks": failed_checks,
+        "mismatch_class": MISMATCH_CLASS_NONE,
         "cross_surface_pass": False,
         "cross_surface_reasons": comparison_reasons,
     }
@@ -169,18 +190,22 @@ def build_pilot_decision_artifact(
         )
         comparison["total_points_captured_abs_delta"] = total_points_abs_delta
         if replay["total_points_captured"] != synthetic["total_points_captured"]:
+            failed_check_set.add(CHECK_ID_TOTAL_POINTS_CAPTURED_EQUALITY)
             comparison_reasons.append(
                 "cross-surface mismatch: replay.total_points_captured must equal synthetic.total_points_captured exactly"
             )
         if replay_coverage != synthetic_coverage:
+            failed_check_set.add(CHECK_ID_RAW_CONTRACT_COVERAGE_RATE_EQUALITY)
             comparison_reasons.append(
                 "cross-surface mismatch: replay.raw_contract_coverage_rate must equal synthetic.raw_contract_coverage_rate exactly"
             )
         if replay["invariant_violations_total"] != synthetic["invariant_violations_total"]:
+            failed_check_set.add(CHECK_ID_INVARIANT_VIOLATIONS_TOTAL_EQUALITY)
             comparison_reasons.append(
                 "cross-surface mismatch: replay.invariant_violations_total must equal synthetic.invariant_violations_total exactly"
             )
         if replay["behavioral_violations_total"] != synthetic["behavioral_violations_total"]:
+            failed_check_set.add(CHECK_ID_BEHAVIORAL_VIOLATIONS_TOTAL_EQUALITY)
             comparison_reasons.append(
                 "cross-surface mismatch: replay.behavioral_violations_total must equal synthetic.behavioral_violations_total exactly"
             )
@@ -190,16 +215,23 @@ def build_pilot_decision_artifact(
         comparison["p_hat_min_abs_delta"] = p_hat_min_abs_delta
         comparison["p_hat_max_abs_delta"] = p_hat_max_abs_delta
         if p_hat_min_abs_delta > P_HAT_ABS_DELTA_TOLERANCE:
+            failed_check_set.add(CHECK_ID_P_HAT_MIN_ABS_DELTA_LTE_0_05)
             comparison_reasons.append(
                 "cross-surface mismatch: abs(replay.p_hat_min - synthetic.p_hat_min) must be <= 0.05"
             )
         if p_hat_max_abs_delta > P_HAT_ABS_DELTA_TOLERANCE:
+            failed_check_set.add(CHECK_ID_P_HAT_MAX_ABS_DELTA_LTE_0_05)
             comparison_reasons.append(
                 "cross-surface mismatch: abs(replay.p_hat_max - synthetic.p_hat_max) must be <= 0.05"
             )
 
+        failed_checks.extend([check_id for check_id in FAILED_CHECK_ORDER if check_id in failed_check_set])
         if comparison_reasons:
             decision = "mismatch"
+            if failed_checks == [CHECK_ID_TOTAL_POINTS_CAPTURED_EQUALITY]:
+                comparison["mismatch_class"] = MISMATCH_CLASS_VOLUME_ALIGNMENT_ONLY
+            else:
+                comparison["mismatch_class"] = MISMATCH_CLASS_CROSS_SURFACE_BEHAVIORAL_OR_METRIC
             decision_reasons.extend(comparison_reasons)
         else:
             decision = "pass"

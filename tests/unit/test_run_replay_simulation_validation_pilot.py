@@ -51,6 +51,8 @@ def test_build_pilot_decision_artifact_pass_when_local_and_cross_checks_hold() -
     assert artifact["synthetic"]["raw_contract_coverage_rate"] == 1.0
     assert artifact["comparison"]["cross_surface_pass"] is True
     assert artifact["comparison"]["total_points_captured_abs_delta"] == 0
+    assert artifact["comparison"]["failed_checks"] == []
+    assert artifact["comparison"]["mismatch_class"] == "none"
 
 
 def test_build_pilot_decision_artifact_mismatch_when_cross_surface_delta_exceeds_tolerance() -> None:
@@ -76,6 +78,11 @@ def test_build_pilot_decision_artifact_mismatch_when_cross_surface_delta_exceeds
     assert any("abs(replay.p_hat_min - synthetic.p_hat_min)" in reason for reason in artifact["decision_reasons"])
     assert any("abs(replay.p_hat_max - synthetic.p_hat_max)" in reason for reason in artifact["decision_reasons"])
     assert artifact["comparison"]["total_points_captured_abs_delta"] == 0
+    assert artifact["comparison"]["failed_checks"] == [
+        "p_hat_min_abs_delta_lte_0_05",
+        "p_hat_max_abs_delta_lte_0_05",
+    ]
+    assert artifact["comparison"]["mismatch_class"] == "cross_surface_behavioral_or_metric"
 
 
 def test_build_pilot_decision_artifact_mismatch_when_total_points_captured_differs() -> None:
@@ -96,11 +103,52 @@ def test_build_pilot_decision_artifact_mismatch_when_total_points_captured_diffe
 
     assert artifact["decision"] == "mismatch"
     assert artifact["comparison"]["total_points_captured_abs_delta"] == 46
+    assert artifact["comparison"]["failed_checks"] == ["total_points_captured_equality"]
+    assert artifact["comparison"]["mismatch_class"] == "volume_alignment_only"
     assert any(
         "cross-surface mismatch: replay.total_points_captured must equal synthetic.total_points_captured exactly"
         == reason
         for reason in artifact["decision_reasons"]
     )
+
+
+def test_build_pilot_decision_artifact_failed_checks_use_frozen_order_for_multiple_mismatches() -> None:
+    replay_summary = _summary(
+        total_points_captured=10,
+        raw_contract_points=10,
+        invariant_violations_total=0,
+        behavioral_violations_total=0,
+        p_hat_min=0.10,
+        p_hat_max=0.20,
+    )
+    synthetic_summary = _summary(
+        total_points_captured=12,
+        raw_contract_points=12,
+        invariant_violations_total=0,
+        behavioral_violations_total=0,
+        p_hat_min=0.25,
+        p_hat_max=0.30,
+    )
+
+    artifact = pilot.build_pilot_decision_artifact(
+        run_id="pilot_multi_mismatch_order",
+        replay_input_path="tools/fixtures/raw_replay_sample.jsonl",
+        synthetic_seed=1337,
+        synthetic_policy_profile="balanced_v1",
+        synthetic_rounds=10,
+        synthetic_ticks_per_round=4,
+        generated_at="2026-03-09T00:00:00Z",
+        replay_summary=replay_summary,
+        synthetic_summary=synthetic_summary,
+    )
+
+    assert artifact["decision"] == "mismatch"
+    assert artifact["comparison"]["failed_checks"] == [
+        "total_points_captured_equality",
+        "p_hat_min_abs_delta_lte_0_05",
+        "p_hat_max_abs_delta_lte_0_05",
+    ]
+    assert artifact["comparison"]["mismatch_class"] == "cross_surface_behavioral_or_metric"
 
 
 def test_build_pilot_decision_artifact_inconclusive_when_required_field_unreadable() -> None:
@@ -122,6 +170,8 @@ def test_build_pilot_decision_artifact_inconclusive_when_required_field_unreadab
     assert artifact["decision"] == "inconclusive"
     assert artifact["replay"]["local_sanity_pass"] is False
     assert any("total_points_captured must be > 0" in reason for reason in artifact["decision_reasons"])
+    assert artifact["comparison"]["failed_checks"] == []
+    assert artifact["comparison"]["mismatch_class"] == "none"
 
 
 def test_runner_writes_stable_artifact_for_fixed_inputs(tmp_path: Path, monkeypatch) -> None:
@@ -178,3 +228,5 @@ def test_runner_writes_stable_artifact_for_fixed_inputs(tmp_path: Path, monkeypa
     assert payload["slice"]["replay_input_path"] == str(replay_input)
     assert payload["slice"]["synthetic_seed"] == 1337
     assert "total_points_captured_abs_delta" in payload["comparison"]
+    assert "failed_checks" in payload["comparison"]
+    assert "mismatch_class" in payload["comparison"]
