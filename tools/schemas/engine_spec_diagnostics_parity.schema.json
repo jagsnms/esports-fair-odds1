@@ -1,0 +1,182 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tools/schemas/engine_spec_diagnostics_parity.schema.json",
+  "title": "EngineSpecDiagnosticsParity",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "status",
+    "parity_mode",
+    "source_of_truth",
+    "assessment_source",
+    "spec_required_fields",
+    "assessment_required_fields",
+    "matched_fields",
+    "missing_fields",
+    "extra_assessment_fields",
+    "counts",
+    "errors",
+    "validated_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "engine_spec_diagnostics_parity.v1"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pass",
+        "fail",
+        "blocked"
+      ]
+    },
+    "parity_mode": {
+      "type": "string",
+      "const": "exact_name_path_only"
+    },
+    "source_of_truth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "engine_spec_path",
+        "engine_spec_field_path"
+      ],
+      "properties": {
+        "engine_spec_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "engine_spec_field_path": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "assessment_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_path_or_stream",
+        "assessment_field_path"
+      ],
+      "properties": {
+        "artifact_path_or_stream": {
+          "type": "string",
+          "minLength": 1
+        },
+        "assessment_field_path": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "spec_required_fields": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "assessment_required_fields": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "matched_fields": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "missing_fields": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "field",
+          "expected_in",
+          "match_mode",
+          "reason"
+        ],
+        "properties": {
+          "field": {
+            "type": "string",
+            "minLength": 1
+          },
+          "expected_in": {
+            "type": "string",
+            "minLength": 1
+          },
+          "match_mode": {
+            "type": "string",
+            "const": "exact_name_path_only"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "extra_assessment_fields": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "spec_required_count",
+        "assessment_required_count",
+        "matched_count",
+        "missing_count",
+        "extra_count"
+      ],
+      "properties": {
+        "spec_required_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "assessment_required_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "matched_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "missing_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "extra_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "validated_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    }
+  }
+}
