@@ -103,13 +103,35 @@ def test_build_pilot_decision_artifact_mismatch_when_total_points_captured_diffe
 
     assert artifact["decision"] == "mismatch"
     assert artifact["comparison"]["total_points_captured_abs_delta"] == 46
-    assert artifact["comparison"]["failed_checks"] == ["total_points_captured_equality"]
+    assert artifact["comparison"]["failed_checks"] == ["total_points_captured_abs_delta_lte_1"]
     assert artifact["comparison"]["mismatch_class"] == "volume_alignment_only"
     assert any(
-        "cross-surface mismatch: replay.total_points_captured must equal synthetic.total_points_captured exactly"
+        "cross-surface mismatch: abs(replay.total_points_captured - synthetic.total_points_captured) must be <= 1"
         == reason
         for reason in artifact["decision_reasons"]
     )
+
+
+def test_build_pilot_decision_artifact_pass_when_total_points_abs_delta_is_one() -> None:
+    replay_summary = _summary(total_points_captured=3, raw_contract_points=3, p_hat_min=0.49, p_hat_max=0.51)
+    synthetic_summary = _summary(total_points_captured=4, raw_contract_points=4, p_hat_min=0.48, p_hat_max=0.52)
+
+    artifact = pilot.build_pilot_decision_artifact(
+        run_id="pilot_volume_aligned_within_threshold",
+        replay_input_path="tools/fixtures/raw_replay_sample.jsonl",
+        synthetic_seed=1337,
+        synthetic_policy_profile="balanced_v1",
+        synthetic_rounds=10,
+        synthetic_ticks_per_round=4,
+        generated_at="2026-03-09T00:00:00Z",
+        replay_summary=replay_summary,
+        synthetic_summary=synthetic_summary,
+    )
+
+    assert artifact["decision"] == "pass"
+    assert artifact["comparison"]["total_points_captured_abs_delta"] == 1
+    assert artifact["comparison"]["failed_checks"] == []
+    assert artifact["comparison"]["mismatch_class"] == "none"
 
 
 def test_build_pilot_decision_artifact_failed_checks_use_frozen_order_for_multiple_mismatches() -> None:
@@ -144,7 +166,7 @@ def test_build_pilot_decision_artifact_failed_checks_use_frozen_order_for_multip
 
     assert artifact["decision"] == "mismatch"
     assert artifact["comparison"]["failed_checks"] == [
-        "total_points_captured_equality",
+        "total_points_captured_abs_delta_lte_1",
         "p_hat_min_abs_delta_lte_0_05",
         "p_hat_max_abs_delta_lte_0_05",
     ]

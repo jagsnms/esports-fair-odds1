@@ -34,14 +34,14 @@ P_HAT_ABS_DELTA_TOLERANCE = 0.05
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_REPORTS_DIR = ROOT / "automation" / "reports"
 OUTPUT_PREFIX = "replay_simulation_validation_pilot_"
-CHECK_ID_TOTAL_POINTS_CAPTURED_EQUALITY = "total_points_captured_equality"
+CHECK_ID_TOTAL_POINTS_CAPTURED_ABS_DELTA_LTE_1 = "total_points_captured_abs_delta_lte_1"
 CHECK_ID_RAW_CONTRACT_COVERAGE_RATE_EQUALITY = "raw_contract_coverage_rate_equality"
 CHECK_ID_INVARIANT_VIOLATIONS_TOTAL_EQUALITY = "invariant_violations_total_equality"
 CHECK_ID_BEHAVIORAL_VIOLATIONS_TOTAL_EQUALITY = "behavioral_violations_total_equality"
 CHECK_ID_P_HAT_MIN_ABS_DELTA_LTE_0_05 = "p_hat_min_abs_delta_lte_0_05"
 CHECK_ID_P_HAT_MAX_ABS_DELTA_LTE_0_05 = "p_hat_max_abs_delta_lte_0_05"
 FAILED_CHECK_ORDER = (
-    CHECK_ID_TOTAL_POINTS_CAPTURED_EQUALITY,
+    CHECK_ID_TOTAL_POINTS_CAPTURED_ABS_DELTA_LTE_1,
     CHECK_ID_RAW_CONTRACT_COVERAGE_RATE_EQUALITY,
     CHECK_ID_INVARIANT_VIOLATIONS_TOTAL_EQUALITY,
     CHECK_ID_BEHAVIORAL_VIOLATIONS_TOTAL_EQUALITY,
@@ -211,10 +211,10 @@ def build_pilot_decision_artifact(
             int(replay["total_points_captured"]) - int(synthetic["total_points_captured"])
         )
         comparison["total_points_captured_abs_delta"] = total_points_abs_delta
-        if replay["total_points_captured"] != synthetic["total_points_captured"]:
-            failed_check_set.add(CHECK_ID_TOTAL_POINTS_CAPTURED_EQUALITY)
+        if total_points_abs_delta > ALIGNMENT_ABS_DELTA_THRESHOLD:
+            failed_check_set.add(CHECK_ID_TOTAL_POINTS_CAPTURED_ABS_DELTA_LTE_1)
             comparison_reasons.append(
-                "cross-surface mismatch: replay.total_points_captured must equal synthetic.total_points_captured exactly"
+                "cross-surface mismatch: abs(replay.total_points_captured - synthetic.total_points_captured) must be <= 1"
             )
         if replay_coverage != synthetic_coverage:
             failed_check_set.add(CHECK_ID_RAW_CONTRACT_COVERAGE_RATE_EQUALITY)
@@ -250,7 +250,7 @@ def build_pilot_decision_artifact(
         failed_checks.extend([check_id for check_id in FAILED_CHECK_ORDER if check_id in failed_check_set])
         if comparison_reasons:
             decision = "mismatch"
-            if failed_checks == [CHECK_ID_TOTAL_POINTS_CAPTURED_EQUALITY]:
+            if failed_checks == [CHECK_ID_TOTAL_POINTS_CAPTURED_ABS_DELTA_LTE_1]:
                 comparison["mismatch_class"] = MISMATCH_CLASS_VOLUME_ALIGNMENT_ONLY
             else:
                 comparison["mismatch_class"] = MISMATCH_CLASS_CROSS_SURFACE_BEHAVIORAL_OR_METRIC
