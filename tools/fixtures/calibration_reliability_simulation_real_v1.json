@@ -1,0 +1,60 @@
+[
+  {
+    "evidence_source": "simulation",
+    "dataset_id": "valorant_calibration_report_v1",
+    "evaluation_scope": "baseline",
+    "seed": 1337,
+    "segment": "global",
+    "brier_score": 0.13820947903260347,
+    "log_loss": 0.44423770966202863,
+    "reliability_curve_bins": [
+      {
+        "bin_index": 0,
+        "count": 15,
+        "mean_prediction": 0.08109611693095821,
+        "empirical_rate": 0.0
+      },
+      {
+        "bin_index": 4,
+        "count": 38,
+        "mean_prediction": 0.45128139442001364,
+        "empirical_rate": 0.42105263157894735
+      },
+      {
+        "bin_index": 8,
+        "count": 27,
+        "mean_prediction": 0.8390946235364813,
+        "empirical_rate": 1.0
+      }
+    ]
+  },
+  {
+    "evidence_source": "simulation",
+    "dataset_id": "valorant_calibration_report_v1",
+    "evaluation_scope": "current",
+    "seed": 1337,
+    "segment": "global",
+    "brier_score": 0.10413017139460835,
+    "log_loss": 0.3287486181175952,
+    "reliability_curve_bins": [
+      {
+        "bin_index": 0,
+        "count": 113,
+        "mean_prediction": 0.0,
+        "empirical_rate": 0.0
+      },
+      {
+        "bin_index": 4,
+        "count": 1,
+        "mean_prediction": 0.45250760887228914,
+        "empirical_rate": 1.0
+      },
+      {
+        "bin_index": 8,
+        "count": 76,
+        "mean_prediction": 0.8587664540412284,
+        "empirical_rate": 0.7236842105263158
+      }
+    ]
+  }
+]
