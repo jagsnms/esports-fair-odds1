@@ -50,6 +50,7 @@ def test_build_pilot_decision_artifact_pass_when_local_and_cross_checks_hold() -
     assert artifact["replay"]["raw_contract_coverage_rate"] == 1.0
     assert artifact["synthetic"]["raw_contract_coverage_rate"] == 1.0
     assert artifact["comparison"]["cross_surface_pass"] is True
+    assert artifact["comparison"]["total_points_captured_abs_delta"] == 0
 
 
 def test_build_pilot_decision_artifact_mismatch_when_cross_surface_delta_exceeds_tolerance() -> None:
@@ -74,6 +75,32 @@ def test_build_pilot_decision_artifact_mismatch_when_cross_surface_delta_exceeds
     assert artifact["comparison"]["cross_surface_pass"] is False
     assert any("abs(replay.p_hat_min - synthetic.p_hat_min)" in reason for reason in artifact["decision_reasons"])
     assert any("abs(replay.p_hat_max - synthetic.p_hat_max)" in reason for reason in artifact["decision_reasons"])
+    assert artifact["comparison"]["total_points_captured_abs_delta"] == 0
+
+
+def test_build_pilot_decision_artifact_mismatch_when_total_points_captured_differs() -> None:
+    replay_summary = _summary(total_points_captured=3, raw_contract_points=3)
+    synthetic_summary = _summary(total_points_captured=49, raw_contract_points=49)
+
+    artifact = pilot.build_pilot_decision_artifact(
+        run_id="pilot_volume_mismatch",
+        replay_input_path="tools/fixtures/raw_replay_sample.jsonl",
+        synthetic_seed=1337,
+        synthetic_policy_profile="balanced_v1",
+        synthetic_rounds=10,
+        synthetic_ticks_per_round=4,
+        generated_at="2026-03-09T00:00:00Z",
+        replay_summary=replay_summary,
+        synthetic_summary=synthetic_summary,
+    )
+
+    assert artifact["decision"] == "mismatch"
+    assert artifact["comparison"]["total_points_captured_abs_delta"] == 46
+    assert any(
+        "cross-surface mismatch: replay.total_points_captured must equal synthetic.total_points_captured exactly"
+        == reason
+        for reason in artifact["decision_reasons"]
+    )
 
 
 def test_build_pilot_decision_artifact_inconclusive_when_required_field_unreadable() -> None:
@@ -150,3 +177,4 @@ def test_runner_writes_stable_artifact_for_fixed_inputs(tmp_path: Path, monkeypa
     assert payload["decision"] == "pass"
     assert payload["slice"]["replay_input_path"] == str(replay_input)
     assert payload["slice"]["synthetic_seed"] == 1337
+    assert "total_points_captured_abs_delta" in payload["comparison"]

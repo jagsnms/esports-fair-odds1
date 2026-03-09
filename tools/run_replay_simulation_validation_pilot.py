@@ -149,6 +149,7 @@ def build_pilot_decision_artifact(
     comparison: dict[str, Any] = {
         "p_hat_min_abs_delta": None,
         "p_hat_max_abs_delta": None,
+        "total_points_captured_abs_delta": None,
         "cross_surface_pass": False,
         "cross_surface_reasons": comparison_reasons,
     }
@@ -163,6 +164,14 @@ def build_pilot_decision_artifact(
     else:
         replay_coverage = replay["raw_contract_coverage_rate"]
         synthetic_coverage = synthetic["raw_contract_coverage_rate"]
+        total_points_abs_delta = abs(
+            int(replay["total_points_captured"]) - int(synthetic["total_points_captured"])
+        )
+        comparison["total_points_captured_abs_delta"] = total_points_abs_delta
+        if replay["total_points_captured"] != synthetic["total_points_captured"]:
+            comparison_reasons.append(
+                "cross-surface mismatch: replay.total_points_captured must equal synthetic.total_points_captured exactly"
+            )
         if replay_coverage != synthetic_coverage:
             comparison_reasons.append(
                 "cross-surface mismatch: replay.raw_contract_coverage_rate must equal synthetic.raw_contract_coverage_rate exactly"
