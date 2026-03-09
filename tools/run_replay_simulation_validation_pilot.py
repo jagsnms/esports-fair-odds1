@@ -40,6 +40,7 @@ CHECK_ID_INVARIANT_VIOLATIONS_TOTAL_EQUALITY = "invariant_violations_total_equal
 CHECK_ID_BEHAVIORAL_VIOLATIONS_TOTAL_EQUALITY = "behavioral_violations_total_equality"
 CHECK_ID_P_HAT_MIN_ABS_DELTA_LTE_0_05 = "p_hat_min_abs_delta_lte_0_05"
 CHECK_ID_P_HAT_MAX_ABS_DELTA_LTE_0_05 = "p_hat_max_abs_delta_lte_0_05"
+CHECK_ID_P_HAT_MEDIAN_ABS_DELTA_LTE_0_05 = "p_hat_median_abs_delta_lte_0_05"
 FAILED_CHECK_ORDER = (
     CHECK_ID_TOTAL_POINTS_CAPTURED_ABS_DELTA_LTE_1,
     CHECK_ID_RAW_CONTRACT_COVERAGE_RATE_EQUALITY,
@@ -47,6 +48,7 @@ FAILED_CHECK_ORDER = (
     CHECK_ID_BEHAVIORAL_VIOLATIONS_TOTAL_EQUALITY,
     CHECK_ID_P_HAT_MIN_ABS_DELTA_LTE_0_05,
     CHECK_ID_P_HAT_MAX_ABS_DELTA_LTE_0_05,
+    CHECK_ID_P_HAT_MEDIAN_ABS_DELTA_LTE_0_05,
 )
 MISMATCH_CLASS_VOLUME_ALIGNMENT_ONLY = "volume_alignment_only"
 MISMATCH_CLASS_CROSS_SURFACE_BEHAVIORAL_OR_METRIC = "cross_surface_behavioral_or_metric"
@@ -54,6 +56,9 @@ MISMATCH_CLASS_NONE = "none"
 ALIGNMENT_ABS_DELTA_THRESHOLD = 1
 ALIGNMENT_STOP_REASON = (
     "alignment inconclusive: no synthetic round candidate satisfied abs(replay.total_points_captured - synthetic.total_points_captured) <= 1"
+)
+TRAJECTORY_FINGERPRINT_INSUFFICIENT_P_HAT_COUNT_REASON = (
+    "trajectory fingerprint unavailable: insufficient p_hat_count"
 )
 
 
@@ -83,6 +88,8 @@ def _extract_side_block(side_name: str, summary: Any) -> dict[str, Any]:
         "behavioral_violations_total": None,
         "p_hat_min": None,
         "p_hat_max": None,
+        "p_hat_count": None,
+        "p_hat_median": None,
         "raw_contract_coverage_rate": None,
         "local_sanity_pass": False,
         "local_sanity_reasons": [],
@@ -114,6 +121,14 @@ def _extract_side_block(side_name: str, summary: Any) -> dict[str, Any]:
             block[key] = float(value)
         else:
             reasons.append(f"{side_name} missing/unreadable numeric field: {key}")
+
+    p_hat_count = summary.get("p_hat_count")
+    if _is_int(p_hat_count):
+        block["p_hat_count"] = int(p_hat_count)
+
+    p_hat_median = summary.get("p_hat_median")
+    if _is_number(p_hat_median):
+        block["p_hat_median"] = float(p_hat_median)
 
     if reasons:
         block["local_sanity_reasons"] = reasons
@@ -155,6 +170,7 @@ def _empty_comparison_block() -> dict[str, Any]:
     return {
         "p_hat_min_abs_delta": None,
         "p_hat_max_abs_delta": None,
+        "p_hat_median_abs_delta": None,
         "total_points_captured_abs_delta": None,
         "failed_checks": [],
         "mismatch_class": MISMATCH_CLASS_NONE,
@@ -205,6 +221,78 @@ def build_pilot_decision_artifact(
     elif decision_reasons:
         decision = "inconclusive"
     else:
+        replay_p_hat_count = replay["p_hat_count"]
+        synthetic_p_hat_count = synthetic["p_hat_count"]
+        if (
+            not _is_int(replay_p_hat_count)
+            or not _is_int(synthetic_p_hat_count)
+            or int(replay_p_hat_count) < 3
+            or int(synthetic_p_hat_count) < 3
+        ):
+            decision = "inconclusive"
+            decision_reasons = [TRAJECTORY_FINGERPRINT_INSUFFICIENT_P_HAT_COUNT_REASON]
+            return {
+                "schema_version": SCHEMA_VERSION,
+                "decision_contract_version": DECISION_VERSION,
+                "run_id": run_id,
+                "generated_at": generated_at,
+                "slice": {
+                    "replay_input_path": replay_input_path,
+                    "synthetic_seed": int(synthetic_seed),
+                    "synthetic_policy_profile": synthetic_policy_profile,
+                    "synthetic_rounds": int(synthetic_rounds),
+                    "synthetic_ticks_per_round": int(synthetic_ticks_per_round),
+                    "synthetic_raw_contract_mode": "IN_PROGRESS",
+                },
+                "alignment": alignment
+                if isinstance(alignment, dict)
+                else {
+                    "target_replay_total_points": None,
+                    "attempted_synthetic_rounds": [],
+                    "attempt_results": [],
+                    "selected_synthetic_rounds": None,
+                    "alignment_achieved": False,
+                    "stop_reason": None,
+                },
+                "replay": replay,
+                "synthetic": synthetic,
+                "comparison": comparison,
+                "decision": decision,
+                "decision_reasons": decision_reasons,
+            }
+        if replay["p_hat_median"] is None or synthetic["p_hat_median"] is None:
+            decision = "inconclusive"
+            decision_reasons = ["trajectory fingerprint unavailable: missing p_hat_median"]
+            return {
+                "schema_version": SCHEMA_VERSION,
+                "decision_contract_version": DECISION_VERSION,
+                "run_id": run_id,
+                "generated_at": generated_at,
+                "slice": {
+                    "replay_input_path": replay_input_path,
+                    "synthetic_seed": int(synthetic_seed),
+                    "synthetic_policy_profile": synthetic_policy_profile,
+                    "synthetic_rounds": int(synthetic_rounds),
+                    "synthetic_ticks_per_round": int(synthetic_ticks_per_round),
+                    "synthetic_raw_contract_mode": "IN_PROGRESS",
+                },
+                "alignment": alignment
+                if isinstance(alignment, dict)
+                else {
+                    "target_replay_total_points": None,
+                    "attempted_synthetic_rounds": [],
+                    "attempt_results": [],
+                    "selected_synthetic_rounds": None,
+                    "alignment_achieved": False,
+                    "stop_reason": None,
+                },
+                "replay": replay,
+                "synthetic": synthetic,
+                "comparison": comparison,
+                "decision": decision,
+                "decision_reasons": decision_reasons,
+            }
+
         replay_coverage = replay["raw_contract_coverage_rate"]
         synthetic_coverage = synthetic["raw_contract_coverage_rate"]
         total_points_abs_delta = abs(
@@ -245,6 +333,13 @@ def build_pilot_decision_artifact(
             failed_check_set.add(CHECK_ID_P_HAT_MAX_ABS_DELTA_LTE_0_05)
             comparison_reasons.append(
                 "cross-surface mismatch: abs(replay.p_hat_max - synthetic.p_hat_max) must be <= 0.05"
+            )
+        p_hat_median_abs_delta = abs(float(replay["p_hat_median"]) - float(synthetic["p_hat_median"]))
+        comparison["p_hat_median_abs_delta"] = p_hat_median_abs_delta
+        if p_hat_median_abs_delta > P_HAT_ABS_DELTA_TOLERANCE:
+            failed_check_set.add(CHECK_ID_P_HAT_MEDIAN_ABS_DELTA_LTE_0_05)
+            comparison_reasons.append(
+                "cross-surface mismatch: abs(replay.p_hat_median - synthetic.p_hat_median) must be <= 0.05"
             )
 
         failed_checks.extend([check_id for check_id in FAILED_CHECK_ORDER if check_id in failed_check_set])

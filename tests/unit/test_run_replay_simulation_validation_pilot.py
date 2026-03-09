@@ -18,7 +18,10 @@ def _summary(
     behavioral_violations_total: int = 0,
     p_hat_min: float = 0.41,
     p_hat_max: float = 0.58,
+    p_hat_count: int = 10,
+    p_hat_median: float | None = None,
 ) -> dict[str, object]:
+    median = float(p_hat_median) if p_hat_median is not None else float((p_hat_min + p_hat_max) / 2.0)
     return {
         "total_points_captured": total_points_captured,
         "raw_contract_points": raw_contract_points,
@@ -27,6 +30,8 @@ def _summary(
         "behavioral_violations_total": behavioral_violations_total,
         "p_hat_min": p_hat_min,
         "p_hat_max": p_hat_max,
+        "p_hat_count": p_hat_count,
+        "p_hat_median": median,
     }
 
 
@@ -114,6 +119,7 @@ def test_build_pilot_decision_artifact_mismatch_when_cross_surface_delta_exceeds
     assert artifact["comparison"]["failed_checks"] == [
         "p_hat_min_abs_delta_lte_0_05",
         "p_hat_max_abs_delta_lte_0_05",
+        "p_hat_median_abs_delta_lte_0_05",
     ]
     assert artifact["comparison"]["mismatch_class"] == "cross_surface_behavioral_or_metric"
 
@@ -202,8 +208,61 @@ def test_build_pilot_decision_artifact_failed_checks_use_frozen_order_for_multip
         "total_points_captured_abs_delta_lte_1",
         "p_hat_min_abs_delta_lte_0_05",
         "p_hat_max_abs_delta_lte_0_05",
+        "p_hat_median_abs_delta_lte_0_05",
     ]
     assert artifact["comparison"]["mismatch_class"] == "cross_surface_behavioral_or_metric"
+
+
+def test_build_pilot_decision_artifact_mismatch_when_median_diverges_within_endpoint_tolerance() -> None:
+    replay_summary = _summary(
+        p_hat_min=0.40,
+        p_hat_max=0.60,
+        p_hat_median=0.56,
+    )
+    synthetic_summary = _summary(
+        p_hat_min=0.40,
+        p_hat_max=0.60,
+        p_hat_median=0.48,
+    )
+
+    artifact = pilot.build_pilot_decision_artifact(
+        run_id="pilot_median_adversarial",
+        replay_input_path="tools/fixtures/raw_replay_sample.jsonl",
+        synthetic_seed=1337,
+        synthetic_policy_profile="balanced_v1",
+        synthetic_rounds=10,
+        synthetic_ticks_per_round=4,
+        generated_at="2026-03-09T00:00:00Z",
+        replay_summary=replay_summary,
+        synthetic_summary=synthetic_summary,
+    )
+
+    assert artifact["decision"] == "mismatch"
+    assert artifact["comparison"]["failed_checks"] == ["p_hat_median_abs_delta_lte_0_05"]
+    assert artifact["comparison"]["mismatch_class"] == "cross_surface_behavioral_or_metric"
+    assert any("abs(replay.p_hat_median - synthetic.p_hat_median)" in reason for reason in artifact["decision_reasons"])
+
+
+def test_build_pilot_decision_artifact_inconclusive_when_p_hat_count_is_insufficient_for_fingerprint() -> None:
+    replay_summary = _summary(p_hat_count=2)
+    synthetic_summary = _summary(p_hat_count=10)
+
+    artifact = pilot.build_pilot_decision_artifact(
+        run_id="pilot_p_hat_count_insufficient",
+        replay_input_path="tools/fixtures/raw_replay_sample.jsonl",
+        synthetic_seed=1337,
+        synthetic_policy_profile="balanced_v1",
+        synthetic_rounds=10,
+        synthetic_ticks_per_round=4,
+        generated_at="2026-03-09T00:00:00Z",
+        replay_summary=replay_summary,
+        synthetic_summary=synthetic_summary,
+    )
+
+    assert artifact["decision"] == "inconclusive"
+    assert artifact["comparison"]["failed_checks"] == []
+    assert artifact["comparison"]["mismatch_class"] == "none"
+    assert artifact["decision_reasons"] == [pilot.TRAJECTORY_FINGERPRINT_INSUFFICIENT_P_HAT_COUNT_REASON]
 
 
 def test_build_pilot_decision_artifact_inconclusive_when_required_field_unreadable() -> None:

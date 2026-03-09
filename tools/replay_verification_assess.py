@@ -117,6 +117,16 @@ def _normalize_prematch_map(value: float | None) -> float | None:
     return v
 
 
+def _median(values: list[float]) -> float | None:
+    if not values:
+        return None
+    ordered = sorted(float(v) for v in values)
+    mid = len(ordered) // 2
+    if len(ordered) % 2 == 1:
+        return float(ordered[mid])
+    return float((ordered[mid - 1] + ordered[mid]) / 2.0)
+
+
 async def run_assessment(replay_path: str, *, prematch_map: float | None = None) -> dict[str, Any]:
     """Run replay with invariant_diagnostics=True; capture each appended point's derived; return metrics."""
     os.chdir(ROOT)
@@ -363,6 +373,7 @@ async def run_assessment(replay_path: str, *, prematch_map: float | None = None)
         "p_hat_min": min(p_hats) if p_hats else None,
         "p_hat_max": max(p_hats) if p_hats else None,
         "p_hat_count": len(p_hats),
+        "p_hat_median": _median(p_hats),
         "rail_low_min": min(rail_lows) if rail_lows else None,
         "rail_high_max": max(rail_highs) if rail_highs else None,
     }
