@@ -21,6 +21,21 @@ POINT_LIKE_FIXTURE_PATH = ROOT / "logs" / "history_points.jsonl"
 BASELINE_ARTIFACT_PATH = ROOT / "automation" / "reports" / "baseline_replay_carryover_evidence_20260307.json"
 
 
+def test_schema_declares_spec_required_keys_contract() -> None:
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    required = schema.get("required", [])
+    assert "contract_diagnostics_spec_required_keys" in required
+    props = schema.get("properties", {})
+    assert "contract_diagnostics_spec_required_keys" in props
+    field = props["contract_diagnostics_spec_required_keys"]
+    assert field.get("type") == "array"
+    assert field.get("minItems") == 1
+    items = field.get("items")
+    assert isinstance(items, dict)
+    assert items.get("type") == "string"
+    assert items.get("minLength") == 1
+
+
 def _expected_spec_required_keys() -> list[str]:
     spec = json.loads((ROOT / "docs" / "ENGINE_SPEC.json").read_text(encoding="utf-8"))
     fields = spec["invariants"]["diagnostics_payload_required_fields"]
