@@ -1,0 +1,204 @@
+[
+  {
+    "brier_score": 0.2529900516538663,
+    "dataset_id": "cs2_calibration_report_v1",
+    "evaluation_scope": "baseline",
+    "evidence_source": "replay",
+    "log_loss": 0.7275343838062083,
+    "reliability_curve_bins": [
+      {
+        "bin_index": 0,
+        "count": 71,
+        "empirical_rate": 0.30985915492957744,
+        "mean_prediction": 0.060475144498838916,
+        "source_null_fill_applied": false,
+        "source_p_mean": 0.060475144498838916,
+        "source_y_rate": 0.30985915492957744
+      },
+      {
+        "bin_index": 1,
+        "count": 88,
+        "empirical_rate": 0.3068181818181818,
+        "mean_prediction": 0.1471778107561651,
+        "source_null_fill_applied": false,
+        "source_p_mean": 0.1471778107561651,
+        "source_y_rate": 0.3068181818181818
+      },
+      {
+        "bin_index": 2,
+        "count": 84,
+        "empirical_rate": 0.40476190476190477,
+        "mean_prediction": 0.2566759880418232,
+        "source_null_fill_applied": false,
+        "source_p_mean": 0.2566759880418232,
+        "source_y_rate": 0.40476190476190477
+      },
+      {
+        "bin_index": 3,
+        "count": 69,
+        "empirical_rate": 0.5217391304347826,
+        "mean_prediction": 0.3458931093719543,
+        "source_null_fill_applied": false,
+        "source_p_mean": 0.3458931093719543,
+        "source_y_rate": 0.5217391304347826
+      },
+      {
+        "bin_index": 4,
+        "count": 69,
+        "empirical_rate": 0.4782608695652174,
+        "mean_prediction": 0.4504644512329268,
+        "source_null_fill_applied": false,
+        "source_p_mean": 0.4504644512329268,
+        "source_y_rate": 0.4782608695652174
+      },
+      {
+        "bin_index": 5,
+        "count": 60,
+        "empirical_rate": 0.43333333333333335,
+        "mean_prediction": 0.5487043277230976,
+        "source_null_fill_applied": false,
+        "source_p_mean": 0.5487043277230976,
+        "source_y_rate": 0.43333333333333335
+      },
+      {
+        "bin_index": 6,
+        "count": 73,
+        "empirical_rate": 0.5753424657534246,
+        "mean_prediction": 0.6593849003889615,
+        "source_null_fill_applied": false,
+        "source_p_mean": 0.6593849003889615,
+        "source_y_rate": 0.5753424657534246
+      },
+      {
+        "bin_index": 7,
+        "count": 56,
+        "empirical_rate": 0.42857142857142855,
+        "mean_prediction": 0.747472505820092,
+        "source_null_fill_applied": false,
+        "source_p_mean": 0.747472505820092,
+        "source_y_rate": 0.42857142857142855
+      },
+      {
+        "bin_index": 8,
+        "count": 40,
+        "empirical_rate": 0.775,
+        "mean_prediction": 0.8455900171520065,
+        "source_null_fill_applied": false,
+        "source_p_mean": 0.8455900171520065,
+        "source_y_rate": 0.775
+      },
+      {
+        "bin_index": 9,
+        "count": 21,
+        "empirical_rate": 1.0,
+        "mean_prediction": 0.9369080250510796,
+        "source_null_fill_applied": false,
+        "source_p_mean": 0.9369080250510796,
+        "source_y_rate": 1.0
+      }
+    ],
+    "seed": null,
+    "segment": "global"
+  },
+  {
+    "brier_score": 0.23179611585803367,
+    "dataset_id": "cs2_calibration_report_v1",
+    "evaluation_scope": "current",
+    "evidence_source": "replay",
+    "log_loss": 0.6747033282316052,
+    "reliability_curve_bins": [
+      {
+        "bin_index": 0,
+        "count": 14,
+        "empirical_rate": 0.42857142857142855,
+        "mean_prediction": 0.03690668515857346,
+        "source_null_fill_applied": false,
+        "source_p_mean": 0.03690668515857346,
+        "source_y_rate": 0.42857142857142855
+      },
+      {
+        "bin_index": 1,
+        "count": 52,
+        "empirical_rate": 0.28846153846153844,
+        "mean_prediction": 0.1826442323159911,
+        "source_null_fill_applied": false,
+        "source_p_mean": 0.1826442323159911,
+        "source_y_rate": 0.28846153846153844
+      },
+      {
+        "bin_index": 2,
+        "count": 111,
+        "empirical_rate": 0.2882882882882883,
+        "mean_prediction": 0.22714981152213426,
+        "source_null_fill_applied": false,
+        "source_p_mean": 0.22714981152213426,
+        "source_y_rate": 0.2882882882882883
+      },
+      {
+        "bin_index": 3,
+        "count": 38,
+        "empirical_rate": 0.3684210526315789,
+        "mean_prediction": 0.3454331676243287,
+        "source_null_fill_applied": false,
+        "source_p_mean": 0.3454331676243287,
+        "source_y_rate": 0.3684210526315789
+      },
+      {
+        "bin_index": 4,
+        "count": 145,
+        "empirical_rate": 0.5310344827586206,
+        "mean_prediction": 0.4604983040448621,
+        "source_null_fill_applied": false,
+        "source_p_mean": 0.4604983040448621,
+        "source_y_rate": 0.5310344827586206
+      },
+      {
+        "bin_index": 5,
+        "count": 174,
+        "empirical_rate": 0.4942528735632184,
+        "mean_prediction": 0.5460405991545645,
+        "source_null_fill_applied": false,
+        "source_p_mean": 0.5460405991545645,
+        "source_y_rate": 0.4942528735632184
+      },
+      {
+        "bin_index": 6,
+        "count": 47,
+        "empirical_rate": 0.44680851063829785,
+        "mean_prediction": 0.6164719544963121,
+        "source_null_fill_applied": false,
+        "source_p_mean": 0.6164719544963121,
+        "source_y_rate": 0.44680851063829785
+      },
+      {
+        "bin_index": 7,
+        "count": 2,
+        "empirical_rate": 0.5,
+        "mean_prediction": 0.7268596381154128,
+        "source_null_fill_applied": false,
+        "source_p_mean": 0.7268596381154128,
+        "source_y_rate": 0.5
+      },
+      {
+        "bin_index": 8,
+        "count": 12,
+        "empirical_rate": 0.8333333333333334,
+        "mean_prediction": 0.8716783864638392,
+        "source_null_fill_applied": false,
+        "source_p_mean": 0.8716783864638392,
+        "source_y_rate": 0.8333333333333334
+      },
+      {
+        "bin_index": 9,
+        "count": 36,
+        "empirical_rate": 0.9444444444444444,
+        "mean_prediction": 0.9897744984345452,
+        "source_null_fill_applied": false,
+        "source_p_mean": 0.9897744984345452,
+        "source_y_rate": 0.9444444444444444
+      }
+    ],
+    "seed": null,
+    "segment": "global"
+  }
+]

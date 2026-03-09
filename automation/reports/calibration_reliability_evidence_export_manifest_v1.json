@@ -1,0 +1,33 @@
+{
+  "baseline_ref": "p_calibration_report_metrics_before",
+  "current_ref": "p_calibration_report_metrics_after",
+  "export_run_id": "calibration_reliability_export_v1",
+  "exporter_tool_identity": "tools/export_calibration_reliability_evidence.py",
+  "exporter_tool_version": "v1",
+  "extraction_parameters": {
+    "bin_preservation_policy": "preserve_full_source_bin_coverage",
+    "dataset_id_pattern": "{game}_calibration_report_v1",
+    "game_to_surface_mapping": {
+      "cs2": "replay",
+      "valorant": "simulation"
+    },
+    "null_empty_bin_policy": "retain_all_bins; for n==0 with null p_mean/y_rate, export 0.0 and preserve source_* fields",
+    "segment_value": "global",
+    "simulation_seed": 1337
+  },
+  "generated_at": "2026-03-09T00:00:00Z",
+  "outputs": {
+    "replay_evidence_path": "/workspace/tools/fixtures/calibration_reliability_replay_exported_v1.json",
+    "replay_evidence_sha256": "f2e269a23261fe800bf8cbb51a1bd141ad0514803e026de0429ccf3387d7d9c4",
+    "replay_record_count": 2,
+    "simulation_evidence_path": "/workspace/tools/fixtures/calibration_reliability_simulation_exported_v1.json",
+    "simulation_evidence_sha256": "b610bd704aad682ac743131cd3a7f295a63f816c950fb732efc7a2c3bb0e9a72",
+    "simulation_record_count": 2
+  },
+  "schema_version": "calibration_reliability_evidence_export.v1",
+  "source_calibration_path": "/workspace/config/p_calibration.json",
+  "source_calibration_sha256": "6cdaf531cf8bc126f667e10d8ca83f1ef7eb568bc0ea63ed38d8ae8c64a574d9",
+  "source_report_path": "/workspace/config/p_calibration_report.json",
+  "source_report_ran_at": "2026-02-20 07:02:30",
+  "source_report_sha256": "abc5d503c547c8dd1465c231f8cc75e0a92e8ffeadc57b4c60cf5bdc296efb87"
+}

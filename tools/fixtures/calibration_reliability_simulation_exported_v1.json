@@ -1,0 +1,204 @@
+[
+  {
+    "brier_score": 0.13820947903260347,
+    "dataset_id": "valorant_calibration_report_v1",
+    "evaluation_scope": "baseline",
+    "evidence_source": "simulation",
+    "log_loss": 0.44423770966202863,
+    "reliability_curve_bins": [
+      {
+        "bin_index": 0,
+        "count": 15,
+        "empirical_rate": 0.0,
+        "mean_prediction": 0.08109611693095821,
+        "source_null_fill_applied": false,
+        "source_p_mean": 0.08109611693095821,
+        "source_y_rate": 0.0
+      },
+      {
+        "bin_index": 1,
+        "count": 21,
+        "empirical_rate": 0.0,
+        "mean_prediction": 0.15218432472276358,
+        "source_null_fill_applied": false,
+        "source_p_mean": 0.15218432472276358,
+        "source_y_rate": 0.0
+      },
+      {
+        "bin_index": 2,
+        "count": 37,
+        "empirical_rate": 0.0,
+        "mean_prediction": 0.24688497480422522,
+        "source_null_fill_applied": false,
+        "source_p_mean": 0.24688497480422522,
+        "source_y_rate": 0.0
+      },
+      {
+        "bin_index": 3,
+        "count": 30,
+        "empirical_rate": 0.0,
+        "mean_prediction": 0.35315763990526844,
+        "source_null_fill_applied": false,
+        "source_p_mean": 0.35315763990526844,
+        "source_y_rate": 0.0
+      },
+      {
+        "bin_index": 4,
+        "count": 38,
+        "empirical_rate": 0.42105263157894735,
+        "mean_prediction": 0.45128139442001364,
+        "source_null_fill_applied": false,
+        "source_p_mean": 0.45128139442001364,
+        "source_y_rate": 0.42105263157894735
+      },
+      {
+        "bin_index": 5,
+        "count": 53,
+        "empirical_rate": 0.7735849056603774,
+        "mean_prediction": 0.553314341292836,
+        "source_null_fill_applied": false,
+        "source_p_mean": 0.553314341292836,
+        "source_y_rate": 0.7735849056603774
+      },
+      {
+        "bin_index": 6,
+        "count": 51,
+        "empirical_rate": 0.7647058823529411,
+        "mean_prediction": 0.6493239330578967,
+        "source_null_fill_applied": false,
+        "source_p_mean": 0.6493239330578967,
+        "source_y_rate": 0.7647058823529411
+      },
+      {
+        "bin_index": 7,
+        "count": 24,
+        "empirical_rate": 0.875,
+        "mean_prediction": 0.7447349385429494,
+        "source_null_fill_applied": false,
+        "source_p_mean": 0.7447349385429494,
+        "source_y_rate": 0.875
+      },
+      {
+        "bin_index": 8,
+        "count": 27,
+        "empirical_rate": 1.0,
+        "mean_prediction": 0.8390946235364813,
+        "source_null_fill_applied": false,
+        "source_p_mean": 0.8390946235364813,
+        "source_y_rate": 1.0
+      },
+      {
+        "bin_index": 9,
+        "count": 0,
+        "empirical_rate": 0.0,
+        "mean_prediction": 0.0,
+        "source_null_fill_applied": true,
+        "source_p_mean": null,
+        "source_y_rate": null
+      }
+    ],
+    "seed": 1337,
+    "segment": "global"
+  },
+  {
+    "brier_score": 0.10413017139460835,
+    "dataset_id": "valorant_calibration_report_v1",
+    "evaluation_scope": "current",
+    "evidence_source": "simulation",
+    "log_loss": 0.3287486181175952,
+    "reliability_curve_bins": [
+      {
+        "bin_index": 0,
+        "count": 113,
+        "empirical_rate": 0.0,
+        "mean_prediction": 0.0,
+        "source_null_fill_applied": false,
+        "source_p_mean": 0.0,
+        "source_y_rate": 0.0
+      },
+      {
+        "bin_index": 1,
+        "count": 1,
+        "empirical_rate": 1.0,
+        "mean_prediction": 0.1290954110626114,
+        "source_null_fill_applied": false,
+        "source_p_mean": 0.1290954110626114,
+        "source_y_rate": 1.0
+      },
+      {
+        "bin_index": 2,
+        "count": 0,
+        "empirical_rate": 0.0,
+        "mean_prediction": 0.0,
+        "source_null_fill_applied": true,
+        "source_p_mean": null,
+        "source_y_rate": null
+      },
+      {
+        "bin_index": 3,
+        "count": 0,
+        "empirical_rate": 0.0,
+        "mean_prediction": 0.0,
+        "source_null_fill_applied": true,
+        "source_p_mean": null,
+        "source_y_rate": null
+      },
+      {
+        "bin_index": 4,
+        "count": 1,
+        "empirical_rate": 1.0,
+        "mean_prediction": 0.45250760887228914,
+        "source_null_fill_applied": false,
+        "source_p_mean": 0.45250760887228914,
+        "source_y_rate": 1.0
+      },
+      {
+        "bin_index": 5,
+        "count": 2,
+        "empirical_rate": 0.5,
+        "mean_prediction": 0.5196239321523481,
+        "source_null_fill_applied": false,
+        "source_p_mean": 0.5196239321523481,
+        "source_y_rate": 0.5
+      },
+      {
+        "bin_index": 6,
+        "count": 9,
+        "empirical_rate": 0.4444444444444444,
+        "mean_prediction": 0.6436241049078779,
+        "source_null_fill_applied": false,
+        "source_p_mean": 0.6436241049078779,
+        "source_y_rate": 0.4444444444444444
+      },
+      {
+        "bin_index": 7,
+        "count": 7,
+        "empirical_rate": 0.42857142857142855,
+        "mean_prediction": 0.7791235873178236,
+        "source_null_fill_applied": false,
+        "source_p_mean": 0.7791235873178236,
+        "source_y_rate": 0.42857142857142855
+      },
+      {
+        "bin_index": 8,
+        "count": 76,
+        "empirical_rate": 0.7236842105263158,
+        "mean_prediction": 0.8587664540412284,
+        "source_null_fill_applied": false,
+        "source_p_mean": 0.8587664540412284,
+        "source_y_rate": 0.7236842105263158
+      },
+      {
+        "bin_index": 9,
+        "count": 87,
+        "empirical_rate": 0.9080459770114943,
+        "mean_prediction": 0.9657239259752253,
+        "source_null_fill_applied": false,
+        "source_p_mean": 0.9657239259752253,
+        "source_y_rate": 0.9080459770114943
+      }
+    ],
+    "seed": 1337,
+    "segment": "global"
+  }
+]
