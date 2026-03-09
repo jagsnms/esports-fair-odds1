@@ -1,10 +1,10 @@
 # Current Status — `agent-initiative-base`
 
-Last updated: 2026-03-09T22:17:10+00:00
+Last updated: 2026-03-09T22:29:00+00:00
 
 ## Snapshot
-- **Current branch head:** `64da0b088f9b1d80e5075508ba5171df86f960df`
-- **Active initiative:** None currently in implementation; last promoted initiative was **Calibration Reliability Gate: Provenance-Strong Evidence Export (Baseline→Current)**.
+- **Current branch head:** `f166b3508b28fe763dc6cd1be1f13a8362a489a4`
+- **Active initiative:** Branch-history process hardening (one-time backfill complete); no active implementation initiative in progress.
 - **Branch-state assessment:** Replay vs simulation pilot tranche reached strong bounded confidence (coherent pass/mismatch/inconclusive semantics, depth pass, depth mismatch), and calibration gate input provenance moved from manual assembly to machine-export + manifest.
 
 ## Main red flags
