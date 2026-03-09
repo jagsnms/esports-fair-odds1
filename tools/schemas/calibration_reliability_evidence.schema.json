@@ -1,0 +1,274 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tools/schemas/calibration_reliability_evidence.schema.json",
+  "title": "CalibrationReliabilityEvidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at",
+    "baseline_ref",
+    "current_ref",
+    "evidence_records",
+    "comparison_pairs",
+    "gate_status",
+    "incomplete_reasons"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "calibration_reliability_evidence.v1"
+    },
+    "generated_at": {
+      "type": "string",
+      "minLength": 1
+    },
+    "baseline_ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "current_ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evidence_records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "evidence_source",
+          "dataset_id",
+          "evaluation_scope",
+          "seed",
+          "segment",
+          "brier_score",
+          "log_loss",
+          "reliability_curve_bins"
+        ],
+        "properties": {
+          "evidence_source": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dataset_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "evaluation_scope": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "seed": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "segment": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "brier_score": {},
+          "log_loss": {},
+          "reliability_curve_bins": {}
+        }
+      }
+    },
+    "comparison_pairs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "evidence_source",
+          "dataset_id",
+          "seed",
+          "segment",
+          "baseline_metrics",
+          "current_metrics",
+          "delta"
+        ],
+        "properties": {
+          "evidence_source": {
+            "type": "string",
+            "minLength": 1
+          },
+          "dataset_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "seed": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "segment": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "baseline_metrics": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "brier_score",
+              "log_loss",
+              "reliability_curve_bins"
+            ],
+            "properties": {
+              "brier_score": {
+                "type": "number"
+              },
+              "log_loss": {
+                "type": "number"
+              },
+              "reliability_curve_bins": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "bin_index",
+                    "count",
+                    "mean_prediction",
+                    "empirical_rate"
+                  ],
+                  "properties": {
+                    "bin_index": {
+                      "type": "integer"
+                    },
+                    "count": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "mean_prediction": {
+                      "type": "number"
+                    },
+                    "empirical_rate": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "current_metrics": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "brier_score",
+              "log_loss",
+              "reliability_curve_bins"
+            ],
+            "properties": {
+              "brier_score": {
+                "type": "number"
+              },
+              "log_loss": {
+                "type": "number"
+              },
+              "reliability_curve_bins": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "bin_index",
+                    "count",
+                    "mean_prediction",
+                    "empirical_rate"
+                  ],
+                  "properties": {
+                    "bin_index": {
+                      "type": "integer"
+                    },
+                    "count": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "mean_prediction": {
+                      "type": "number"
+                    },
+                    "empirical_rate": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "delta": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "brier_score_delta",
+              "log_loss_delta",
+              "reliability_curve_bins_delta"
+            ],
+            "properties": {
+              "brier_score_delta": {
+                "type": "number"
+              },
+              "log_loss_delta": {
+                "type": "number"
+              },
+              "reliability_curve_bins_delta": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "bin_index",
+                    "count_delta",
+                    "mean_prediction_delta",
+                    "empirical_rate_delta"
+                  ],
+                  "properties": {
+                    "bin_index": {
+                      "type": "integer"
+                    },
+                    "count_delta": {
+                      "type": "integer"
+                    },
+                    "mean_prediction_delta": {
+                      "type": "number"
+                    },
+                    "empirical_rate_delta": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "gate_status": {
+      "type": "string",
+      "enum": [
+        "pass",
+        "incomplete_evidence",
+        "fail"
+      ]
+    },
+    "incomplete_reasons": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}
