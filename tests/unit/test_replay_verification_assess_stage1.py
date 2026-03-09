@@ -4,7 +4,7 @@ import asyncio
 import json
 from pathlib import Path
 
-from tools.replay_verification_assess import run_assessment
+from tools.replay_verification_assess import run_assessment, CONTRACT_DIAGNOSTIC_REQUIRED_KEYS
 from engine.compute.rails_cs2 import (
     RAIL_INPUT_POLICY_V2_STRICT,
     V2_ACTIVATED,
@@ -19,6 +19,19 @@ SPARSE_RAW_FIXTURE_PATH = ROOT / "tools" / "fixtures" / "raw_replay_sample.jsonl
 CARRYOVER_COMPLETE_FIXTURE_PATH = ROOT / "tools" / "fixtures" / "replay_carryover_complete_v1.jsonl"
 POINT_LIKE_FIXTURE_PATH = ROOT / "logs" / "history_points.jsonl"
 BASELINE_ARTIFACT_PATH = ROOT / "automation" / "reports" / "baseline_replay_carryover_evidence_20260307.json"
+
+
+def _expected_spec_required_keys() -> list[str]:
+    spec = json.loads((ROOT / "docs" / "ENGINE_SPEC.json").read_text(encoding="utf-8"))
+    fields = spec["invariants"]["diagnostics_payload_required_fields"]
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in fields:
+        value = str(item).strip()
+        if value not in seen:
+            seen.add(value)
+            normalized.append(value)
+    return normalized
 
 
 def _ensure_point_like_fixture() -> None:
@@ -95,6 +108,9 @@ def test_sparse_fallback_classes_remain_deterministic_and_fallback_only() -> Non
         assert first["point_like_inputs_transition_passthrough"] == 0
         assert first["point_like_reject_reason_counts"] == {}
         assert first["points_with_contract_diagnostics"] == first["total_points_captured"]
+        assert first["contract_diagnostics_required_keys"] == CONTRACT_DIAGNOSTIC_REQUIRED_KEYS
+        assert first["contract_diagnostics_spec_required_keys"] == _expected_spec_required_keys()
+        assert second["contract_diagnostics_spec_required_keys"] == _expected_spec_required_keys()
         for key in first["contract_diagnostics_required_keys"]:
             assert first["contract_diagnostics_key_presence_counts"][key] == first["points_with_contract_diagnostics"]
             assert first["contract_diagnostics_missing_key_counts"][key] == 0

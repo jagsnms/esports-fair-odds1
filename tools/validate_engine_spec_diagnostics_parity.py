@@ -12,7 +12,7 @@ from typing import Any
 SCHEMA_VERSION = "engine_spec_diagnostics_parity.v1"
 PARITY_MODE = "exact_name_path_only"
 ENGINE_SPEC_FIELD_PATH = "invariants.diagnostics_payload_required_fields"
-ASSESSMENT_FIELD_PATH = "contract_diagnostics_required_keys"
+ASSESSMENT_FIELD_PATH = "contract_diagnostics_spec_required_keys"
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_ENGINE_SPEC_PATH = ROOT / "docs" / "ENGINE_SPEC.json"
 
@@ -90,15 +90,15 @@ def _extract_spec_required_fields(spec_obj: Any) -> tuple[list[str] | None, str 
 def _extract_assessment_required_fields(assessment_obj: Any) -> tuple[list[str] | None, str | None]:
     if not isinstance(assessment_obj, dict):
         return None, "assessment artifact must be a JSON object"
-    required = assessment_obj.get("contract_diagnostics_required_keys")
+    required = assessment_obj.get("contract_diagnostics_spec_required_keys")
     if not isinstance(required, list):
-        return None, "missing/wrong-type path: contract_diagnostics_required_keys"
+        return None, "missing/wrong-type path: contract_diagnostics_spec_required_keys"
 
     normalized: list[str] = []
     seen: set[str] = set()
     for idx, item in enumerate(required):
         if not isinstance(item, str):
-            return None, f"wrong-type value at contract_diagnostics_required_keys[{idx}]: expected string"
+            return None, f"wrong-type value at contract_diagnostics_spec_required_keys[{idx}]: expected string"
         if item not in seen:
             seen.add(item)
             normalized.append(item)

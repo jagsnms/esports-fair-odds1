@@ -24,9 +24,10 @@ def _spec_payload(fields: list[str]) -> dict:
     }
 
 
-def _assessment_payload(fields: list[str]) -> dict:
+def _assessment_payload(fields: list[str], *, legacy_fields: list[str] | None = None) -> dict:
     return {
-        "contract_diagnostics_required_keys": fields,
+        "contract_diagnostics_spec_required_keys": fields,
+        "contract_diagnostics_required_keys": fields if legacy_fields is None else legacy_fields,
     }
 
 
@@ -78,7 +79,7 @@ def test_fail_case_with_one_missing_field(tmp_path: Path) -> None:
     assert payload["missing_fields"] == [
         {
             "field": "timer_state",
-            "expected_in": "contract_diagnostics_required_keys",
+            "expected_in": "contract_diagnostics_spec_required_keys",
             "match_mode": "exact_name_path_only",
             "reason": "missing_in_assessment_required_keys",
         }
@@ -165,6 +166,48 @@ def test_blocked_when_assessment_invalid_json(tmp_path: Path) -> None:
     assert exit_code == 1
     assert payload["status"] == "blocked"
     assert any("assessment artifact invalid JSON" in err for err in payload["errors"])
+
+
+def test_blocked_when_new_assessment_field_missing_even_if_legacy_field_exists(tmp_path: Path) -> None:
+    spec = tmp_path / "ENGINE_SPEC.json"
+    assessment = tmp_path / "assessment.json"
+    _write_json(spec, _spec_payload(["q"]))
+    _write_json(assessment, {"contract_diagnostics_required_keys": ["q"]})
+
+    exit_code, payload = validate_diagnostics_parity(
+        engine_spec_path=spec,
+        assessment_artifact_path=assessment,
+    )
+    assert exit_code == 1
+    assert payload["status"] == "blocked"
+    assert any(
+        "missing/wrong-type path: contract_diagnostics_spec_required_keys" in err
+        for err in payload["errors"]
+    )
+
+
+def test_blocked_when_new_assessment_field_wrong_type(tmp_path: Path) -> None:
+    spec = tmp_path / "ENGINE_SPEC.json"
+    assessment = tmp_path / "assessment.json"
+    _write_json(spec, _spec_payload(["q"]))
+    _write_json(
+        assessment,
+        {
+            "contract_diagnostics_spec_required_keys": "q",
+            "contract_diagnostics_required_keys": ["q"],
+        },
+    )
+
+    exit_code, payload = validate_diagnostics_parity(
+        engine_spec_path=spec,
+        assessment_artifact_path=assessment,
+    )
+    assert exit_code == 1
+    assert payload["status"] == "blocked"
+    assert any(
+        "missing/wrong-type path: contract_diagnostics_spec_required_keys" in err
+        for err in payload["errors"]
+    )
 
 
 def test_deterministic_stdout_output_ordering(tmp_path: Path) -> None:

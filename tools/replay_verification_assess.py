@@ -29,6 +29,7 @@ from engine.replay.bo3_jsonl import load_bo3_jsonl_entries, iter_payloads, load_
 from engine.compute.rails_cs2 import RAIL_INPUT_V2_REQUIRED_FIELDS
 
 SCHEMA_VERSION = "replay_validation_summary.v1"
+ENGINE_SPEC_PATH = ROOT / "docs" / "ENGINE_SPEC.json"
 CONTRACT_DIAGNOSTIC_REQUIRED_KEYS = [
     "alive_counts",
     "hp_totals",
@@ -49,6 +50,42 @@ CONTRACT_DIAGNOSTIC_REQUIRED_KEYS = [
     "structural_violations",
     "behavioral_violations",
 ]
+
+
+def _load_engine_spec_required_keys() -> list[str]:
+    """Load canonical diagnostics required keys from ENGINE_SPEC with trim+dedupe normalization."""
+    try:
+        spec_obj = json.loads(ENGINE_SPEC_PATH.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise ValueError(f"engine spec unreadable: {ENGINE_SPEC_PATH} ({exc})") from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"engine spec invalid JSON: {ENGINE_SPEC_PATH} ({exc})") from exc
+
+    if not isinstance(spec_obj, dict):
+        raise ValueError("engine spec must be a JSON object")
+    invariants = spec_obj.get("invariants")
+    if not isinstance(invariants, dict):
+        raise ValueError("missing/wrong-type path: invariants")
+    required = invariants.get("diagnostics_payload_required_fields")
+    if not isinstance(required, list):
+        raise ValueError("missing/wrong-type path: invariants.diagnostics_payload_required_fields")
+    if len(required) == 0:
+        raise ValueError("empty path: invariants.diagnostics_payload_required_fields")
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for idx, item in enumerate(required):
+        if not isinstance(item, str):
+            raise ValueError(
+                f"wrong-type value at invariants.diagnostics_payload_required_fields[{idx}]: expected string"
+            )
+        value = item.strip()
+        if value not in seen:
+            seen.add(value)
+            normalized.append(value)
+    if len(normalized) == 0:
+        raise ValueError("empty path after normalization: invariants.diagnostics_payload_required_fields")
+    return normalized
 
 
 def _fixture_class_from_path(replay_path_str: str) -> str:
@@ -274,6 +311,7 @@ async def run_assessment(replay_path: str, *, prematch_map: float | None = None)
         )
         for key in CONTRACT_DIAGNOSTIC_REQUIRED_KEYS
     }
+    contract_diagnostics_spec_required_keys = _load_engine_spec_required_keys()
 
     return {
         "schema_version": SCHEMA_VERSION,
@@ -314,6 +352,7 @@ async def run_assessment(replay_path: str, *, prematch_map: float | None = None)
         "point_like_reject_reason_counts": replay_contract_status.get("point_like_reject_reason_counts", {}),
         "raw_mode_point_like_skipped": int(replay_contract_status.get("raw_mode_point_like_skipped", 0)),
         "points_with_contract_diagnostics": points_with_contract_diagnostics,
+        "contract_diagnostics_spec_required_keys": contract_diagnostics_spec_required_keys,
         "contract_diagnostics_required_keys": CONTRACT_DIAGNOSTIC_REQUIRED_KEYS,
         "contract_diagnostics_key_presence_counts": contract_diagnostics_key_presence_counts,
         "contract_diagnostics_missing_key_counts": contract_diagnostics_missing_key_counts,
