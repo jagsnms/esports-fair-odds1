@@ -253,6 +253,26 @@ def test_invalid_packet_when_manifest_and_evidence_gate_status_differ(tmp_path: 
     assert any("gate_status mismatch" in err for err in result["errors"])
 
 
+def test_invalid_packet_when_manifest_run_id_differs_from_validator_run_id(tmp_path: Path) -> None:
+    tmp = tmp_path
+    packet_root = tmp / "packets"
+    run_id = "packet_manifest_run_id_mismatch"
+    packet_dir = _build_packet(packet_root, run_id, gate_status="pass")
+    manifest_path = packet_dir / "packet_manifest.json"
+    manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest_payload["run_id"] = "packet_manifest_run_id_mismatch_other"
+    _write_json(manifest_path, manifest_payload)
+
+    exit_code, result = validate_promotion_packet(
+        run_id=run_id,
+        validated_at="2026-03-15T00:00:00Z",
+        packet_root=packet_root,
+    )
+    assert exit_code == 2
+    assert result["status"] == "invalid_packet"
+    assert any("run_id mismatch" in err for err in result["errors"])
+
+
 def test_invalid_packet_when_branch_proof_heads_differ(tmp_path: Path) -> None:
     tmp = tmp_path
     packet_root = tmp / "packets"

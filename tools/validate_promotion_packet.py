@@ -341,6 +341,9 @@ def validate_promotion_packet(
                 errors.append(f"missing required manifest field: {key}")
         else:
             checks["manifest_fields_complete"] = True
+            manifest_run_id_value = manifest_obj.get("run_id")
+            if isinstance(manifest_run_id_value, str) and manifest_run_id_value != run_id:
+                errors.append("run_id mismatch: packet_manifest.run_id and validator run_id must match exactly")
             gate_value = manifest_obj.get("gate_status")
             gate_status = gate_value if isinstance(gate_value, str) else None
             if gate_status in ALLOWED_GATE_STATUSES:
