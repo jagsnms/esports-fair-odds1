@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 FIRST_SLICE_FIXTURE = ROOT / "tools" / "fixtures" / "raw_replay_sample.jsonl"
 SECOND_SLICE_FIXTURE = ROOT / "tools" / "fixtures" / "replay_carryover_complete_v1.jsonl"
 NON_TINY_SLICE_FIXTURE = ROOT / "tools" / "fixtures" / "replay_non_tiny_canonical_v1.jsonl"
+NEGATIVE_CONTROL_SLICE_FIXTURE = ROOT / "tools" / "fixtures" / "replay_non_tiny_negative_control_v1.jsonl"
 
 
 def _summary(
@@ -539,3 +540,40 @@ def test_existing_canonical_slice_pass_baseline_remains_unchanged(tmp_path: Path
         _assert_decision_contract_coherence(artifact)
         assert artifact["comparison"]["failed_checks"] == []
         assert artifact["comparison"]["mismatch_class"] == "none"
+
+
+def test_non_tiny_negative_control_slice_produces_coherent_non_pass_deterministically(tmp_path: Path) -> None:
+    output_path = tmp_path / "non_tiny_negative_control_pilot.json"
+    kwargs = {
+        "replay_input_path": str(NEGATIVE_CONTROL_SLICE_FIXTURE),
+        "run_id": "replay_sim_pilot_non_tiny_negative_control",
+        "synthetic_seed": 1337,
+        "synthetic_policy_profile": "balanced_v1",
+        "synthetic_rounds": 10,
+        "synthetic_ticks_per_round": 4,
+        "generated_at": "2026-03-09T00:00:00Z",
+        "output_path": output_path,
+    }
+
+    first = pilot.run_replay_simulation_validation_pilot(**kwargs)
+    first_payload = json.loads(output_path.read_text(encoding="utf-8"))
+    _assert_decision_contract_coherence(first_payload)
+    assert int(first_payload["replay"]["total_points_captured"]) >= 20
+    assert int(first_payload["replay"]["p_hat_count"]) >= 20
+    assert first_payload["decision"] in ("mismatch", "inconclusive")
+    assert first_payload["decision"] != "pass"
+
+    second = pilot.run_replay_simulation_validation_pilot(**kwargs)
+    second_payload = json.loads(output_path.read_text(encoding="utf-8"))
+    _assert_decision_contract_coherence(second_payload)
+    assert int(second_payload["replay"]["total_points_captured"]) >= 20
+    assert int(second_payload["replay"]["p_hat_count"]) >= 20
+    assert second_payload["decision"] == first_payload["decision"]
+    assert first.decision == second.decision
+
+    if first_payload["decision"] == "mismatch":
+        assert first_payload["comparison"]["failed_checks"] == second_payload["comparison"]["failed_checks"]
+        assert len(first_payload["comparison"]["failed_checks"]) > 0
+    else:
+        assert first_payload["decision_reasons"] == second_payload["decision_reasons"]
+        assert len(first_payload["decision_reasons"]) > 0
