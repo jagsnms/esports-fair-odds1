@@ -392,6 +392,16 @@ def validate_promotion_packet(
                 sanity_errors.append(
                     "branch proof commit-chain mismatch: initiative_commits must include local_source_head exactly"
                 )
+            if (
+                isinstance(proof_obj.get("pre_initiative_base"), str)
+                and isinstance(proof_obj.get("local_source_head"), str)
+                and isinstance(proof_obj.get("initiative_commit_range"), str)
+                and proof_obj["initiative_commit_range"]
+                != f"{proof_obj['pre_initiative_base']}..{proof_obj['local_source_head']}"
+            ):
+                sanity_errors.append(
+                    "branch proof commit-range mismatch: initiative_commit_range must equal pre_initiative_base..local_source_head exactly"
+                )
             if sanity_errors:
                 errors.extend(sanity_errors)
             else:

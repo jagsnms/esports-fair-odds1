@@ -28,7 +28,7 @@ def _valid_branch_proof() -> dict:
         "local_source_head": "c28486cc0b4c015b5fd763079f23ca977f3aa1f8",
         "origin_source_head": "c28486cc0b4c015b5fd763079f23ca977f3aa1f8",
         "pre_initiative_base": "097132aa1e5bd621556fc78099bdcf45234d176c",
-        "initiative_commit_range": "097132a..c28486c",
+        "initiative_commit_range": "097132aa1e5bd621556fc78099bdcf45234d176c..c28486cc0b4c015b5fd763079f23ca977f3aa1f8",
         "initiative_commits": ["c28486cc0b4c015b5fd763079f23ca977f3aa1f8"],
         "files_in_scope": [
             "tools/assemble_promotion_packet.py",
@@ -322,6 +322,33 @@ def test_invalid_packet_when_initiative_commits_excludes_local_source_head(tmp_p
     assert result["status"] == "invalid_packet"
     assert (
         "branch proof commit-chain mismatch: initiative_commits must include local_source_head exactly"
+        in result["errors"]
+    )
+
+
+def test_invalid_packet_when_initiative_commit_range_endpoints_mismatch(tmp_path: Path) -> None:
+    tmp = tmp_path
+    packet_root = tmp / "packets"
+    run_id = "packet_mismatched_commit_range"
+    packet_dir = _build_packet(packet_root, run_id, gate_status="pass")
+    proof_path = packet_dir / "artifacts" / "branch_commit_proof.json"
+    proof_payload = json.loads(proof_path.read_text(encoding="utf-8"))
+    proof_payload["initiative_commit_range"] = "deadbeef..feedface"
+    _write_json(proof_path, proof_payload)
+    manifest_path = packet_dir / "packet_manifest.json"
+    manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest_payload["artifact_hashes"]["artifacts/branch_commit_proof.json"] = _sha(proof_path)
+    _write_json(manifest_path, manifest_payload)
+
+    exit_code, result = validate_promotion_packet(
+        run_id=run_id,
+        validated_at="2026-03-15T00:00:00Z",
+        packet_root=packet_root,
+    )
+    assert exit_code == 2
+    assert result["status"] == "invalid_packet"
+    assert (
+        "branch proof commit-range mismatch: initiative_commit_range must equal pre_initiative_base..local_source_head exactly"
         in result["errors"]
     )
 
