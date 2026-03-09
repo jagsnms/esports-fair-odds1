@@ -230,3 +230,110 @@ def test_runner_writes_stable_artifact_for_fixed_inputs(tmp_path: Path, monkeypa
     assert "total_points_captured_abs_delta" in payload["comparison"]
     assert "failed_checks" in payload["comparison"]
     assert "mismatch_class" in payload["comparison"]
+
+
+def test_alignment_attempt_order_and_first_match_selection_are_deterministic(tmp_path: Path, monkeypatch) -> None:
+    replay_input = tmp_path / "replay.jsonl"
+    replay_input.write_text('{"dummy": true}\n', encoding="utf-8")
+    output_path = tmp_path / "pilot_alignment.json"
+
+    def _fake_write_synthetic(path: Path, *, rounds: int, **_: object) -> int:
+        path.write_text(json.dumps({"rounds": int(rounds)}), encoding="utf-8")
+        return 1
+
+    async def _fake_run_assessment(path: str, *, prematch_map: float | None = None) -> dict[str, object]:
+        _ = prematch_map
+        if "synthetic_raw_replay.jsonl" in path:
+            rounds = int(json.loads(Path(path).read_text(encoding="utf-8"))["rounds"])
+            synthetic_points_by_rounds = {
+                1: 5,  # abs_delta=2
+                2: 3,  # abs_delta=0 -> first acceptable candidate
+                3: 8,
+            }
+            return _summary(
+                total_points_captured=synthetic_points_by_rounds.get(rounds, 99),
+                raw_contract_points=synthetic_points_by_rounds.get(rounds, 99),
+            )
+        return _summary(total_points_captured=3, raw_contract_points=3)
+
+    monkeypatch.setattr(pilot, "write_synthetic_raw_replay_jsonl", _fake_write_synthetic)
+    monkeypatch.setattr(pilot, "run_assessment", _fake_run_assessment)
+
+    result = pilot.run_replay_simulation_validation_pilot(
+        replay_input_path=str(replay_input),
+        run_id="pilot_alignment_order",
+        synthetic_seed=1337,
+        synthetic_policy_profile="balanced_v1",
+        synthetic_rounds=10,
+        synthetic_ticks_per_round=4,
+        generated_at="2026-03-09T00:00:00Z",
+        output_path=output_path,
+    )
+
+    assert result.decision == "pass"
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert payload["alignment"]["target_replay_total_points"] == 3
+    assert payload["alignment"]["attempted_synthetic_rounds"] == [1, 2]
+    assert payload["alignment"]["selected_synthetic_rounds"] == 2
+    assert payload["alignment"]["alignment_achieved"] is True
+    assert payload["alignment"]["stop_reason"] is None
+    assert payload["alignment"]["attempt_results"] == [
+        {"attempted_rounds": 1, "synthetic_total_points": 5, "abs_delta": 2},
+        {"attempted_rounds": 2, "synthetic_total_points": 3, "abs_delta": 0},
+    ]
+
+
+def test_alignment_stops_inconclusive_when_fixed_candidate_budget_cannot_align(tmp_path: Path, monkeypatch) -> None:
+    replay_input = tmp_path / "replay.jsonl"
+    replay_input.write_text('{"dummy": true}\n', encoding="utf-8")
+    output_path = tmp_path / "pilot_alignment_inconclusive.json"
+
+    def _fake_write_synthetic(path: Path, *, rounds: int, **_: object) -> int:
+        path.write_text(json.dumps({"rounds": int(rounds)}), encoding="utf-8")
+        return 1
+
+    async def _fake_run_assessment(path: str, *, prematch_map: float | None = None) -> dict[str, object]:
+        _ = prematch_map
+        if "synthetic_raw_replay.jsonl" in path:
+            rounds = int(json.loads(Path(path).read_text(encoding="utf-8"))["rounds"])
+            synthetic_points_by_rounds = {
+                2: 9,
+                1: 8,
+                3: 10,
+            }
+            return _summary(
+                total_points_captured=synthetic_points_by_rounds.get(rounds, 99),
+                raw_contract_points=synthetic_points_by_rounds.get(rounds, 99),
+            )
+        return _summary(total_points_captured=6, raw_contract_points=6)
+
+    monkeypatch.setattr(pilot, "write_synthetic_raw_replay_jsonl", _fake_write_synthetic)
+    monkeypatch.setattr(pilot, "run_assessment", _fake_run_assessment)
+
+    result = pilot.run_replay_simulation_validation_pilot(
+        replay_input_path=str(replay_input),
+        run_id="pilot_alignment_inconclusive",
+        synthetic_seed=1337,
+        synthetic_policy_profile="balanced_v1",
+        synthetic_rounds=10,
+        synthetic_ticks_per_round=4,
+        generated_at="2026-03-09T00:00:00Z",
+        output_path=output_path,
+    )
+
+    assert result.decision == "inconclusive"
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert payload["decision"] == "inconclusive"
+    assert payload["decision_reasons"] == [pilot.ALIGNMENT_STOP_REASON]
+    assert payload["comparison"]["failed_checks"] == []
+    assert payload["comparison"]["mismatch_class"] == "none"
+    assert payload["alignment"]["target_replay_total_points"] == 6
+    assert payload["alignment"]["attempted_synthetic_rounds"] == [2, 1, 3]
+    assert payload["alignment"]["selected_synthetic_rounds"] is None
+    assert payload["alignment"]["alignment_achieved"] is False
+    assert payload["alignment"]["stop_reason"] == pilot.ALIGNMENT_STOP_REASON
+    assert payload["alignment"]["attempt_results"] == [
+        {"attempted_rounds": 2, "synthetic_total_points": 9, "abs_delta": 3},
+        {"attempted_rounds": 1, "synthetic_total_points": 8, "abs_delta": 2},
+        {"attempted_rounds": 3, "synthetic_total_points": 10, "abs_delta": 4},
+    ]

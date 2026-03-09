@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import math
 import json
 import re
 import tempfile
@@ -50,6 +51,10 @@ FAILED_CHECK_ORDER = (
 MISMATCH_CLASS_VOLUME_ALIGNMENT_ONLY = "volume_alignment_only"
 MISMATCH_CLASS_CROSS_SURFACE_BEHAVIORAL_OR_METRIC = "cross_surface_behavioral_or_metric"
 MISMATCH_CLASS_NONE = "none"
+ALIGNMENT_ABS_DELTA_THRESHOLD = 1
+ALIGNMENT_STOP_REASON = (
+    "alignment inconclusive: no synthetic round candidate satisfied abs(replay.total_points_captured - synthetic.total_points_captured) <= 1"
+)
 
 
 @dataclass(frozen=True)
@@ -146,6 +151,26 @@ def _extract_side_block(side_name: str, summary: Any) -> dict[str, Any]:
     return block
 
 
+def _empty_comparison_block() -> dict[str, Any]:
+    return {
+        "p_hat_min_abs_delta": None,
+        "p_hat_max_abs_delta": None,
+        "total_points_captured_abs_delta": None,
+        "failed_checks": [],
+        "mismatch_class": MISMATCH_CLASS_NONE,
+        "cross_surface_pass": False,
+        "cross_surface_reasons": [],
+    }
+
+
+def _extract_total_points(summary: Any) -> int | None:
+    if isinstance(summary, dict):
+        value = summary.get("total_points_captured")
+        if _is_int(value):
+            return int(value)
+    return None
+
+
 def build_pilot_decision_artifact(
     *,
     run_id: str,
@@ -157,30 +182,27 @@ def build_pilot_decision_artifact(
     generated_at: str,
     replay_summary: Any,
     synthetic_summary: Any,
+    alignment: dict[str, Any] | None = None,
+    force_inconclusive_reason: str | None = None,
 ) -> dict[str, Any]:
     replay = _extract_side_block("replay", replay_summary)
     synthetic = _extract_side_block("synthetic", synthetic_summary)
 
     decision_reasons: list[str] = []
-    comparison_reasons: list[str] = []
     failed_check_set: set[str] = set()
-    failed_checks: list[str] = []
-    comparison: dict[str, Any] = {
-        "p_hat_min_abs_delta": None,
-        "p_hat_max_abs_delta": None,
-        "total_points_captured_abs_delta": None,
-        "failed_checks": failed_checks,
-        "mismatch_class": MISMATCH_CLASS_NONE,
-        "cross_surface_pass": False,
-        "cross_surface_reasons": comparison_reasons,
-    }
+    comparison = _empty_comparison_block()
+    comparison_reasons = comparison["cross_surface_reasons"]
+    failed_checks = comparison["failed_checks"]
 
     if replay["local_sanity_pass"] is not True:
         decision_reasons.extend(replay["local_sanity_reasons"])
     if synthetic["local_sanity_pass"] is not True:
         decision_reasons.extend(synthetic["local_sanity_reasons"])
 
-    if decision_reasons:
+    if force_inconclusive_reason is not None:
+        decision = "inconclusive"
+        decision_reasons = [force_inconclusive_reason]
+    elif decision_reasons:
         decision = "inconclusive"
     else:
         replay_coverage = replay["raw_contract_coverage_rate"]
@@ -250,6 +272,16 @@ def build_pilot_decision_artifact(
             "synthetic_ticks_per_round": int(synthetic_ticks_per_round),
             "synthetic_raw_contract_mode": "IN_PROGRESS",
         },
+        "alignment": alignment
+        if isinstance(alignment, dict)
+        else {
+            "target_replay_total_points": None,
+            "attempted_synthetic_rounds": [],
+            "attempt_results": [],
+            "selected_synthetic_rounds": None,
+            "alignment_achieved": False,
+            "stop_reason": None,
+        },
         "replay": replay,
         "synthetic": synthetic,
         "comparison": comparison,
@@ -315,19 +347,73 @@ def run_replay_simulation_validation_pilot(
     except Exception as exc:  # pragma: no cover - runtime safeguard
         replay_summary = {"_error": f"replay assessment failed: {exc}"}
 
+    replay_total_points = _extract_total_points(replay_summary)
+    rounds_base = int(synthetic_rounds)
+    if replay_total_points is not None:
+        rounds_base = max(1, int(math.ceil(float(replay_total_points) / float(int(synthetic_ticks_per_round)))))
+    raw_candidates = [rounds_base, rounds_base - 1, rounds_base + 1]
+    candidate_rounds: list[int] = []
+    for rounds in raw_candidates:
+        if rounds > 0 and rounds not in candidate_rounds:
+            candidate_rounds.append(rounds)
+
+    attempted_rounds: list[int] = []
+    attempt_results: list[dict[str, Any]] = []
+    selected_synthetic_rounds: int | None = None
+    selected_synthetic_summary: Any = None
+    last_synthetic_summary: Any = None
+
     with tempfile.TemporaryDirectory(prefix=f"{run_id_norm}.pilot.synthetic.") as temp_dir:
         synthetic_path = Path(temp_dir) / "synthetic_raw_replay.jsonl"
-        try:
-            write_synthetic_raw_replay_jsonl(
-                synthetic_path,
-                seed=int(synthetic_seed),
-                rounds=int(synthetic_rounds),
-                ticks_per_round=int(synthetic_ticks_per_round),
-                policy_profile=synthetic_policy_profile,
+        for rounds in candidate_rounds:
+            attempted_rounds.append(rounds)
+            try:
+                write_synthetic_raw_replay_jsonl(
+                    synthetic_path,
+                    seed=int(synthetic_seed),
+                    rounds=int(rounds),
+                    ticks_per_round=int(synthetic_ticks_per_round),
+                    policy_profile=synthetic_policy_profile,
+                )
+                current_summary = asyncio.run(run_assessment(str(synthetic_path)))
+            except Exception as exc:  # pragma: no cover - runtime safeguard
+                current_summary = {"_error": f"synthetic assessment failed: {exc}"}
+            last_synthetic_summary = current_summary
+            synthetic_total_points = _extract_total_points(current_summary)
+            abs_delta = (
+                abs(int(replay_total_points) - int(synthetic_total_points))
+                if replay_total_points is not None and synthetic_total_points is not None
+                else None
             )
-            synthetic_summary = asyncio.run(run_assessment(str(synthetic_path)))
-        except Exception as exc:  # pragma: no cover - runtime safeguard
-            synthetic_summary = {"_error": f"synthetic assessment failed: {exc}"}
+            attempt_results.append(
+                {
+                    "attempted_rounds": int(rounds),
+                    "synthetic_total_points": synthetic_total_points,
+                    "abs_delta": abs_delta,
+                }
+            )
+            if abs_delta is not None and abs_delta <= ALIGNMENT_ABS_DELTA_THRESHOLD and selected_synthetic_rounds is None:
+                selected_synthetic_rounds = int(rounds)
+                selected_synthetic_summary = current_summary
+                break
+
+    if selected_synthetic_summary is not None:
+        synthetic_summary = selected_synthetic_summary
+    else:
+        synthetic_summary = (
+            last_synthetic_summary
+            if last_synthetic_summary is not None
+            else {"_error": "synthetic assessment unavailable"}
+        )
+
+    alignment_payload: dict[str, Any] = {
+        "target_replay_total_points": replay_total_points,
+        "attempted_synthetic_rounds": attempted_rounds,
+        "attempt_results": attempt_results,
+        "selected_synthetic_rounds": selected_synthetic_rounds,
+        "alignment_achieved": selected_synthetic_rounds is not None,
+        "stop_reason": None if selected_synthetic_rounds is not None else ALIGNMENT_STOP_REASON,
+    }
 
     artifact = build_pilot_decision_artifact(
         run_id=run_id_norm,
@@ -339,6 +425,8 @@ def run_replay_simulation_validation_pilot(
         generated_at=generated_at_value,
         replay_summary=replay_summary,
         synthetic_summary=synthetic_summary,
+        alignment=alignment_payload,
+        force_inconclusive_reason=None if selected_synthetic_rounds is not None else ALIGNMENT_STOP_REASON,
     )
 
     reports_dir = DEFAULT_REPORTS_DIR
