@@ -161,6 +161,14 @@ def test_should_persist_bo3_live_capture_contract_requires_live_mode_and_raw_ide
     )
 
 
+
+def test_bo3_auto_activation_enables_capture_lock_by_default():
+    source = Path("legacy/app/app35_ml.py").read_text(encoding="utf-8")
+
+    assert 'st.session_state["cs2_live_config_locked"] = True' in source
+    assert 'st.session_state["cs2_live_config_locked_prev"] = False' in source
+    assert 'st.session_state["cs2_auto_add_snapshot_this_run"] = True' in source
+
 def test_app35_ml_parses_after_bo3_live_capture_wiring():
     source = Path("legacy/app/app35_ml.py").read_text(encoding="utf-8")
     ast.parse(source)

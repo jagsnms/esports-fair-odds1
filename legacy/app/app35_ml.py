@@ -5467,6 +5467,9 @@ with tabs[3]:
                                         }, f, indent=2)
                                     st.session_state["cs2_bo3_auto_active"] = True
                                     st.session_state["cs2_bo3_pending_match_id"] = str(match_id)
+                                    st.session_state["cs2_live_config_locked"] = True
+                                    st.session_state["cs2_live_config_locked_prev"] = False
+                                    st.session_state["cs2_auto_add_snapshot_this_run"] = True
                                     # Set initial live fields so they show after rerun even if poller overwrites feed with empty payload
                                     st.session_state["cs2_live_team_a"] = team_a_name
                                     st.session_state["cs2_live_team_b"] = team_b_name
@@ -6117,7 +6120,7 @@ with tabs[3]:
                                      step=0.01, format="%.2f", key="cs2_live_p0_map")
             p0_series = float(p0_map)  # placeholder for display
 
-        st.checkbox("Lock config (start logging snapshots)", key="cs2_live_config_locked")
+        st.checkbox("Lock config (start logging snapshots)", key="cs2_live_config_locked", help="BO3 live auto activation now turns this on automatically for the bounded live-capture contract so canonical BO3 snapshot rows are produced without a separate manual lock step.")
         prev_locked = st.session_state.get("cs2_live_config_locked_prev", False)
         cur_locked = bool(st.session_state.get("cs2_live_config_locked", False))
         st.session_state["cs2_live_config_locked_prev"] = cur_locked
