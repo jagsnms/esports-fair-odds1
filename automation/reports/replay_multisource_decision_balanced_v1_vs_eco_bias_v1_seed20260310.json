@@ -2,7 +2,7 @@
   "decision": {
     "decision": "inconclusive",
     "decision_basis": "replay_anchored_multi_source",
-    "no_material_difference_rule": "emit no_material_difference when both aligned source blocks have equal failed_check_count and each key replay-vs-source absolute delta differs by <= 0.01",
+    "no_material_difference_rule": "emit no_material_difference only when both aligned source blocks share the same replay-vs-source failed-check identities, the same mismatch_class, and each key replay-vs-source absolute delta differs by <= 0.01",
     "reasons": [
       "balanced_v1 source block is not replay-comparable enough for a two-source decision",
       "eco_bias_v1 source block is not replay-comparable enough for a two-source decision"
@@ -87,6 +87,7 @@
         "synthetic_pass": true,
         "synthetic_reasons": []
       },
+      "mismatch_class": "none",
       "policy_profile": "balanced_v1",
       "source_decision": "inconclusive",
       "source_decision_reasons": [
@@ -163,6 +164,7 @@
         "synthetic_pass": true,
         "synthetic_reasons": []
       },
+      "mismatch_class": "none",
       "policy_profile": "eco_bias_v1",
       "source_decision": "inconclusive",
       "source_decision_reasons": [

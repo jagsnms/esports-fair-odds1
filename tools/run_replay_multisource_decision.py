@@ -42,7 +42,7 @@ RUN_ID_PATTERN = re.compile(r"^[a-z0-9_-]+$")
 FIXED_SYNTHETIC_SEED = 20260310
 NO_MATERIAL_DIFFERENCE_DELTA_THRESHOLD = 0.01
 NO_MATERIAL_DIFFERENCE_RULE = (
-    "emit no_material_difference when both aligned source blocks have equal failed_check_count and each key replay-vs-source absolute delta differs by <= 0.01"
+    "emit no_material_difference only when both aligned source blocks share the same replay-vs-source failed-check identities, the same mismatch_class, and each key replay-vs-source absolute delta differs by <= 0.01"
 )
 SOURCE_POLICY_PROFILES = (
     PHASE2_STAGE1_POLICY_PROFILE,
@@ -105,6 +105,7 @@ def _source_block(source_payload: dict[str, Any]) -> dict[str, Any]:
         "source_decision": source_payload["decision"],
         "source_decision_reasons": source_payload["decision_reasons"],
         "cross_surface_failed_checks": comparison["failed_checks"],
+        "mismatch_class": comparison["mismatch_class"],
         "key_replay_vs_source_deltas": _comparison_metrics(source_payload),
         "cross_surface_pass": comparison["cross_surface_pass"],
         "cross_surface_reasons": comparison["cross_surface_reasons"],
@@ -153,6 +154,14 @@ def _all_metric_differences_within_tie_threshold(
     return True
 
 
+def _compatible_disagreement_kind(left_block: dict[str, Any], right_block: dict[str, Any]) -> bool:
+    return (
+        left_block["source_decision"] == right_block["source_decision"]
+        and left_block["mismatch_class"] == right_block["mismatch_class"]
+        and left_block["cross_surface_failed_checks"] == right_block["cross_surface_failed_checks"]
+    )
+
+
 def build_replay_multisource_decision_artifact(
     *,
     run_id: str,
@@ -182,12 +191,11 @@ def build_replay_multisource_decision_artifact(
         if not _usable_source_block(eco_block):
             reasons.append("eco_bias_v1 source block is not replay-comparable enough for a two-source decision")
     else:
-        balanced_failed = len(balanced_block["cross_surface_failed_checks"])
-        eco_failed = len(eco_block["cross_surface_failed_checks"])
-        if balanced_failed == eco_failed and _all_metric_differences_within_tie_threshold(balanced_block, eco_block):
+        disagreement_kind_compatible = _compatible_disagreement_kind(balanced_block, eco_block)
+        if disagreement_kind_compatible and _all_metric_differences_within_tie_threshold(balanced_block, eco_block):
             decision = "no_material_difference"
             reasons.append(
-                f"both sources have failed_check_count={balanced_failed} and all key replay-vs-source deltas stay within the no-material-difference threshold {NO_MATERIAL_DIFFERENCE_DELTA_THRESHOLD:.2f}"
+                f"both sources share replay disagreement kind and all key replay-vs-source deltas stay within the no-material-difference threshold {NO_MATERIAL_DIFFERENCE_DELTA_THRESHOLD:.2f}"
             )
         else:
             balanced_severity = _severity_tuple(balanced_block)
@@ -202,9 +210,12 @@ def build_replay_multisource_decision_artifact(
                 reasons.append(
                     f"eco_bias_v1 outranks balanced_v1 on replay anchoring with severity tuple {eco_severity} < {balanced_severity}"
                 )
-            else:
+            elif disagreement_kind_compatible:
                 decision = "no_material_difference"
-                reasons.append("both sources produced identical replay-anchored severity tuples")
+                reasons.append("both sources produced identical replay-anchored severity tuples with compatible disagreement kinds")
+            else:
+                decision = "inconclusive"
+                reasons.append("balanced_v1 and eco_bias_v1 tie on replay-anchored severity but disagree in different replay failure kinds")
 
     return {
         "schema_version": SCHEMA_VERSION,

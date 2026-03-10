@@ -136,6 +136,38 @@ def test_build_replay_multisource_decision_artifact_marks_no_material_difference
     assert artifact["decision"]["reasons"]
 
 
+def test_equal_failed_check_count_with_different_failed_check_identities_does_not_collapse_to_no_material_difference() -> None:
+    replay_summary = _summary()
+    balanced_artifact = _pilot_artifact(
+        policy_profile=phase2.PHASE2_STAGE1_POLICY_PROFILE,
+        replay_summary=replay_summary,
+        synthetic_summary=_summary(p_hat_min=0.461, p_hat_max=0.628, p_hat_median=0.544),
+    )
+    eco_artifact = _pilot_artifact(
+        policy_profile=phase2.PHASE2_SECOND_SOURCE_POLICY_PROFILE,
+        replay_summary=replay_summary,
+        synthetic_summary=_summary(p_hat_min=0.459, p_hat_max=0.631, p_hat_median=0.544),
+    )
+
+    artifact = decision_tool.build_replay_multisource_decision_artifact(
+        run_id="decision_incompatible_failed_checks",
+        replay_input_path="tools/fixtures/replay_carryover_complete_v1.jsonl",
+        generated_at="2026-03-10T00:00:00Z",
+        replay_summary=replay_summary,
+        balanced_artifact=balanced_artifact,
+        eco_artifact=eco_artifact,
+    )
+
+    assert artifact["sources"]["balanced_v1"]["cross_surface_failed_checks"] == [
+        pilot.CHECK_ID_P_HAT_MIN_ABS_DELTA_LTE_0_05,
+    ]
+    assert artifact["sources"]["eco_bias_v1"]["cross_surface_failed_checks"] == [
+        pilot.CHECK_ID_P_HAT_MAX_ABS_DELTA_LTE_0_05,
+    ]
+    assert artifact["decision"]["decision"] == "eco_preferred"
+    assert artifact["decision"]["decision"] != "no_material_difference"
+
+
 def test_runner_writes_stable_combined_two_source_artifact(tmp_path: Path, monkeypatch) -> None:
     replay_input = tmp_path / "replay.jsonl"
     replay_input.write_text('{"dummy": true}\n', encoding="utf-8")
