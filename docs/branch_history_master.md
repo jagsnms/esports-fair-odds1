@@ -1,5 +1,27 @@
 # Branch History - `master`
 
+## 2026-03-10 - Bounded BO3 live-capture/source contract for replay-anchored parity work
+- **Branch:** `master`
+- **Initiative / phase:** Bounded BO3-authoritative live-capture/source-contract step
+- **Summary of push:** Promoted one bounded BO3 live-capture contract so BO3 auto activation now produces one append-only canonical live artifact row in `data/processed/cs2_replay_snapshots.parquet` without a separate manual lock step, while preserving explicit raw-event linkage, replay-anchorable round identity, normalized engine-consumed frame fields, and derived intraround/parity diagnostics.
+- **Project commits:**
+  - `df956a7e8a0d769983f2867fc16d7882ea3f2df1` `Add bounded BO3 live capture contract`
+  - `6b8f8ee591e5dc1bbb51e635c82d2fa988cf7e71` `Auto-enable BO3 live capture lock`
+- **Files in scope:**
+  - `bo3.gg/poller.py`
+  - `legacy/app/app35_ml.py`
+  - `legacy/fair_odds/logs.py`
+  - `legacy/fair_odds/paths.py`
+  - `tests/unit/test_bo3_live_capture_contract.py`
+  - `docs/branch_history_master.md`
+  - `docs/current_status_master.md`
+- **Bounded contract decision:** BO3 is the only authoritative live source for this step. The existing `data/processed/cs2_replay_snapshots.parquet` artifact remains the canonical persisted path, but now carries explicit BO3 live-capture contract fields instead of relying on scattered raw JSONL plus optional snapshot persistence.
+- **Default capture behavior change:** BO3 live auto activation now always records raw pulls to `logs/bo3_pulls.jsonl`, auto-enables the snapshot-lock gate for this bounded contract, and canonical BO3 live snapshot persistence remains decoupled from the old broad `cs2_inplay_persist` toggle.
+- **Checks run and result:** `tests/unit/test_bo3_live_capture_contract.py` passed (`5 passed`), including raw-linkage mapping, append-only artifact generation, live-only persistence gating, the BO3 auto-activation lock/default-capture regression case, and a parse smoke check for `legacy/app/app35_ml.py`; the focused artifact-generation check `tests/unit/test_bo3_live_capture_contract.py::test_bo3_live_capture_contract_persists_append_only_artifact` also passed and confirmed that the canonical BO3 artifact is produced, append-only, preserves raw-event linkage, includes normalized frame fields, includes derived intraround/parity diagnostics, and does not rely on the old broad toggle.
+- **Risks / red flags:** This is capture-contract work only. It is not live parity implementation, not replay/live comparison logic, not BO3+GRID unification, and not proof that BO3 is sufficient for eventual full parity work.
+- **Why this push matters:** `master` can now collect BO3 real-match runs into one reusable linked artifact instead of a fragmented mix of overwrite-only feed state, raw pulls, optional parquet snapshots, and downstream history logs.
+- **Next likely step (at this time):** Re-rank the next justified project from current `master` reality rather than assuming live parity should open automatically.
+
 ## 2026-03-10 - [LOCAL STAGE] Bounded BO3 live-capture/source contract for replay-anchored parity work
 - **Branch:** `master` (local stage; not promoted)
 - **Initiative / phase:** Stage 1 bounded BO3-authoritative live-capture/source-contract step
