@@ -17,8 +17,8 @@ Last updated: 2026-03-10
 - `tests/simulation/test_phase2_policy_contract.py` passed on the local stage branch.
 - `tests/simulation/test_phase2_trace_export.py` passed on the local stage branch.
 - The approved `balanced_v1` CLI simulation run completed deterministically with seed `20260310`.
-- The `eco_bias_v1` second-source path was exercised through the approved focused tests; direct `.venv311` script invocation with `--policy-profile eco_bias_v1` remained blocked by a local Windows venv launcher quirk.
-- The thin comparison artifact was emitted at `automation/reports/phase2_source_comparison_balanced_v1_vs_eco_bias_v1_seed20260310.json` during approved trace-export test coverage; direct comparison CLI invocation hit the same local venv launcher quirk.
+- The direct `.venv311` `eco_bias_v1` CLI simulation validation also completed successfully with seed `20260310`; the earlier launcher issue was an environment/sandbox execution quirk, not a product failure.
+- The direct `.venv311` source-vs-source comparison CLI validation also completed successfully and emitted `automation/reports/phase2_source_comparison_balanced_v1_vs_eco_bias_v1_seed20260310.json`; the earlier launcher issue was an environment/sandbox execution quirk, not a product failure.
 
 ## Current initiative status
 - **Promoted `master` state:** one bounded truthful simulation evidence path derived from canonical `balanced_v1` trace export.
