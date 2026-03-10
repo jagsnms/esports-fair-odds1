@@ -1,4 +1,4 @@
-﻿"""Policy-driven canonical simulation Phase 2 Stage 1 contract."""
+"""Policy-driven canonical simulation Phase 2 Stage 1 contract."""
 from __future__ import annotations
 
 import asyncio
@@ -31,10 +31,11 @@ def _sanitize_replay_summary(replay_summary: dict[str, Any], *, seed: int) -> di
     return sanitized
 
 
-def generate_phase2_summary(seed: int) -> dict[str, Any]:
+def generate_phase2_summary(seed: int, *, rounds: int = PHASE2_STAGE1_ROUNDS) -> dict[str, Any]:
+    round_count = int(rounds)
     policy_distribution = generate_synthetic_distribution_summary(
         seed=int(seed),
-        rounds=PHASE2_STAGE1_ROUNDS,
+        rounds=round_count,
         ticks_per_round=PHASE2_STAGE1_TICKS_PER_ROUND,
         policy_profile=PHASE2_STAGE1_POLICY_PROFILE,
     )
@@ -44,7 +45,7 @@ def generate_phase2_summary(seed: int) -> dict[str, Any]:
         generated_payload_count = write_synthetic_raw_replay_jsonl(
             replay_path,
             seed=int(seed),
-            rounds=PHASE2_STAGE1_ROUNDS,
+            rounds=round_count,
             ticks_per_round=PHASE2_STAGE1_TICKS_PER_ROUND,
             policy_profile=PHASE2_STAGE1_POLICY_PROFILE,
         )
@@ -58,7 +59,7 @@ def generate_phase2_summary(seed: int) -> dict[str, Any]:
         "seed": int(seed),
         "policy_profile": PHASE2_STAGE1_POLICY_PROFILE,
         "canonical_engine_path": CANONICAL_ENGINE_PATH,
-        "round_count": PHASE2_STAGE1_ROUNDS,
+        "round_count": round_count,
         "ticks_per_round": PHASE2_STAGE1_TICKS_PER_ROUND,
         "generated_payload_count": int(generated_payload_count),
         "policy_families": list(POLICY_FAMILIES),
@@ -75,13 +76,15 @@ def generate_phase2_summary(seed: int) -> dict[str, Any]:
     }
 
 
-def emit_phase2_summary(seed: int, output_path: str | Path | None = None) -> dict[str, Any]:
-    summary = generate_phase2_summary(seed)
+def emit_phase2_summary(
+    seed: int,
+    output_path: str | Path | None = None,
+    *,
+    rounds: int = PHASE2_STAGE1_ROUNDS,
+) -> dict[str, Any]:
+    summary = generate_phase2_summary(seed, rounds=rounds)
     if output_path is not None:
         path = Path(output_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return summary
-
-
-

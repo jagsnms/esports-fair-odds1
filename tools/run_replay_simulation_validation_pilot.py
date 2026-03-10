@@ -69,6 +69,7 @@ MISMATCH_CLASS_VOLUME_ALIGNMENT_ONLY = "volume_alignment_only"
 MISMATCH_CLASS_CROSS_SURFACE_BEHAVIORAL_OR_METRIC = "cross_surface_behavioral_or_metric"
 MISMATCH_CLASS_NONE = "none"
 ALIGNMENT_ABS_DELTA_THRESHOLD = 1
+CANONICAL_PHASE2_ROUND_CANDIDATES = (32, 31, 33, 30, 34)
 ALIGNMENT_STOP_REASON = (
     "alignment inconclusive: no synthetic round candidate satisfied abs(replay.total_points_captured - synthetic.total_points_captured) <= 1"
 )
@@ -466,61 +467,77 @@ def run_replay_simulation_validation_pilot(
     )
 
     replay_summary: Any
-    synthetic_summary: Any
     try:
         replay_summary = asyncio.run(run_assessment(str(replay_input)))
     except Exception as exc:  # pragma: no cover - runtime safeguard
         replay_summary = {"_error": f"replay assessment failed: {exc}"}
 
     replay_total_points = _extract_total_points(replay_summary)
+    attempted_rounds: list[int] = []
+    attempt_results: list[dict[str, Any]] = []
+    representative_synthetic_summary: Any = None
+    representative_schema_version = SIMULATION_PHASE2_SUMMARY_VERSION
+    representative_rounds = int(CANONICAL_PHASE2_ROUND_CANDIDATES[0])
+    selected_synthetic_summary: Any = None
+    selected_schema_version = SIMULATION_PHASE2_SUMMARY_VERSION
+    selected_rounds: int | None = None
 
-    canonical_phase2_summary: Any
-    try:
-        canonical_phase2_summary = generate_phase2_summary(int(synthetic_seed))
-    except Exception as exc:  # pragma: no cover - runtime safeguard
-        canonical_phase2_summary = {"_error": f"canonical phase2 summary failed: {exc}"}
+    for round_candidate in CANONICAL_PHASE2_ROUND_CANDIDATES:
+        canonical_phase2_summary: Any
+        try:
+            canonical_phase2_summary = generate_phase2_summary(int(synthetic_seed), rounds=int(round_candidate))
+        except Exception as exc:  # pragma: no cover - runtime safeguard
+            canonical_phase2_summary = {"_error": f"canonical phase2 summary failed: {exc}"}
 
-    synthetic_summary = (
-        canonical_phase2_summary.get("replay_comparable_summary")
-        if isinstance(canonical_phase2_summary, dict)
-        else None
-    )
-    if not isinstance(synthetic_summary, dict):
-        synthetic_summary = {"_error": "canonical phase2 replay_comparable_summary unavailable"}
+        candidate_summary = (
+            canonical_phase2_summary.get("replay_comparable_summary")
+            if isinstance(canonical_phase2_summary, dict)
+            else None
+        )
+        if not isinstance(candidate_summary, dict):
+            candidate_summary = {"_error": "canonical phase2 replay_comparable_summary unavailable"}
 
-    synthetic_total_points = _extract_total_points(synthetic_summary)
-    abs_delta = (
-        abs(int(replay_total_points) - int(synthetic_total_points))
-        if replay_total_points is not None and synthetic_total_points is not None
-        else None
-    )
-    synthetic_source_schema_version = (
-        str(canonical_phase2_summary.get("schema_version"))
-        if isinstance(canonical_phase2_summary, dict) and isinstance(canonical_phase2_summary.get("schema_version"), str)
-        else SIMULATION_PHASE2_SUMMARY_VERSION
-    )
+        candidate_schema_version = (
+            str(canonical_phase2_summary.get("schema_version"))
+            if isinstance(canonical_phase2_summary, dict)
+            and isinstance(canonical_phase2_summary.get("schema_version"), str)
+            else SIMULATION_PHASE2_SUMMARY_VERSION
+        )
+        candidate_total_points = _extract_total_points(candidate_summary)
+        abs_delta = (
+            abs(int(replay_total_points) - int(candidate_total_points))
+            if replay_total_points is not None and candidate_total_points is not None
+            else None
+        )
 
-    alignment_payload: dict[str, Any] = {
-        "target_replay_total_points": replay_total_points,
-        "attempted_synthetic_rounds": [PHASE2_STAGE1_ROUNDS],
-        "attempt_results": [
+        attempted_rounds.append(int(round_candidate))
+        attempt_results.append(
             {
-                "attempted_rounds": int(PHASE2_STAGE1_ROUNDS),
-                "synthetic_total_points": synthetic_total_points,
+                "attempted_rounds": int(round_candidate),
+                "synthetic_total_points": candidate_total_points,
                 "abs_delta": abs_delta,
             }
-        ],
-        "selected_synthetic_rounds": (
-            int(PHASE2_STAGE1_ROUNDS)
-            if abs_delta is not None and abs_delta <= ALIGNMENT_ABS_DELTA_THRESHOLD
-            else None
-        ),
-        "alignment_achieved": abs_delta is not None and abs_delta <= ALIGNMENT_ABS_DELTA_THRESHOLD,
-        "stop_reason": (
-            None
-            if abs_delta is not None and abs_delta <= ALIGNMENT_ABS_DELTA_THRESHOLD
-            else CANONICAL_PHASE2_FIXED_SLICE_NOTE
-        ),
+        )
+
+        if representative_synthetic_summary is None:
+            representative_synthetic_summary = candidate_summary
+            representative_schema_version = candidate_schema_version
+            representative_rounds = int(round_candidate)
+
+        if abs_delta is not None and abs_delta <= ALIGNMENT_ABS_DELTA_THRESHOLD:
+            selected_synthetic_summary = candidate_summary
+            selected_schema_version = candidate_schema_version
+            selected_rounds = int(round_candidate)
+            break
+
+    alignment_achieved = selected_rounds is not None
+    alignment_payload: dict[str, Any] = {
+        "target_replay_total_points": replay_total_points,
+        "attempted_synthetic_rounds": attempted_rounds,
+        "attempt_results": attempt_results,
+        "selected_synthetic_rounds": selected_rounds,
+        "alignment_achieved": alignment_achieved,
+        "stop_reason": None if alignment_achieved else ALIGNMENT_STOP_REASON,
     }
 
     artifact = build_pilot_decision_artifact(
@@ -528,18 +545,14 @@ def run_replay_simulation_validation_pilot(
         replay_input_path=str(replay_input),
         synthetic_seed=int(synthetic_seed),
         synthetic_policy_profile=PHASE2_STAGE1_POLICY_PROFILE,
-        synthetic_rounds=int(PHASE2_STAGE1_ROUNDS),
+        synthetic_rounds=(selected_rounds if selected_rounds is not None else representative_rounds),
         synthetic_ticks_per_round=int(PHASE2_STAGE1_TICKS_PER_ROUND),
         generated_at=generated_at_value,
         replay_summary=replay_summary,
-        synthetic_summary=synthetic_summary,
-        synthetic_source_schema_version=synthetic_source_schema_version,
+        synthetic_summary=(selected_synthetic_summary if selected_synthetic_summary is not None else representative_synthetic_summary),
+        synthetic_source_schema_version=(selected_schema_version if selected_rounds is not None else representative_schema_version),
         alignment=alignment_payload,
-        force_inconclusive_reason=(
-            None
-            if abs_delta is not None and abs_delta <= ALIGNMENT_ABS_DELTA_THRESHOLD
-            else CANONICAL_PHASE2_FIXED_SLICE_NOTE
-        ),
+        force_inconclusive_reason=(None if alignment_achieved else ALIGNMENT_STOP_REASON),
     )
 
     reports_dir = DEFAULT_REPORTS_DIR
@@ -598,6 +611,8 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
 
 
 
