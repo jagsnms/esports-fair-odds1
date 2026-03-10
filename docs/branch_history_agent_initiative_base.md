@@ -164,3 +164,19 @@ Policy after this one-time setup: append-only, one new entry per final push (exc
 - **Risks / red flags:** This patch removes a fake simulation evidence path; it does not create real simulation calibration evidence. Manifest seed metadata still exists but is now explicitly marked as disabled-status metadata only.
 - **Why this push matters:** Once a real minimal simulation lane existed, continuing to label non-simulation calibration data as `simulation` was a concrete truth-surface lie.
 - **Next expected step (at this time):** Re-rank whether a bounded next move should connect honest simulation evidence into a real downstream path or whether another Bible-ranked engine gap now outranks more calibration/simulation work.
+## 2026-03-10 - Phase 2 Stage 1 bounded policy-driven canonical simulation contract
+- **Branch:** `agent-initiative-base`
+- **Initiative / phase:** Phase 2 Stage 1 - policy-driven canonical simulation contract (`balanced_v1` only)
+- **Summary of push:** Added the first bounded Phase 2 canonical simulation surface by routing one seeded `balanced_v1` policy-profile slice through the existing canonical replay assessment path, emitting one stable machine-readable artifact, and adding targeted determinism / engine-path / artifact-truthfulness tests.
+- **Key files/subsystems touched:**
+  - `engine/simulation/__init__.py`
+  - `engine/simulation/phase2.py`
+  - `tests/simulation/test_phase2_policy_contract.py`
+  - `tools/schemas/simulation_phase2_policy_summary.schema.json`
+  - `tools/simulate_phase2.py`
+  - `docs/branch_history_agent_initiative_base.md`
+  - `docs/current_status_agent_initiative_base.md`
+- **Tests/checks run and result:** `python -m unittest discover -s tests/simulation -p test_phase2_policy_contract.py` passed; `python tools/simulate_phase2.py --seed 20260310` emitted deterministic machine-readable JSON with `policy_profile="balanced_v1"`, synthetic replay URI plus `replay_path_exists=false`, and zero structural / behavioral / invariant violations.
+- **Risks / red flags:** This is a bounded opening step only. It does not integrate with calibration/export paths, and the emitted artifact still shows `rail_input_v2_activated_points = 0`, so richer carryover-complete Phase 2 semantics are not established yet.
+- **Why this push matters:** It closes the biggest remaining simulation truth-surface gap after Phase 1 by creating a policy-driven canonical contract instead of a separate synthetic side lane.
+- **Next expected step (at this time):** Decide whether a Stage 2 should target carryover-complete policy-driven activation, or whether another Bible-level project now outranks further simulation work.
