@@ -8,10 +8,6 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from backend.services.runner import Runner
-from backend.store.memory_store import MemoryStore
-from engine.models import Config, Derived, State
-from engine.replay.bo3_jsonl import load_generic_jsonl
 from tools.replay_verification_assess import run_assessment
 from tools.synthetic_state_generator import (
     POLICY_FAMILIES,
@@ -35,10 +31,6 @@ PHASE2_TRACE_JOIN_KEYS = ("game_number", "map_index", "round_number")
 PHASE2_TRACE_EXPORT_CONDITION = "export_only_prediction_points_with_unique_round_result_event"
 
 
-class _NoopBroadcaster:
-    async def broadcast(self, msg: Any) -> None:
-        _ = msg
-
 
 def _sanitize_replay_summary(replay_summary: dict[str, Any], *, seed: int) -> dict[str, Any]:
     sanitized = dict(replay_summary)
@@ -61,59 +53,6 @@ def _build_phase2_raw_replay(
         policy_profile=PHASE2_STAGE1_POLICY_PROFILE,
     )
     return policy_distribution, Path("phase2_balanced_v1_policy_raw.jsonl"), round_count
-
-
-async def _capture_phase2_history_points(replay_path: Path) -> list[dict[str, Any]]:
-    payloads = load_generic_jsonl(str(replay_path))
-    store = MemoryStore(max_history=10000)
-    state = State(config=Config(source="REPLAY", replay_path=str(replay_path), replay_loop=False))
-    derived = Derived(p_hat=0.5, bound_low=0.0, bound_high=1.0, rail_low=0.0, rail_high=1.0, kappa=0.0)
-    await store.set_current(state, derived)
-
-    captured: list[dict[str, Any]] = []
-
-    async def capture_append(point: Any, state: State, derived: Derived) -> None:
-        async with store._lock:
-            store._history.append(point)
-            store._state = state
-            store._derived = derived
-        captured.append(
-            {
-                "time": getattr(point, "time", None),
-                "p_hat": getattr(point, "p_hat", None),
-                "rail_low": getattr(point, "rail_low", None),
-                "rail_high": getattr(point, "rail_high", None),
-                "game_number": getattr(point, "game_number", None),
-                "map_index": getattr(point, "map_index", None),
-                "round_number": getattr(point, "round_number", None),
-                "event": getattr(point, "event", None),
-            }
-        )
-
-    store.append_point = capture_append  # type: ignore[assignment]
-
-    runner = Runner(store=store, broadcaster=_NoopBroadcaster())
-    runner._replay_payloads = payloads
-    runner._replay_index = 0
-    runner._replay_path = str(replay_path)
-    runner._replay_match_id = None
-    runner._replay_format = "raw"
-
-    config = Config(
-        source="REPLAY",
-        replay_path=str(replay_path),
-        replay_loop=False,
-        invariant_diagnostics=True,
-        prematch_map=PHASE2_STAGE2_PREMATCH_MAP,
-    )
-    max_ticks = 10000
-    for _ in range(max_ticks):
-        if not runner._replay_payloads:
-            break
-        if runner._replay_index >= len(runner._replay_payloads):
-            break
-        await runner._tick_replay(config)
-    return captured
 
 
 def _build_phase2_trace_export(*, captured_points: list[dict[str, Any]], seed: int, rounds: int) -> dict[str, Any]:
@@ -214,9 +153,16 @@ async def _generate_phase2_summary_async(seed: int, *, rounds: int = PHASE2_STAG
             ticks_per_round=PHASE2_STAGE1_TICKS_PER_ROUND,
             policy_profile=PHASE2_STAGE1_POLICY_PROFILE,
         )
-        replay_summary = await run_assessment(str(replay_path), prematch_map=PHASE2_STAGE2_PREMATCH_MAP)
-        captured_points = await _capture_phase2_history_points(replay_path)
+        replay_summary = await run_assessment(
+            str(replay_path),
+            prematch_map=PHASE2_STAGE2_PREMATCH_MAP,
+            include_captured_points=True,
+        )
 
+    captured_points = [
+        dict(item.get("point") or {})
+        for item in replay_summary.pop("captured_points", [])
+    ]
     replay_comparable_summary = _sanitize_replay_summary(replay_summary, seed=int(seed))
     trace_export = _build_phase2_trace_export(
         captured_points=captured_points,
@@ -262,3 +208,4 @@ def emit_phase2_summary(
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return summary
+
