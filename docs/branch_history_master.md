@@ -64,13 +64,17 @@
 ## 2026-03-10 - [LOCAL STAGE] Canonical simulation trace export with per-point prediction/outcome labels
 - **Branch:** `codex/phase2-trace-export-stage1`
 - **Initiative / phase:** Bounded canonical trace-export/source-contract step (`balanced_v1` only)
-- **Summary of local stage work:** Added one deterministic machine-readable trace-export path for the landed canonical `balanced_v1` simulation lane so prediction points can be paired only with truthful runner-emitted `round_result` labels.
+- **Summary of local stage work:** Added one deterministic machine-readable trace-export path for the landed canonical `balanced_v1` simulation lane so prediction points can be paired only with truthful runner-emitted `round_result` labels, then removed the duplicate canonical execution introduced in the initial implementation by reusing the existing canonical assessment pass.
+- **Project commits:**
+  - `897f97400e21e6099ba4abc887d9d55eaca0c9cb` `Add canonical Phase 2 trace export contract`
+  - `374485d9df58f12213076ffb4716cf0729f061c6` `Reuse assessment pass for Phase 2 trace export`
 - **Key files/subsystems touched:**
   - `engine/simulation/phase2.py`
+  - `tools/replay_verification_assess.py`
   - `tests/simulation/test_phase2_trace_export.py`
   - `docs/branch_history_master.md`
   - `docs/current_status_master.md`
-- **Checks run and result (local stage):** focused replay/simulation pilot pytest passed; the Phase 2 summary CLI emitted canonical trace-export output for seed `20260310` showing `124` labeled prediction records, `31` truthful `round_result` events, and `4` explicitly excluded unlabeled final-round prediction points; the approved `tests/simulation/...` pytest commands still need one more clean confirmation in the current `.venv311` launcher setup.
-- **Risks / red flags:** This is still one bounded `balanced_v1` slice only. The export is a source-contract step, not a calibration lane, and unlabeled final-round prediction points are excluded rather than given pseudo-labels.
+- **Checks run and result (local stage):** approved validations now pass: `tests/unit/test_run_replay_simulation_validation_pilot.py`, `tests/simulation/test_phase2_policy_contract.py`, and `tests/simulation/test_phase2_trace_export.py`; repeated `tools/simulate_phase2.py --seed 20260310` runs emitted identical machine-readable output.
+- **Risks / red flags:** This is still one bounded `balanced_v1` slice only. The export is a source-contract step, not a calibration lane, and unlabeled final-round prediction points are excluded rather than given pseudo-labels. The earlier pytest launcher issue was an environment/sandbox quirk, not a product failure.
 - **Why this local stage matters:** It opens the truthful raw source contract that later downstream evidence work was missing, without faking calibration-ready outputs or broadening simulation semantics.
-- **Next likely step (from this local stage):** Finish the approved Stage 1 validation pass and decide whether this bounded trace-export contract is promotion-worthy.
+- **Next likely step (from this local stage):** Decide whether this bounded source-contract step should be promoted, without overstating it as calibration-lane work.
