@@ -2,36 +2,51 @@
 """
 Bounded replay-vs-simulation validation pilot runner.
 
-Runs one replay assessment and one seeded synthetic assessment, evaluates the
-frozen local-sanity + cross-surface comparison contract, and emits one
-machine-readable decision artifact.
+Runs one replay assessment and one bounded canonical Phase 2 simulation assessment,
+evaluates the frozen local-sanity + cross-surface comparison contract, and emits
+one machine-readable decision artifact.
 """
 from __future__ import annotations
 
 import argparse
 import asyncio
-import math
 import json
 import re
-import tempfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+import sys
+
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 try:
+    from engine.simulation.phase2 import (
+        PHASE2_STAGE1_POLICY_PROFILE,
+        PHASE2_STAGE1_ROUNDS,
+        PHASE2_STAGE1_TICKS_PER_ROUND,
+        SIMULATION_PHASE2_SUMMARY_VERSION,
+        generate_phase2_summary,
+    )
     from tools.replay_verification_assess import run_assessment
-    from tools.synthetic_state_generator import POLICY_PROFILES, write_synthetic_raw_replay_jsonl
 except ModuleNotFoundError:  # pragma: no cover - script execution fallback
+    from engine.simulation.phase2 import (  # type: ignore[no-redef]
+        PHASE2_STAGE1_POLICY_PROFILE,
+        PHASE2_STAGE1_ROUNDS,
+        PHASE2_STAGE1_TICKS_PER_ROUND,
+        SIMULATION_PHASE2_SUMMARY_VERSION,
+        generate_phase2_summary,
+    )
     from replay_verification_assess import run_assessment  # type: ignore[no-redef]
-    from synthetic_state_generator import POLICY_PROFILES, write_synthetic_raw_replay_jsonl  # type: ignore[no-redef]
 
 
 SCHEMA_VERSION = "replay_simulation_validation_pilot.v1"
 DECISION_VERSION = "replay_simulation_validation_pilot_decision.v1"
+CANONICAL_PHASE2_SOURCE_CONTRACT = "canonical_phase2_balanced_v1"
 RUN_ID_PATTERN = re.compile(r"^[a-z0-9_-]+$")
 P_HAT_ABS_DELTA_TOLERANCE = 0.05
-ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_REPORTS_DIR = ROOT / "automation" / "reports"
 OUTPUT_PREFIX = "replay_simulation_validation_pilot_"
 CHECK_ID_TOTAL_POINTS_CAPTURED_ABS_DELTA_LTE_1 = "total_points_captured_abs_delta_lte_1"
@@ -59,6 +74,9 @@ ALIGNMENT_STOP_REASON = (
 )
 TRAJECTORY_FINGERPRINT_INSUFFICIENT_P_HAT_COUNT_REASON = (
     "trajectory fingerprint unavailable: insufficient p_hat_count"
+)
+CANONICAL_PHASE2_FIXED_SLICE_NOTE = (
+    "canonical Phase 2 slice is fixed; no round-alignment search was performed"
 )
 
 
@@ -187,6 +205,26 @@ def _extract_total_points(summary: Any) -> int | None:
     return None
 
 
+def _build_slice_metadata(
+    *,
+    replay_input_path: str,
+    synthetic_seed: int,
+    synthetic_policy_profile: str,
+    synthetic_rounds: int,
+    synthetic_ticks_per_round: int,
+    synthetic_source_schema_version: str,
+) -> dict[str, Any]:
+    return {
+        "replay_input_path": replay_input_path,
+        "synthetic_seed": int(synthetic_seed),
+        "synthetic_policy_profile": synthetic_policy_profile,
+        "synthetic_rounds": int(synthetic_rounds),
+        "synthetic_ticks_per_round": int(synthetic_ticks_per_round),
+        "synthetic_source_contract": CANONICAL_PHASE2_SOURCE_CONTRACT,
+        "synthetic_source_schema_version": synthetic_source_schema_version,
+    }
+
+
 def build_pilot_decision_artifact(
     *,
     run_id: str,
@@ -198,11 +236,20 @@ def build_pilot_decision_artifact(
     generated_at: str,
     replay_summary: Any,
     synthetic_summary: Any,
+    synthetic_source_schema_version: str = SIMULATION_PHASE2_SUMMARY_VERSION,
     alignment: dict[str, Any] | None = None,
     force_inconclusive_reason: str | None = None,
 ) -> dict[str, Any]:
     replay = _extract_side_block("replay", replay_summary)
     synthetic = _extract_side_block("synthetic", synthetic_summary)
+    slice_metadata = _build_slice_metadata(
+        replay_input_path=replay_input_path,
+        synthetic_seed=synthetic_seed,
+        synthetic_policy_profile=synthetic_policy_profile,
+        synthetic_rounds=synthetic_rounds,
+        synthetic_ticks_per_round=synthetic_ticks_per_round,
+        synthetic_source_schema_version=synthetic_source_schema_version,
+    )
 
     decision_reasons: list[str] = []
     failed_check_set: set[str] = set()
@@ -236,14 +283,7 @@ def build_pilot_decision_artifact(
                 "decision_contract_version": DECISION_VERSION,
                 "run_id": run_id,
                 "generated_at": generated_at,
-                "slice": {
-                    "replay_input_path": replay_input_path,
-                    "synthetic_seed": int(synthetic_seed),
-                    "synthetic_policy_profile": synthetic_policy_profile,
-                    "synthetic_rounds": int(synthetic_rounds),
-                    "synthetic_ticks_per_round": int(synthetic_ticks_per_round),
-                    "synthetic_raw_contract_mode": "IN_PROGRESS",
-                },
+                "slice": slice_metadata,
                 "alignment": alignment
                 if isinstance(alignment, dict)
                 else {
@@ -268,14 +308,7 @@ def build_pilot_decision_artifact(
                 "decision_contract_version": DECISION_VERSION,
                 "run_id": run_id,
                 "generated_at": generated_at,
-                "slice": {
-                    "replay_input_path": replay_input_path,
-                    "synthetic_seed": int(synthetic_seed),
-                    "synthetic_policy_profile": synthetic_policy_profile,
-                    "synthetic_rounds": int(synthetic_rounds),
-                    "synthetic_ticks_per_round": int(synthetic_ticks_per_round),
-                    "synthetic_raw_contract_mode": "IN_PROGRESS",
-                },
+                "slice": slice_metadata,
                 "alignment": alignment
                 if isinstance(alignment, dict)
                 else {
@@ -359,14 +392,7 @@ def build_pilot_decision_artifact(
         "decision_contract_version": DECISION_VERSION,
         "run_id": run_id,
         "generated_at": generated_at,
-        "slice": {
-            "replay_input_path": replay_input_path,
-            "synthetic_seed": int(synthetic_seed),
-            "synthetic_policy_profile": synthetic_policy_profile,
-            "synthetic_rounds": int(synthetic_rounds),
-            "synthetic_ticks_per_round": int(synthetic_ticks_per_round),
-            "synthetic_raw_contract_mode": "IN_PROGRESS",
-        },
+        "slice": slice_metadata,
         "alignment": alignment
         if isinstance(alignment, dict)
         else {
@@ -390,9 +416,9 @@ def run_replay_simulation_validation_pilot(
     replay_input_path: str,
     run_id: str,
     synthetic_seed: int = 1337,
-    synthetic_policy_profile: str = "balanced_v1",
-    synthetic_rounds: int = 10,
-    synthetic_ticks_per_round: int = 4,
+    synthetic_policy_profile: str = PHASE2_STAGE1_POLICY_PROFILE,
+    synthetic_rounds: int = PHASE2_STAGE1_ROUNDS,
+    synthetic_ticks_per_round: int = PHASE2_STAGE1_TICKS_PER_ROUND,
     generated_at: str | None = None,
     output_path: Path | None = None,
 ) -> PilotResult:
@@ -414,20 +440,24 @@ def run_replay_simulation_validation_pilot(
             message=f"replay input missing: {replay_input}",
             artifact=None,
         )
-    if synthetic_policy_profile not in POLICY_PROFILES:
+    if synthetic_policy_profile != PHASE2_STAGE1_POLICY_PROFILE:
         return PilotResult(
             exit_code=1,
             decision="inconclusive",
             output_path=None,
-            message=f"invalid synthetic_policy_profile: must be one of {', '.join(POLICY_PROFILES)}",
+            message=(
+                f"invalid synthetic_policy_profile: canonical Phase 2 binding only supports {PHASE2_STAGE1_POLICY_PROFILE}"
+            ),
             artifact=None,
         )
-    if synthetic_rounds <= 0 or synthetic_ticks_per_round <= 0:
+    if synthetic_rounds != PHASE2_STAGE1_ROUNDS or synthetic_ticks_per_round != PHASE2_STAGE1_TICKS_PER_ROUND:
         return PilotResult(
             exit_code=1,
             decision="inconclusive",
             output_path=None,
-            message="invalid synthetic shape: rounds and ticks_per_round must be > 0",
+            message=(
+                f"invalid synthetic shape: canonical Phase 2 binding only supports rounds={PHASE2_STAGE1_ROUNDS}, ticks_per_round={PHASE2_STAGE1_TICKS_PER_ROUND}"
+            ),
             artifact=None,
         )
 
@@ -443,85 +473,73 @@ def run_replay_simulation_validation_pilot(
         replay_summary = {"_error": f"replay assessment failed: {exc}"}
 
     replay_total_points = _extract_total_points(replay_summary)
-    rounds_base = int(synthetic_rounds)
-    if replay_total_points is not None:
-        rounds_base = max(1, int(math.ceil(float(replay_total_points) / float(int(synthetic_ticks_per_round)))))
-    raw_candidates = [rounds_base, rounds_base - 1, rounds_base + 1]
-    candidate_rounds: list[int] = []
-    for rounds in raw_candidates:
-        if rounds > 0 and rounds not in candidate_rounds:
-            candidate_rounds.append(rounds)
 
-    attempted_rounds: list[int] = []
-    attempt_results: list[dict[str, Any]] = []
-    selected_synthetic_rounds: int | None = None
-    selected_synthetic_summary: Any = None
-    last_synthetic_summary: Any = None
+    canonical_phase2_summary: Any
+    try:
+        canonical_phase2_summary = generate_phase2_summary(int(synthetic_seed))
+    except Exception as exc:  # pragma: no cover - runtime safeguard
+        canonical_phase2_summary = {"_error": f"canonical phase2 summary failed: {exc}"}
 
-    with tempfile.TemporaryDirectory(prefix=f"{run_id_norm}.pilot.synthetic.") as temp_dir:
-        synthetic_path = Path(temp_dir) / "synthetic_raw_replay.jsonl"
-        for rounds in candidate_rounds:
-            attempted_rounds.append(rounds)
-            try:
-                write_synthetic_raw_replay_jsonl(
-                    synthetic_path,
-                    seed=int(synthetic_seed),
-                    rounds=int(rounds),
-                    ticks_per_round=int(synthetic_ticks_per_round),
-                    policy_profile=synthetic_policy_profile,
-                )
-                current_summary = asyncio.run(run_assessment(str(synthetic_path)))
-            except Exception as exc:  # pragma: no cover - runtime safeguard
-                current_summary = {"_error": f"synthetic assessment failed: {exc}"}
-            last_synthetic_summary = current_summary
-            synthetic_total_points = _extract_total_points(current_summary)
-            abs_delta = (
-                abs(int(replay_total_points) - int(synthetic_total_points))
-                if replay_total_points is not None and synthetic_total_points is not None
-                else None
-            )
-            attempt_results.append(
-                {
-                    "attempted_rounds": int(rounds),
-                    "synthetic_total_points": synthetic_total_points,
-                    "abs_delta": abs_delta,
-                }
-            )
-            if abs_delta is not None and abs_delta <= ALIGNMENT_ABS_DELTA_THRESHOLD and selected_synthetic_rounds is None:
-                selected_synthetic_rounds = int(rounds)
-                selected_synthetic_summary = current_summary
-                break
+    synthetic_summary = (
+        canonical_phase2_summary.get("replay_comparable_summary")
+        if isinstance(canonical_phase2_summary, dict)
+        else None
+    )
+    if not isinstance(synthetic_summary, dict):
+        synthetic_summary = {"_error": "canonical phase2 replay_comparable_summary unavailable"}
 
-    if selected_synthetic_summary is not None:
-        synthetic_summary = selected_synthetic_summary
-    else:
-        synthetic_summary = (
-            last_synthetic_summary
-            if last_synthetic_summary is not None
-            else {"_error": "synthetic assessment unavailable"}
-        )
+    synthetic_total_points = _extract_total_points(synthetic_summary)
+    abs_delta = (
+        abs(int(replay_total_points) - int(synthetic_total_points))
+        if replay_total_points is not None and synthetic_total_points is not None
+        else None
+    )
+    synthetic_source_schema_version = (
+        str(canonical_phase2_summary.get("schema_version"))
+        if isinstance(canonical_phase2_summary, dict) and isinstance(canonical_phase2_summary.get("schema_version"), str)
+        else SIMULATION_PHASE2_SUMMARY_VERSION
+    )
 
     alignment_payload: dict[str, Any] = {
         "target_replay_total_points": replay_total_points,
-        "attempted_synthetic_rounds": attempted_rounds,
-        "attempt_results": attempt_results,
-        "selected_synthetic_rounds": selected_synthetic_rounds,
-        "alignment_achieved": selected_synthetic_rounds is not None,
-        "stop_reason": None if selected_synthetic_rounds is not None else ALIGNMENT_STOP_REASON,
+        "attempted_synthetic_rounds": [PHASE2_STAGE1_ROUNDS],
+        "attempt_results": [
+            {
+                "attempted_rounds": int(PHASE2_STAGE1_ROUNDS),
+                "synthetic_total_points": synthetic_total_points,
+                "abs_delta": abs_delta,
+            }
+        ],
+        "selected_synthetic_rounds": (
+            int(PHASE2_STAGE1_ROUNDS)
+            if abs_delta is not None and abs_delta <= ALIGNMENT_ABS_DELTA_THRESHOLD
+            else None
+        ),
+        "alignment_achieved": abs_delta is not None and abs_delta <= ALIGNMENT_ABS_DELTA_THRESHOLD,
+        "stop_reason": (
+            None
+            if abs_delta is not None and abs_delta <= ALIGNMENT_ABS_DELTA_THRESHOLD
+            else CANONICAL_PHASE2_FIXED_SLICE_NOTE
+        ),
     }
 
     artifact = build_pilot_decision_artifact(
         run_id=run_id_norm,
         replay_input_path=str(replay_input),
         synthetic_seed=int(synthetic_seed),
-        synthetic_policy_profile=synthetic_policy_profile,
-        synthetic_rounds=int(synthetic_rounds),
-        synthetic_ticks_per_round=int(synthetic_ticks_per_round),
+        synthetic_policy_profile=PHASE2_STAGE1_POLICY_PROFILE,
+        synthetic_rounds=int(PHASE2_STAGE1_ROUNDS),
+        synthetic_ticks_per_round=int(PHASE2_STAGE1_TICKS_PER_ROUND),
         generated_at=generated_at_value,
         replay_summary=replay_summary,
         synthetic_summary=synthetic_summary,
+        synthetic_source_schema_version=synthetic_source_schema_version,
         alignment=alignment_payload,
-        force_inconclusive_reason=None if selected_synthetic_rounds is not None else ALIGNMENT_STOP_REASON,
+        force_inconclusive_reason=(
+            None
+            if abs_delta is not None and abs_delta <= ALIGNMENT_ABS_DELTA_THRESHOLD
+            else CANONICAL_PHASE2_FIXED_SLICE_NOTE
+        ),
     )
 
     reports_dir = DEFAULT_REPORTS_DIR
@@ -547,9 +565,13 @@ def main() -> int:
     parser.add_argument("--replay-input", required=True, help="Path to replay fixture/input for replay assessment")
     parser.add_argument("--run-id", required=True, help="Run id ([a-z0-9_-]+)")
     parser.add_argument("--synthetic-seed", type=int, default=1337)
-    parser.add_argument("--synthetic-policy-profile", default="balanced_v1", choices=list(POLICY_PROFILES))
-    parser.add_argument("--synthetic-rounds", type=int, default=10)
-    parser.add_argument("--synthetic-ticks-per-round", type=int, default=4)
+    parser.add_argument(
+        "--synthetic-policy-profile",
+        default=PHASE2_STAGE1_POLICY_PROFILE,
+        choices=[PHASE2_STAGE1_POLICY_PROFILE],
+    )
+    parser.add_argument("--synthetic-rounds", type=int, default=PHASE2_STAGE1_ROUNDS)
+    parser.add_argument("--synthetic-ticks-per-round", type=int, default=PHASE2_STAGE1_TICKS_PER_ROUND)
     parser.add_argument("--generated-at", default=None, help="Optional explicit generated_at timestamp")
     parser.add_argument("--output-path", default=None, help="Optional output artifact path")
     args = parser.parse_args()
@@ -576,3 +598,7 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+
+

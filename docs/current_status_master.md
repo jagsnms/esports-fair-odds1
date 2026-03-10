@@ -1,25 +1,24 @@
-﻿# Current Status - `master`
+# Current Status - `master`
 
 Last updated: 2026-03-10
 
 ## Snapshot
-- **Active initiative:** Phase 2 bounded V2 activation on the landed `balanced_v1` simulation slice completed and ready for publication in this push.
-- **Branch-state assessment:** `master` now contains the merged canonical engine/replay/simulation groundwork, the bounded Phase 2 policy-driven simulation contract, and this follow-on correction that makes the existing `balanced_v1` slice carryover-complete enough to activate V2 through the real replay assessment path.
+- **Active initiative:** Replay/simulation decision layer binding to the canonical `balanced_v1` Phase 2 slice completed and ready for publication in this push.
+- **Branch-state assessment:** `master` now contains the merged canonical engine/replay/simulation groundwork, the bounded Phase 2 policy-driven simulation contract, bounded V2 activation on the landed `balanced_v1` slice, and this follow-on binding step that makes the decision layer consume that canonical slice directly.
 
 ## Main red flags
-1. **This is still one bounded slice only.** The current result is honest V2 activation on `balanced_v1`, not broad policy-driven semantic completeness.
-2. **No profile or seed expansion was done here.** That is correct for scope, but it means later Phase 2 generalization still needs an explicit decision.
-3. **No downstream calibration/export integration exists yet.** This stage stays entirely inside the bounded simulation contract.
+1. **This is still one bounded canonical slice only.** The decision layer is bound to `balanced_v1`, not broad replay/simulation completion.
+2. **Alignment honesty is explicit.** The fixed canonical slice can still end `inconclusive` when it is not aligned to the replay fixture, and that is intentional contract honesty rather than a failure of the binding.
+3. **No profile or seed expansion was done here.** Later generalization still requires an explicit decision.
 
 ## Most recent completed checks
-- Focused Phase 2 simulation contract tests pass.
-- Repeated CLI runs for seed `20260310` remain deterministic.
-- Emitted artifact stays machine-readable and truthful.
-- The bounded `balanced_v1` slice now shows `assessment_prematch_map = 0.55` and honest non-zero V2 activation.
-- The same slice shows zero structural, behavioral, and invariant violations.
+- Focused replay/simulation pilot tests pass.
+- Same replay input plus seed `20260310` remains deterministic in the focused pilot path.
+- The bounded pilot artifact now reports truthful canonical Phase 2 provenance instead of the older in-progress raw synthetic lane.
+- The same artifact reports `alignment_achieved = false`, `selected_synthetic_rounds = null`, the fixed-slice note as both stop reason and decision reason, and `decision = inconclusive` for the unaligned fixed-slice case.
 
 ## Next likely step
-- Decide whether another bounded Phase 2 semantic extension still beats pausing or a different Bible-level project.
+- Re-rank whether another bounded canonical comparison/alignment step beats pausing or a different Bible-level project.
 
 ## Process note for future pushes
 - Append one new entry to `docs/branch_history_master.md` per final push.
