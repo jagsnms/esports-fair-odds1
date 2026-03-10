@@ -1,0 +1,208 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tools/schemas/replay_validation_summary.schema.json",
+  "title": "ReplayValidationSummaryStage1",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema_version",
+    "fixture_class",
+    "replay_path",
+    "replay_contract_policy",
+    "replay_point_transition_enabled",
+    "direct_load_payload_count",
+    "replay_payload_count_loaded",
+    "total_points_captured",
+    "raw_contract_points",
+    "point_passthrough_points",
+    "rail_input_contract_policy_counts",
+    "rail_input_active_endpoint_semantics_counts",
+    "rail_input_reason_code_counts",
+    "rail_input_v2_activated_points",
+    "rail_input_v1_fallback_points",
+    "point_like_inputs_seen",
+    "point_like_inputs_rejected",
+    "point_like_inputs_transition_passthrough",
+    "point_like_reject_reason_counts",
+    "points_with_contract_diagnostics",
+    "contract_diagnostics_spec_required_keys",
+    "contract_diagnostics_required_keys",
+    "contract_diagnostics_key_presence_counts",
+    "contract_diagnostics_missing_key_counts",
+    "contract_diagnostics_key_presence_rates",
+    "structural_violations_total",
+    "behavioral_violations_total",
+    "invariant_violations_total"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "replay_validation_summary.v1"
+    },
+    "fixture_class": {
+      "type": "string",
+      "minLength": 1
+    },
+    "replay_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "replay_contract_policy": {
+      "type": "string",
+      "const": "reject_point_like"
+    },
+    "replay_point_transition_enabled": {
+      "type": "boolean"
+    },
+    "replay_point_transition_sunset_epoch": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "direct_load_payload_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "replay_payload_count_loaded": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "total_points_captured": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "raw_contract_points": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "point_passthrough_points": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "rail_input_contract_policy_counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "rail_input_active_endpoint_semantics_counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "rail_input_reason_code_counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "rail_input_v2_activated_points": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "rail_input_v1_fallback_points": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "point_like_inputs_seen": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "point_like_inputs_rejected": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "point_like_inputs_transition_passthrough": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "point_like_reject_reason_counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "raw_mode_point_like_skipped": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "points_with_contract_diagnostics": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "contract_diagnostics_required_keys": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "contract_diagnostics_spec_required_keys": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "contract_diagnostics_key_presence_counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "contract_diagnostics_missing_key_counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "contract_diagnostics_key_presence_rates": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      }
+    },
+    "structural_violations_total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "behavioral_violations_total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "invariant_violations_total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "carryover_evidence_by_source_class": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "points": { "type": "integer", "minimum": 0 },
+          "v2_activated_points": { "type": "integer", "minimum": 0 },
+          "v1_fallback_points": { "type": "integer", "minimum": 0 },
+          "reason_code_counts": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } },
+          "required_complete_points": { "type": "integer", "minimum": 0 },
+          "required_incomplete_points": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "carryover_completeness_required_fields": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}

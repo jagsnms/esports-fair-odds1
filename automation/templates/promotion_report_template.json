@@ -1,0 +1,47 @@
+{
+  "branch": "fast/run-YYYYMMDD-HHMM-short-slug",
+  "base_branch": "agent-base",
+  "lane": "fast",
+  "run_type": "maintenance",
+  "status": "proposed",
+  "_status_allowed_values": [
+    "proposed",
+    "implemented",
+    "promoted",
+    "held"
+  ],
+  "selected_issue": {
+    "issue": "",
+    "title": ""
+  },
+  "why_it_outranked_alternatives": "",
+  "baseline_evidence": {
+    "branch": "",
+    "commit": "",
+    "checks": []
+  },
+  "files_changed": [
+    {
+      "path": "",
+      "change": ""
+    }
+  ],
+  "validation_performed": [
+    {
+      "command": "",
+      "result": ""
+    }
+  ],
+  "before_after_evidence": {
+    "before": "",
+    "after": ""
+  },
+  "unresolved_risks": [],
+  "stop_reason": "",
+  "recommendation": "hold",
+  "_recommendation_allowed_values": [
+    "promote",
+    "hold",
+    "discard"
+  ]
+}

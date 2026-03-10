@@ -1,0 +1,72 @@
+{
+  "branch": "fast/run-20260306-0602-promotion-report-contract",
+  "base_branch": "agent-base",
+  "lane": "fast",
+  "run_type": "maintenance",
+  "status": "implemented",
+  "selected_issue": {
+    "issue": "missing required run metadata fields in promotion report templates",
+    "title": "Promotion report template contract gap for branch/lane/status metadata"
+  },
+  "why_it_outranked_alternatives": "Current evidence showed no unresolved rank 1-4 issues: canonical tests passed (360), replay assessment had no mismatch signal, and structural/behavioral/invariant violation totals were zero. The highest unresolved bounded item was rank 5 missing instrumentation: templates lacked required run metadata keys for consistent traceability.",
+  "baseline_evidence": {
+    "branch": "fast/run-20260306-0602-promotion-report-contract",
+    "commit": "a73bdde960c9ea2d7625b9a163c7fe27f8a285f2",
+    "checks": [
+      {
+        "command": "python3 -m pytest -q",
+        "result": "360 passed in 7.75s"
+      },
+      {
+        "command": "python3 tools/replay_verification_assess.py",
+        "result": "structural_violations_total=0, behavioral_violations_total=0, invariant_violations_total=0"
+      },
+      {
+        "command": "rg required metadata fields in promotion_report_template.md/.json",
+        "result": "baseline missing required top metadata contract fields"
+      }
+    ]
+  },
+  "files_changed": [
+    {
+      "path": "automation/templates/promotion_report_template.md",
+      "change": "Added required top metadata block and recommendation value contract."
+    },
+    {
+      "path": "automation/templates/promotion_report_template.json",
+      "change": "Added top-level run metadata fields and allowed-value arrays for status/recommendation."
+    },
+    {
+      "path": "automation/reports/fast-run-20260306-0602-promotion-report-contract.md",
+      "change": "Added human-readable report for this run."
+    },
+    {
+      "path": "automation/reports/fast-run-20260306-0602-promotion-report-contract.json",
+      "change": "Added machine-readable report for this run."
+    }
+  ],
+  "validation_performed": [
+    {
+      "command": "python3 -m json.tool automation/templates/promotion_report_template.json",
+      "result": "pass"
+    },
+    {
+      "command": "python3 -m pytest -q",
+      "result": "360 passed in 7.23s"
+    },
+    {
+      "command": "python3 tools/replay_verification_assess.py",
+      "result": "structural_violations_total=0, behavioral_violations_total=0, invariant_violations_total=0"
+    }
+  ],
+  "before_after_evidence": {
+    "before": "Templates lacked explicit required run metadata keys (branch/base_branch/lane/run_type/status/recommendation) at report top-level contract.",
+    "after": "Both markdown and JSON templates now include required run metadata contract fields and constrained values."
+  },
+  "unresolved_risks": [
+    "Historical reports are not backfilled to the new template contract in this run.",
+    "Allowed values are represented by convention fields, not an enforced JSON Schema validator."
+  ],
+  "stop_reason": "Selected rank-5 instrumentation issue fixed and validated with minimal bounded changes; further work would exceed single-issue scope.",
+  "recommendation": "promote"
+}

@@ -1,0 +1,18 @@
+{
+  "kind": "ENUM",
+  "name": "SeriesOrderBy",
+  "enumValues": [
+    {
+      "name": "ID",
+      "description": "Orders the series result by ID."
+    },
+    {
+      "name": "StartTimeScheduled",
+      "description": "Orders the series result by the scheduled start time."
+    },
+    {
+      "name": "UpdatedAt",
+      "description": "Orders the series result by the updated time."
+    }
+  ]
+}

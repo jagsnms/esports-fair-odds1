@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tools/schemas/engine_spec_diagnostics_parity_output_validator.schema.json",
+  "title": "EngineSpecDiagnosticsParityOutputValidator",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "status",
+    "artifact_path",
+    "schema_path",
+    "validated_at",
+    "errors",
+    "violations",
+    "artifact_metadata"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "engine_spec_diagnostics_parity_output_validator.v1"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pass",
+        "fail",
+        "blocked"
+      ]
+    },
+    "artifact_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "schema_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "validated_at": {
+      "type": "string",
+      "minLength": 1
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "violations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "artifact_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "status",
+        "parity_mode"
+      ],
+      "properties": {
+        "schema_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "parity_mode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}

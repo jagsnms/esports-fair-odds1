@@ -1,0 +1,60 @@
+[
+  {
+    "evidence_source": "replay",
+    "dataset_id": "cs2_calibration_report_v1",
+    "evaluation_scope": "baseline",
+    "seed": null,
+    "segment": "global",
+    "brier_score": 0.2529900516538663,
+    "log_loss": 0.7275343838062083,
+    "reliability_curve_bins": [
+      {
+        "bin_index": 0,
+        "count": 71,
+        "mean_prediction": 0.060475144498838916,
+        "empirical_rate": 0.30985915492957744
+      },
+      {
+        "bin_index": 4,
+        "count": 69,
+        "mean_prediction": 0.4504644512329268,
+        "empirical_rate": 0.4782608695652174
+      },
+      {
+        "bin_index": 9,
+        "count": 21,
+        "mean_prediction": 0.9369080250510796,
+        "empirical_rate": 1.0
+      }
+    ]
+  },
+  {
+    "evidence_source": "replay",
+    "dataset_id": "cs2_calibration_report_v1",
+    "evaluation_scope": "current",
+    "seed": null,
+    "segment": "global",
+    "brier_score": 0.23179611585803367,
+    "log_loss": 0.6747033282316052,
+    "reliability_curve_bins": [
+      {
+        "bin_index": 0,
+        "count": 14,
+        "mean_prediction": 0.03690668515857346,
+        "empirical_rate": 0.42857142857142855
+      },
+      {
+        "bin_index": 4,
+        "count": 145,
+        "mean_prediction": 0.4604983040448621,
+        "empirical_rate": 0.5310344827586206
+      },
+      {
+        "bin_index": 9,
+        "count": 36,
+        "mean_prediction": 0.9897744984345452,
+        "empirical_rate": 0.9444444444444444
+      }
+    ]
+  }
+]

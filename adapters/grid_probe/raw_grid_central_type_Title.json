@@ -1,0 +1,56 @@
+{
+  "kind": "OBJECT",
+  "name": "Title",
+  "fields": [
+    {
+      "name": "id",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "ID"
+        }
+      }
+    },
+    {
+      "name": "name",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "String"
+        }
+      }
+    },
+    {
+      "name": "nameShortened",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "String"
+        }
+      }
+    },
+    {
+      "name": "logoUrl",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "Url"
+        }
+      }
+    },
+    {
+      "name": "private",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "Boolean"
+        }
+      }
+    }
+  ]
+}

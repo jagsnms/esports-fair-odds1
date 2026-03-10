@@ -1,0 +1,14 @@
+{
+  "kind": "ENUM",
+  "name": "OrderDirection",
+  "enumValues": [
+    {
+      "name": "ASC",
+      "description": "Orders the results ascending."
+    },
+    {
+      "name": "DESC",
+      "description": "Orders the results descending."
+    }
+  ]
+}

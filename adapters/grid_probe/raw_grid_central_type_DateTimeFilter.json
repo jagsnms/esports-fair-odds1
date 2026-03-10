@@ -1,0 +1,20 @@
+{
+  "kind": "INPUT_OBJECT",
+  "name": "DateTimeFilter",
+  "inputFields": [
+    {
+      "name": "gte",
+      "type": {
+        "kind": "SCALAR",
+        "name": "String"
+      }
+    },
+    {
+      "name": "lte",
+      "type": {
+        "kind": "SCALAR",
+        "name": "String"
+      }
+    }
+  ]
+}

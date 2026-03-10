@@ -1,0 +1,579 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import tools.run_replay_simulation_validation_pilot as pilot
+
+ROOT = Path(__file__).resolve().parents[2]
+FIRST_SLICE_FIXTURE = ROOT / "tools" / "fixtures" / "raw_replay_sample.jsonl"
+SECOND_SLICE_FIXTURE = ROOT / "tools" / "fixtures" / "replay_carryover_complete_v1.jsonl"
+NON_TINY_SLICE_FIXTURE = ROOT / "tools" / "fixtures" / "replay_non_tiny_canonical_v1.jsonl"
+NEGATIVE_CONTROL_SLICE_FIXTURE = ROOT / "tools" / "fixtures" / "replay_non_tiny_negative_control_v1.jsonl"
+
+
+def _summary(
+    *,
+    total_points_captured: int = 10,
+    raw_contract_points: int = 10,
+    unknown_replay_mode_points: int = 0,
+    invariant_violations_total: int = 0,
+    behavioral_violations_total: int = 0,
+    p_hat_min: float = 0.41,
+    p_hat_max: float = 0.58,
+    p_hat_count: int = 10,
+    p_hat_median: float | None = None,
+) -> dict[str, object]:
+    median = float(p_hat_median) if p_hat_median is not None else float((p_hat_min + p_hat_max) / 2.0)
+    return {
+        "total_points_captured": total_points_captured,
+        "raw_contract_points": raw_contract_points,
+        "unknown_replay_mode_points": unknown_replay_mode_points,
+        "invariant_violations_total": invariant_violations_total,
+        "behavioral_violations_total": behavioral_violations_total,
+        "p_hat_min": p_hat_min,
+        "p_hat_max": p_hat_max,
+        "p_hat_count": p_hat_count,
+        "p_hat_median": median,
+    }
+
+
+def _assert_decision_contract_coherence(payload: dict[str, object]) -> None:
+    decision = payload["decision"]
+    comparison = payload["comparison"]
+    assert isinstance(comparison, dict)
+    failed_checks = comparison["failed_checks"]
+    mismatch_class = comparison["mismatch_class"]
+    decision_reasons = payload["decision_reasons"]
+
+    if decision == "pass":
+        assert failed_checks == []
+        assert mismatch_class == "none"
+        assert decision_reasons == []
+        return
+    if decision == "mismatch":
+        assert isinstance(failed_checks, list)
+        assert len(failed_checks) > 0
+        if failed_checks == ["total_points_captured_abs_delta_lte_1"]:
+            assert mismatch_class == "volume_alignment_only"
+        else:
+            assert mismatch_class == "cross_surface_behavioral_or_metric"
+        assert isinstance(decision_reasons, list) and len(decision_reasons) > 0
+        return
+    if decision == "inconclusive":
+        assert failed_checks == []
+        assert mismatch_class == "none"
+        assert isinstance(decision_reasons, list) and len(decision_reasons) > 0
+        return
+    raise AssertionError(f"unexpected decision: {decision!r}")
+
+
+def test_build_pilot_decision_artifact_pass_when_local_and_cross_checks_hold() -> None:
+    replay_summary = _summary()
+    synthetic_summary = _summary(p_hat_min=0.42, p_hat_max=0.57)
+
+    artifact = pilot.build_pilot_decision_artifact(
+        run_id="pilot_pass",
+        replay_input_path="tools/fixtures/raw_replay_sample.jsonl",
+        synthetic_seed=1337,
+        synthetic_policy_profile="balanced_v1",
+        synthetic_rounds=10,
+        synthetic_ticks_per_round=4,
+        generated_at="2026-03-09T00:00:00Z",
+        replay_summary=replay_summary,
+        synthetic_summary=synthetic_summary,
+    )
+
+    assert artifact["decision"] == "pass"
+    assert artifact["decision_reasons"] == []
+    assert artifact["replay"]["local_sanity_pass"] is True
+    assert artifact["synthetic"]["local_sanity_pass"] is True
+    assert artifact["replay"]["raw_contract_coverage_rate"] == 1.0
+    assert artifact["synthetic"]["raw_contract_coverage_rate"] == 1.0
+    assert artifact["comparison"]["cross_surface_pass"] is True
+    assert artifact["comparison"]["total_points_captured_abs_delta"] == 0
+    assert artifact["comparison"]["failed_checks"] == []
+    assert artifact["comparison"]["mismatch_class"] == "none"
+
+
+def test_build_pilot_decision_artifact_mismatch_when_cross_surface_delta_exceeds_tolerance() -> None:
+    replay_summary = _summary(p_hat_min=0.10, p_hat_max=0.50)
+    synthetic_summary = _summary(p_hat_min=0.17, p_hat_max=0.62)
+
+    artifact = pilot.build_pilot_decision_artifact(
+        run_id="pilot_mismatch",
+        replay_input_path="tools/fixtures/raw_replay_sample.jsonl",
+        synthetic_seed=1337,
+        synthetic_policy_profile="balanced_v1",
+        synthetic_rounds=10,
+        synthetic_ticks_per_round=4,
+        generated_at="2026-03-09T00:00:00Z",
+        replay_summary=replay_summary,
+        synthetic_summary=synthetic_summary,
+    )
+
+    assert artifact["decision"] == "mismatch"
+    assert artifact["replay"]["local_sanity_pass"] is True
+    assert artifact["synthetic"]["local_sanity_pass"] is True
+    assert artifact["comparison"]["cross_surface_pass"] is False
+    assert any("abs(replay.p_hat_min - synthetic.p_hat_min)" in reason for reason in artifact["decision_reasons"])
+    assert any("abs(replay.p_hat_max - synthetic.p_hat_max)" in reason for reason in artifact["decision_reasons"])
+    assert artifact["comparison"]["total_points_captured_abs_delta"] == 0
+    assert artifact["comparison"]["failed_checks"] == [
+        "p_hat_min_abs_delta_lte_0_05",
+        "p_hat_max_abs_delta_lte_0_05",
+        "p_hat_median_abs_delta_lte_0_05",
+    ]
+    assert artifact["comparison"]["mismatch_class"] == "cross_surface_behavioral_or_metric"
+
+
+def test_build_pilot_decision_artifact_mismatch_when_total_points_captured_differs() -> None:
+    replay_summary = _summary(total_points_captured=3, raw_contract_points=3)
+    synthetic_summary = _summary(total_points_captured=49, raw_contract_points=49)
+
+    artifact = pilot.build_pilot_decision_artifact(
+        run_id="pilot_volume_mismatch",
+        replay_input_path="tools/fixtures/raw_replay_sample.jsonl",
+        synthetic_seed=1337,
+        synthetic_policy_profile="balanced_v1",
+        synthetic_rounds=10,
+        synthetic_ticks_per_round=4,
+        generated_at="2026-03-09T00:00:00Z",
+        replay_summary=replay_summary,
+        synthetic_summary=synthetic_summary,
+    )
+
+    assert artifact["decision"] == "mismatch"
+    assert artifact["comparison"]["total_points_captured_abs_delta"] == 46
+    assert artifact["comparison"]["failed_checks"] == ["total_points_captured_abs_delta_lte_1"]
+    assert artifact["comparison"]["mismatch_class"] == "volume_alignment_only"
+    assert any(
+        "cross-surface mismatch: abs(replay.total_points_captured - synthetic.total_points_captured) must be <= 1"
+        == reason
+        for reason in artifact["decision_reasons"]
+    )
+
+
+def test_build_pilot_decision_artifact_pass_when_total_points_abs_delta_is_one() -> None:
+    replay_summary = _summary(total_points_captured=3, raw_contract_points=3, p_hat_min=0.49, p_hat_max=0.51)
+    synthetic_summary = _summary(total_points_captured=4, raw_contract_points=4, p_hat_min=0.48, p_hat_max=0.52)
+
+    artifact = pilot.build_pilot_decision_artifact(
+        run_id="pilot_volume_aligned_within_threshold",
+        replay_input_path="tools/fixtures/raw_replay_sample.jsonl",
+        synthetic_seed=1337,
+        synthetic_policy_profile="balanced_v1",
+        synthetic_rounds=10,
+        synthetic_ticks_per_round=4,
+        generated_at="2026-03-09T00:00:00Z",
+        replay_summary=replay_summary,
+        synthetic_summary=synthetic_summary,
+    )
+
+    assert artifact["decision"] == "pass"
+    assert artifact["comparison"]["total_points_captured_abs_delta"] == 1
+    assert artifact["comparison"]["failed_checks"] == []
+    assert artifact["comparison"]["mismatch_class"] == "none"
+
+
+def test_build_pilot_decision_artifact_failed_checks_use_frozen_order_for_multiple_mismatches() -> None:
+    replay_summary = _summary(
+        total_points_captured=10,
+        raw_contract_points=10,
+        invariant_violations_total=0,
+        behavioral_violations_total=0,
+        p_hat_min=0.10,
+        p_hat_max=0.20,
+    )
+    synthetic_summary = _summary(
+        total_points_captured=12,
+        raw_contract_points=12,
+        invariant_violations_total=0,
+        behavioral_violations_total=0,
+        p_hat_min=0.25,
+        p_hat_max=0.30,
+    )
+
+    artifact = pilot.build_pilot_decision_artifact(
+        run_id="pilot_multi_mismatch_order",
+        replay_input_path="tools/fixtures/raw_replay_sample.jsonl",
+        synthetic_seed=1337,
+        synthetic_policy_profile="balanced_v1",
+        synthetic_rounds=10,
+        synthetic_ticks_per_round=4,
+        generated_at="2026-03-09T00:00:00Z",
+        replay_summary=replay_summary,
+        synthetic_summary=synthetic_summary,
+    )
+
+    assert artifact["decision"] == "mismatch"
+    assert artifact["comparison"]["failed_checks"] == [
+        "total_points_captured_abs_delta_lte_1",
+        "p_hat_min_abs_delta_lte_0_05",
+        "p_hat_max_abs_delta_lte_0_05",
+        "p_hat_median_abs_delta_lte_0_05",
+    ]
+    assert artifact["comparison"]["mismatch_class"] == "cross_surface_behavioral_or_metric"
+
+
+def test_build_pilot_decision_artifact_mismatch_when_median_diverges_within_endpoint_tolerance() -> None:
+    replay_summary = _summary(
+        p_hat_min=0.40,
+        p_hat_max=0.60,
+        p_hat_median=0.56,
+    )
+    synthetic_summary = _summary(
+        p_hat_min=0.40,
+        p_hat_max=0.60,
+        p_hat_median=0.48,
+    )
+
+    artifact = pilot.build_pilot_decision_artifact(
+        run_id="pilot_median_adversarial",
+        replay_input_path="tools/fixtures/raw_replay_sample.jsonl",
+        synthetic_seed=1337,
+        synthetic_policy_profile="balanced_v1",
+        synthetic_rounds=10,
+        synthetic_ticks_per_round=4,
+        generated_at="2026-03-09T00:00:00Z",
+        replay_summary=replay_summary,
+        synthetic_summary=synthetic_summary,
+    )
+
+    assert artifact["decision"] == "mismatch"
+    assert artifact["comparison"]["failed_checks"] == ["p_hat_median_abs_delta_lte_0_05"]
+    assert artifact["comparison"]["mismatch_class"] == "cross_surface_behavioral_or_metric"
+    assert any("abs(replay.p_hat_median - synthetic.p_hat_median)" in reason for reason in artifact["decision_reasons"])
+
+
+def test_build_pilot_decision_artifact_inconclusive_when_p_hat_count_is_insufficient_for_fingerprint() -> None:
+    replay_summary = _summary(p_hat_count=2)
+    synthetic_summary = _summary(p_hat_count=10)
+
+    artifact = pilot.build_pilot_decision_artifact(
+        run_id="pilot_p_hat_count_insufficient",
+        replay_input_path="tools/fixtures/raw_replay_sample.jsonl",
+        synthetic_seed=1337,
+        synthetic_policy_profile="balanced_v1",
+        synthetic_rounds=10,
+        synthetic_ticks_per_round=4,
+        generated_at="2026-03-09T00:00:00Z",
+        replay_summary=replay_summary,
+        synthetic_summary=synthetic_summary,
+    )
+
+    assert artifact["decision"] == "inconclusive"
+    assert artifact["comparison"]["failed_checks"] == []
+    assert artifact["comparison"]["mismatch_class"] == "none"
+    assert artifact["decision_reasons"] == [pilot.TRAJECTORY_FINGERPRINT_INSUFFICIENT_P_HAT_COUNT_REASON]
+
+
+def test_build_pilot_decision_artifact_inconclusive_when_required_field_unreadable() -> None:
+    replay_summary = _summary(total_points_captured=0)
+    synthetic_summary = _summary()
+
+    artifact = pilot.build_pilot_decision_artifact(
+        run_id="pilot_inconclusive",
+        replay_input_path="tools/fixtures/raw_replay_sample.jsonl",
+        synthetic_seed=1337,
+        synthetic_policy_profile="balanced_v1",
+        synthetic_rounds=10,
+        synthetic_ticks_per_round=4,
+        generated_at="2026-03-09T00:00:00Z",
+        replay_summary=replay_summary,
+        synthetic_summary=synthetic_summary,
+    )
+
+    assert artifact["decision"] == "inconclusive"
+    assert artifact["replay"]["local_sanity_pass"] is False
+    assert any("total_points_captured must be > 0" in reason for reason in artifact["decision_reasons"])
+    assert artifact["comparison"]["failed_checks"] == []
+    assert artifact["comparison"]["mismatch_class"] == "none"
+
+
+def test_runner_writes_stable_artifact_for_fixed_inputs(tmp_path: Path, monkeypatch) -> None:
+    replay_input = tmp_path / "replay.jsonl"
+    replay_input.write_text('{"dummy": true}\n', encoding="utf-8")
+    output_path = tmp_path / "pilot.json"
+
+    def _fake_write_synthetic(path: Path, **_: object) -> int:
+        path.write_text('{"dummy": true}\n', encoding="utf-8")
+        return 1
+
+    async def _fake_run_assessment(path: str, *, prematch_map: float | None = None) -> dict[str, object]:
+        _ = prematch_map
+        if "synthetic_raw_replay.jsonl" in path:
+            return _summary(p_hat_min=0.43, p_hat_max=0.59)
+        return _summary(p_hat_min=0.41, p_hat_max=0.58)
+
+    monkeypatch.setattr(pilot, "write_synthetic_raw_replay_jsonl", _fake_write_synthetic)
+    monkeypatch.setattr(pilot, "run_assessment", _fake_run_assessment)
+
+    first = pilot.run_replay_simulation_validation_pilot(
+        replay_input_path=str(replay_input),
+        run_id="pilot_stable",
+        synthetic_seed=1337,
+        synthetic_policy_profile="balanced_v1",
+        synthetic_rounds=10,
+        synthetic_ticks_per_round=4,
+        generated_at="2026-03-09T00:00:00Z",
+        output_path=output_path,
+    )
+    second = pilot.run_replay_simulation_validation_pilot(
+        replay_input_path=str(replay_input),
+        run_id="pilot_stable",
+        synthetic_seed=1337,
+        synthetic_policy_profile="balanced_v1",
+        synthetic_rounds=10,
+        synthetic_ticks_per_round=4,
+        generated_at="2026-03-09T00:00:00Z",
+        output_path=output_path,
+    )
+
+    assert first.exit_code == 0
+    assert second.exit_code == 0
+    assert first.decision == "pass"
+    assert second.decision == "pass"
+
+    first_text = output_path.read_text(encoding="utf-8")
+    second_text = output_path.read_text(encoding="utf-8")
+    assert first_text == second_text
+
+    payload = json.loads(first_text)
+    assert payload["schema_version"] == "replay_simulation_validation_pilot.v1"
+    assert payload["decision"] == "pass"
+    assert payload["slice"]["replay_input_path"] == str(replay_input)
+    assert payload["slice"]["synthetic_seed"] == 1337
+    assert "total_points_captured_abs_delta" in payload["comparison"]
+    assert "failed_checks" in payload["comparison"]
+    assert "mismatch_class" in payload["comparison"]
+
+
+def test_alignment_attempt_order_and_first_match_selection_are_deterministic(tmp_path: Path, monkeypatch) -> None:
+    replay_input = tmp_path / "replay.jsonl"
+    replay_input.write_text('{"dummy": true}\n', encoding="utf-8")
+    output_path = tmp_path / "pilot_alignment.json"
+
+    def _fake_write_synthetic(path: Path, *, rounds: int, **_: object) -> int:
+        path.write_text(json.dumps({"rounds": int(rounds)}), encoding="utf-8")
+        return 1
+
+    async def _fake_run_assessment(path: str, *, prematch_map: float | None = None) -> dict[str, object]:
+        _ = prematch_map
+        if "synthetic_raw_replay.jsonl" in path:
+            rounds = int(json.loads(Path(path).read_text(encoding="utf-8"))["rounds"])
+            synthetic_points_by_rounds = {
+                1: 5,  # abs_delta=2
+                2: 3,  # abs_delta=0 -> first acceptable candidate
+                3: 8,
+            }
+            return _summary(
+                total_points_captured=synthetic_points_by_rounds.get(rounds, 99),
+                raw_contract_points=synthetic_points_by_rounds.get(rounds, 99),
+            )
+        return _summary(total_points_captured=3, raw_contract_points=3)
+
+    monkeypatch.setattr(pilot, "write_synthetic_raw_replay_jsonl", _fake_write_synthetic)
+    monkeypatch.setattr(pilot, "run_assessment", _fake_run_assessment)
+
+    result = pilot.run_replay_simulation_validation_pilot(
+        replay_input_path=str(replay_input),
+        run_id="pilot_alignment_order",
+        synthetic_seed=1337,
+        synthetic_policy_profile="balanced_v1",
+        synthetic_rounds=10,
+        synthetic_ticks_per_round=4,
+        generated_at="2026-03-09T00:00:00Z",
+        output_path=output_path,
+    )
+
+    assert result.decision == "pass"
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert payload["alignment"]["target_replay_total_points"] == 3
+    assert payload["alignment"]["attempted_synthetic_rounds"] == [1, 2]
+    assert payload["alignment"]["selected_synthetic_rounds"] == 2
+    assert payload["alignment"]["alignment_achieved"] is True
+    assert payload["alignment"]["stop_reason"] is None
+    assert payload["alignment"]["attempt_results"] == [
+        {"attempted_rounds": 1, "synthetic_total_points": 5, "abs_delta": 2},
+        {"attempted_rounds": 2, "synthetic_total_points": 3, "abs_delta": 0},
+    ]
+
+
+def test_alignment_stops_inconclusive_when_fixed_candidate_budget_cannot_align(tmp_path: Path, monkeypatch) -> None:
+    replay_input = tmp_path / "replay.jsonl"
+    replay_input.write_text('{"dummy": true}\n', encoding="utf-8")
+    output_path = tmp_path / "pilot_alignment_inconclusive.json"
+
+    def _fake_write_synthetic(path: Path, *, rounds: int, **_: object) -> int:
+        path.write_text(json.dumps({"rounds": int(rounds)}), encoding="utf-8")
+        return 1
+
+    async def _fake_run_assessment(path: str, *, prematch_map: float | None = None) -> dict[str, object]:
+        _ = prematch_map
+        if "synthetic_raw_replay.jsonl" in path:
+            rounds = int(json.loads(Path(path).read_text(encoding="utf-8"))["rounds"])
+            synthetic_points_by_rounds = {
+                2: 9,
+                1: 8,
+                3: 10,
+            }
+            return _summary(
+                total_points_captured=synthetic_points_by_rounds.get(rounds, 99),
+                raw_contract_points=synthetic_points_by_rounds.get(rounds, 99),
+            )
+        return _summary(total_points_captured=6, raw_contract_points=6)
+
+    monkeypatch.setattr(pilot, "write_synthetic_raw_replay_jsonl", _fake_write_synthetic)
+    monkeypatch.setattr(pilot, "run_assessment", _fake_run_assessment)
+
+    result = pilot.run_replay_simulation_validation_pilot(
+        replay_input_path=str(replay_input),
+        run_id="pilot_alignment_inconclusive",
+        synthetic_seed=1337,
+        synthetic_policy_profile="balanced_v1",
+        synthetic_rounds=10,
+        synthetic_ticks_per_round=4,
+        generated_at="2026-03-09T00:00:00Z",
+        output_path=output_path,
+    )
+
+    assert result.decision == "inconclusive"
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert payload["decision"] == "inconclusive"
+    assert payload["decision_reasons"] == [pilot.ALIGNMENT_STOP_REASON]
+    assert payload["comparison"]["failed_checks"] == []
+    assert payload["comparison"]["mismatch_class"] == "none"
+    assert payload["alignment"]["target_replay_total_points"] == 6
+    assert payload["alignment"]["attempted_synthetic_rounds"] == [2, 1, 3]
+    assert payload["alignment"]["selected_synthetic_rounds"] is None
+    assert payload["alignment"]["alignment_achieved"] is False
+    assert payload["alignment"]["stop_reason"] == pilot.ALIGNMENT_STOP_REASON
+    assert payload["alignment"]["attempt_results"] == [
+        {"attempted_rounds": 2, "synthetic_total_points": 9, "abs_delta": 3},
+        {"attempted_rounds": 1, "synthetic_total_points": 8, "abs_delta": 2},
+        {"attempted_rounds": 3, "synthetic_total_points": 10, "abs_delta": 4},
+    ]
+
+
+def test_second_slice_fixture_coherence_and_determinism(tmp_path: Path) -> None:
+    output_path = tmp_path / "slice2_pilot.json"
+    kwargs = {
+        "replay_input_path": str(SECOND_SLICE_FIXTURE),
+        "run_id": "replay_sim_pilot_slice2",
+        "synthetic_seed": 1337,
+        "synthetic_policy_profile": "balanced_v1",
+        "synthetic_rounds": 10,
+        "synthetic_ticks_per_round": 4,
+        "generated_at": "2026-03-09T00:00:00Z",
+        "output_path": output_path,
+    }
+
+    first = pilot.run_replay_simulation_validation_pilot(**kwargs)
+    first_payload = json.loads(output_path.read_text(encoding="utf-8"))
+    _assert_decision_contract_coherence(first_payload)
+    assert first_payload["slice"]["replay_input_path"] == str(SECOND_SLICE_FIXTURE)
+    assert first_payload["slice"]["synthetic_policy_profile"] == "balanced_v1"
+    assert first_payload["slice"]["synthetic_seed"] == 1337
+
+    second = pilot.run_replay_simulation_validation_pilot(**kwargs)
+    second_payload = json.loads(output_path.read_text(encoding="utf-8"))
+    _assert_decision_contract_coherence(second_payload)
+
+    assert first.decision == second.decision
+    assert first_payload["decision"] == second_payload["decision"]
+    assert first_payload["comparison"]["failed_checks"] == second_payload["comparison"]["failed_checks"]
+    assert first_payload["comparison"]["mismatch_class"] == second_payload["comparison"]["mismatch_class"]
+    assert first_payload["alignment"]["attempted_synthetic_rounds"] == second_payload["alignment"]["attempted_synthetic_rounds"]
+    assert first_payload["alignment"]["selected_synthetic_rounds"] == second_payload["alignment"]["selected_synthetic_rounds"]
+
+
+def test_non_tiny_slice_depth_and_outcome_coherence_are_deterministic(tmp_path: Path) -> None:
+    output_path = tmp_path / "non_tiny_pilot.json"
+    kwargs = {
+        "replay_input_path": str(NON_TINY_SLICE_FIXTURE),
+        "run_id": "replay_sim_pilot_non_tiny_slice",
+        "synthetic_seed": 1337,
+        "synthetic_policy_profile": "balanced_v1",
+        "synthetic_rounds": 10,
+        "synthetic_ticks_per_round": 4,
+        "generated_at": "2026-03-09T00:00:00Z",
+        "output_path": output_path,
+    }
+
+    first = pilot.run_replay_simulation_validation_pilot(**kwargs)
+    first_payload = json.loads(output_path.read_text(encoding="utf-8"))
+    _assert_decision_contract_coherence(first_payload)
+    assert int(first_payload["replay"]["total_points_captured"]) >= 20
+    assert int(first_payload["replay"]["p_hat_count"]) >= 20
+
+    second = pilot.run_replay_simulation_validation_pilot(**kwargs)
+    second_payload = json.loads(output_path.read_text(encoding="utf-8"))
+    _assert_decision_contract_coherence(second_payload)
+    assert int(second_payload["replay"]["total_points_captured"]) >= 20
+    assert int(second_payload["replay"]["p_hat_count"]) >= 20
+    assert first.decision == second.decision
+    assert first_payload["decision"] == second_payload["decision"]
+
+    if first_payload["decision"] == "inconclusive":
+        assert first_payload["decision_reasons"] == second_payload["decision_reasons"]
+    else:
+        assert first_payload["comparison"]["failed_checks"] == second_payload["comparison"]["failed_checks"]
+
+
+def test_existing_canonical_slice_pass_baseline_remains_unchanged(tmp_path: Path) -> None:
+    fixtures = (FIRST_SLICE_FIXTURE, SECOND_SLICE_FIXTURE)
+    for idx, fixture_path in enumerate(fixtures):
+        output_path = tmp_path / f"baseline_{idx}.json"
+        payload = pilot.run_replay_simulation_validation_pilot(
+            replay_input_path=str(fixture_path),
+            run_id=f"replay_sim_pilot_baseline_{idx}",
+            synthetic_seed=1337,
+            synthetic_policy_profile="balanced_v1",
+            synthetic_rounds=10,
+            synthetic_ticks_per_round=4,
+            generated_at="2026-03-09T00:00:00Z",
+            output_path=output_path,
+        )
+        assert payload.decision == "pass"
+        artifact = json.loads(output_path.read_text(encoding="utf-8"))
+        _assert_decision_contract_coherence(artifact)
+        assert artifact["comparison"]["failed_checks"] == []
+        assert artifact["comparison"]["mismatch_class"] == "none"
+
+
+def test_non_tiny_negative_control_slice_produces_coherent_non_pass_deterministically(tmp_path: Path) -> None:
+    output_path = tmp_path / "non_tiny_negative_control_pilot.json"
+    kwargs = {
+        "replay_input_path": str(NEGATIVE_CONTROL_SLICE_FIXTURE),
+        "run_id": "replay_sim_pilot_non_tiny_negative_control",
+        "synthetic_seed": 1337,
+        "synthetic_policy_profile": "balanced_v1",
+        "synthetic_rounds": 10,
+        "synthetic_ticks_per_round": 4,
+        "generated_at": "2026-03-09T00:00:00Z",
+        "output_path": output_path,
+    }
+
+    first = pilot.run_replay_simulation_validation_pilot(**kwargs)
+    first_payload = json.loads(output_path.read_text(encoding="utf-8"))
+    _assert_decision_contract_coherence(first_payload)
+    assert int(first_payload["replay"]["total_points_captured"]) >= 20
+    assert int(first_payload["replay"]["p_hat_count"]) >= 20
+    assert first_payload["decision"] in ("mismatch", "inconclusive")
+    assert first_payload["decision"] != "pass"
+
+    second = pilot.run_replay_simulation_validation_pilot(**kwargs)
+    second_payload = json.loads(output_path.read_text(encoding="utf-8"))
+    _assert_decision_contract_coherence(second_payload)
+    assert int(second_payload["replay"]["total_points_captured"]) >= 20
+    assert int(second_payload["replay"]["p_hat_count"]) >= 20
+    assert second_payload["decision"] == first_payload["decision"]
+    assert first.decision == second.decision
+
+    if first_payload["decision"] == "mismatch":
+        assert first_payload["comparison"]["failed_checks"] == second_payload["comparison"]["failed_checks"]
+        assert len(first_payload["comparison"]["failed_checks"]) > 0
+    else:
+        assert first_payload["decision_reasons"] == second_payload["decision_reasons"]
+        assert len(first_payload["decision_reasons"]) > 0

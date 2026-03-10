@@ -1,0 +1,131 @@
+{
+  "kind": "OBJECT",
+  "name": "Series",
+  "fields": [
+    {
+      "name": "id",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "ID"
+        }
+      }
+    },
+    {
+      "name": "title",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "OBJECT",
+          "name": "Title"
+        }
+      }
+    },
+    {
+      "name": "tournament",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "OBJECT",
+          "name": "Tournament"
+        }
+      }
+    },
+    {
+      "name": "teams",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "LIST"
+        }
+      }
+    },
+    {
+      "name": "startTimeScheduled",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "DateTime"
+        }
+      }
+    },
+    {
+      "name": "format",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "OBJECT",
+          "name": "SeriesFormat"
+        }
+      }
+    },
+    {
+      "name": "externalLinks",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "LIST"
+        }
+      }
+    },
+    {
+      "name": "productServiceLevels",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "LIST"
+        }
+      }
+    },
+    {
+      "name": "streams",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "LIST"
+        }
+      }
+    },
+    {
+      "name": "type",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "ENUM",
+          "name": "SeriesType"
+        }
+      }
+    },
+    {
+      "name": "private",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "Boolean"
+        }
+      }
+    },
+    {
+      "name": "players",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "LIST"
+        }
+      }
+    },
+    {
+      "name": "updatedAt",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "DateTime"
+        }
+      }
+    }
+  ]
+}

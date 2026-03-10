@@ -1,0 +1,13 @@
+{
+  "kind": "INPUT_OBJECT",
+  "name": "SeriesLiveFilter",
+  "inputFields": [
+    {
+      "name": "games",
+      "type": {
+        "kind": "INPUT_OBJECT",
+        "name": "GameFilter"
+      }
+    }
+  ]
+}

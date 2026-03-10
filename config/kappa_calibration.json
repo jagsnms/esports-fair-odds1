@@ -2,7 +2,10 @@
   "cs2": {
     "0.8": {
       "early": 0.55,
-      "global": 0.55
+      "global": 0.5,
+      "late": 0.5,
+      "mid": 0.5,
+      "ot": 0.5
     }
   },
   "valorant": {

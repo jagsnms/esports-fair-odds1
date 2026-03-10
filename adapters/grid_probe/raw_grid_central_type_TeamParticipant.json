@@ -1,0 +1,26 @@
+{
+  "kind": "OBJECT",
+  "name": "TeamParticipant",
+  "fields": [
+    {
+      "name": "baseInfo",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "OBJECT",
+          "name": "Team"
+        }
+      }
+    },
+    {
+      "name": "scoreAdvantage",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "Int"
+        }
+      }
+    }
+  ]
+}

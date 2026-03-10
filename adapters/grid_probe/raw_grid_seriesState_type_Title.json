@@ -1,0 +1,16 @@
+{
+  "name": "Title",
+  "kind": "OBJECT",
+  "fields": [
+    {
+      "name": "nameShortened",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "String"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,88 @@
+{
+  "branch": "fast/run-20260306-1107-contract-roundstate-diag",
+  "base_branch": "agent-base",
+  "lane": "fast",
+  "run_type": "maintenance",
+  "status": "implemented",
+  "selected_issue": {
+    "issue": "Missing round-state vector fields in contract_diagnostics payload",
+    "title": "Replay/contract diagnostics lacked alive/hp/loadout and round phase metadata required for full Bible-aligned diagnosis"
+  },
+  "why_it_outranked_alternatives": "Current evidence showed no unresolved rank 1-4 issues: structural, canonical tests, replay mismatch, and high-frequency diagnostic failures were all clear. The highest unresolved bounded issue was rank 5 missing instrumentation because contract_diagnostics omitted round-state vector fields needed for effective diagnosis.",
+  "baseline_evidence": {
+    "branch": "agent-base",
+    "commit": "5f52998862ad26c31924a376b239a39905549519",
+    "checks": [
+      {
+        "command": "python3 -m pytest -q",
+        "result": "369 passed in 7.79s"
+      },
+      {
+        "command": "python3 tools/replay_verification_assess.py",
+        "result": "structural_violations_total=0, behavioral_violations_total=0, invariant_violations_total=0"
+      },
+      {
+        "command": "python3 probe for resolve contract_diagnostics round-state fields",
+        "result": "{'alive_count_a': False, 'alive_count_b': False, 'hp_total_a': False, 'hp_total_b': False, 'loadout_total_a': False, 'loadout_total_b': False, 'round_phase': False, 'round_number': False}"
+      },
+      {
+        "command": "python3 probe for replay assessment required round-state keys",
+        "result": "{'alive_count_a': False, 'alive_count_b': False, 'hp_total_a': False, 'hp_total_b': False, 'loadout_total_a': False, 'loadout_total_b': False, 'round_phase': False, 'round_number': False}"
+      }
+    ]
+  },
+  "files_changed": [
+    {
+      "path": "engine/diagnostics/invariants.py",
+      "change": "Added round-state vector fields (alive_counts, hp_totals, loadout_totals, round_phase, round_number) to contract diagnostics output."
+    },
+    {
+      "path": "engine/compute/resolve.py",
+      "change": "Wired and type-guarded frame round-state values into compute_phat_contract_diagnostics."
+    },
+    {
+      "path": "tools/replay_verification_assess.py",
+      "change": "Extended required contract_diagnostics key list to include new round-state fields."
+    },
+    {
+      "path": "tests/unit/test_invariants_contract_diagnostics.py",
+      "change": "Updated diagnostics unit tests with new arguments and assertions."
+    },
+    {
+      "path": "tests/unit/test_runner_source_contract_parity.py",
+      "change": "Added assertions that resolve-emitted diagnostics include new round-state fields."
+    },
+    {
+      "path": "automation/reports/fast-run-20260306-1107-contract-roundstate-diag.md",
+      "change": "Added human-readable promotion report."
+    },
+    {
+      "path": "automation/reports/fast-run-20260306-1107-contract-roundstate-diag.json",
+      "change": "Added machine-readable promotion report artifact."
+    }
+  ],
+  "validation_performed": [
+    {
+      "command": "python3 -m pytest -q tests/unit/test_invariants_contract_diagnostics.py tests/unit/test_runner_source_contract_parity.py tests/unit/test_replay_verification_assess_stage1.py tests/unit/test_resolve_micro_adj.py",
+      "result": "34 passed in 0.33s"
+    },
+    {
+      "command": "python3 tools/replay_verification_assess.py",
+      "result": "new required keys alive_counts/hp_totals/loadout_totals/round_phase/round_number present with key_presence_rate=1.0 and missing_key_count=0"
+    },
+    {
+      "command": "python3 -m pytest -q",
+      "result": "369 passed in 7.23s"
+    }
+  ],
+  "before_after_evidence": {
+    "before": "Contract diagnostics completeness contract did not include round-state vector fields, limiting failure diagnosis context.",
+    "after": "Contract diagnostics and replay completeness metrics now include round-state vector fields (alive/hp/loadout/phase/round-number) with full presence on current fixtures."
+  },
+  "unresolved_risks": [
+    "Presence checks do not by themselves guarantee semantic correctness of upstream source values.",
+    "round_number may be null when omitted by source payloads; this run improves visibility, not source completeness."
+  ],
+  "stop_reason": "Selected rank-5 instrumentation issue is fixed and validated with minimal bounded changes; further expansion would exceed this single-issue maintenance scope.",
+  "recommendation": "promote"
+}

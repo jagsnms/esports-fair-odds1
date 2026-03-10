@@ -1,0 +1,120 @@
+{
+  "kind": "INPUT_OBJECT",
+  "name": "SeriesFilter",
+  "inputFields": [
+    {
+      "name": "startTimeScheduled",
+      "type": {
+        "kind": "INPUT_OBJECT",
+        "name": "DateTimeFilter"
+      }
+    },
+    {
+      "name": "tournamentId",
+      "type": {
+        "kind": "SCALAR",
+        "name": "ID"
+      }
+    },
+    {
+      "name": "tournamentIds",
+      "type": {
+        "kind": "INPUT_OBJECT",
+        "name": "IdFilter"
+      }
+    },
+    {
+      "name": "tournament",
+      "type": {
+        "kind": "INPUT_OBJECT",
+        "name": "SeriesTournamentFilter"
+      }
+    },
+    {
+      "name": "teamId",
+      "type": {
+        "kind": "SCALAR",
+        "name": "ID"
+      }
+    },
+    {
+      "name": "teamIds",
+      "type": {
+        "kind": "INPUT_OBJECT",
+        "name": "IdFilter"
+      }
+    },
+    {
+      "name": "titleId",
+      "type": {
+        "kind": "SCALAR",
+        "name": "ID"
+      }
+    },
+    {
+      "name": "titleIds",
+      "type": {
+        "kind": "INPUT_OBJECT",
+        "name": "IdFilter"
+      }
+    },
+    {
+      "name": "livePlayerIds",
+      "type": {
+        "kind": "INPUT_OBJECT",
+        "name": "IdFilter"
+      }
+    },
+    {
+      "name": "type",
+      "type": {
+        "kind": "ENUM",
+        "name": "SeriesType"
+      }
+    },
+    {
+      "name": "types",
+      "type": {
+        "kind": "LIST",
+        "ofType": {
+          "kind": "NON_NULL"
+        }
+      }
+    },
+    {
+      "name": "productServiceLevels",
+      "type": {
+        "kind": "INPUT_OBJECT",
+        "name": "ProductServiceLevelFilter"
+      }
+    },
+    {
+      "name": "live",
+      "type": {
+        "kind": "INPUT_OBJECT",
+        "name": "SeriesLiveFilter"
+      }
+    },
+    {
+      "name": "private",
+      "type": {
+        "kind": "INPUT_OBJECT",
+        "name": "BooleanFilter"
+      }
+    },
+    {
+      "name": "players",
+      "type": {
+        "kind": "INPUT_OBJECT",
+        "name": "SeriesPlayerFilter"
+      }
+    },
+    {
+      "name": "updatedAt",
+      "type": {
+        "kind": "INPUT_OBJECT",
+        "name": "DateTimeFilter"
+      }
+    }
+  ]
+}

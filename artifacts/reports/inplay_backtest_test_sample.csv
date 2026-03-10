@@ -1,0 +1,4 @@
+timestamp,match_id,contract_scope,bid,ask,mid,spread_abs,p_fair,band_lo,band_hi
+2024-01-01T12:00:00,m1,Series winner (match),0.36,0.39,0.375,0.03,0.40,0.45,0.55
+2024-01-01T12:01:00,m1,Series winner (match),0.32,0.35,0.335,0.03,0.40,0.45,0.55
+2024-01-01T12:02:00,m1,Series winner (match),0.39,0.42,0.405,0.03,0.40,0.45,0.55

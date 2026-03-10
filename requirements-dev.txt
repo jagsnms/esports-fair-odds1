@@ -1,0 +1,4 @@
+# Dev / test dependencies (install after requirements.txt)
+-r requirements.txt
+pytest
+pytest-asyncio

@@ -1,0 +1,443 @@
+"""
+Unit tests for resolve_p_hat with microstate adjustment (micro_adj_cs2).
+"""
+from __future__ import annotations
+
+import unittest
+from typing import Any, Optional
+
+from engine.compute.micro_adj_cs2 import micro_adjustment_cs2
+from engine.compute.resolve import resolve_p_hat
+from engine.models import Config, Frame, State
+
+
+def _frame(
+    alive_counts: tuple[int, int] = (0, 0),
+    hp_totals: tuple[float, float] = (0.0, 0.0),
+    loadout_totals: tuple[float, float] | None = None,
+    cash_loadout_totals: tuple[float, float] = (0.0, 0.0),  # legacy; should not affect CS2 compute
+    bomb_phase_time_remaining: Any = None,
+    round_time_remaining_s: float | None = None,
+    a_side: str | None = None,
+    players_a: list[Any] | None = None,
+    players_b: list[Any] | None = None,
+) -> Frame:
+    return Frame(
+        timestamp=0.0,
+        teams=("A", "B"),
+        scores=(0, 0),
+        alive_counts=alive_counts,
+        hp_totals=hp_totals,
+        cash_loadout_totals=cash_loadout_totals,
+        loadout_totals=loadout_totals,
+        bomb_phase_time_remaining=bomb_phase_time_remaining,
+        round_time_remaining_s=round_time_remaining_s,
+        a_side=a_side,
+        players_a=players_a or [],
+        players_b=players_b or [],
+    )
+
+
+def _config(prematch_map: Optional[float] = None) -> Config:
+    c = Config()
+    if prematch_map is not None:
+        c.prematch_map = prematch_map
+    return c
+
+
+def _state() -> State:
+    return State(config=Config(), last_frame=None, map_index=0, last_total_rounds=0)
+
+
+def test_micro_fields_missing_adj_zero() -> None:
+    """When micro fields missing or zeroed -> adj == 0."""
+    frame = _frame()  # all defaults (0,0), (0,0), (0,0), None
+    adj = micro_adjustment_cs2(frame)
+    assert adj == 0.0
+
+
+def test_strong_a_advantage_adj_positive() -> None:
+    """Strong A advantage (alive 5-2, hp 450-150, econ 12000-6000) -> adj > 0."""
+    frame = _frame(
+        alive_counts=(5, 2),
+        hp_totals=(450.0, 150.0),
+        loadout_totals=(12000.0, 6000.0),
+    )
+    adj = micro_adjustment_cs2(frame)
+    assert adj > 0
+    assert adj <= 0.08
+
+
+def test_strong_a_disadvantage_adj_negative() -> None:
+    """Strong A disadvantage -> adj < 0."""
+    frame = _frame(
+        alive_counts=(2, 5),
+        hp_totals=(150.0, 450.0),
+        loadout_totals=(6000.0, 12000.0),
+    )
+    adj = micro_adjustment_cs2(frame)
+    assert adj < 0
+    assert adj >= -0.08
+
+
+def test_resolve_clamps_into_rails() -> None:
+    """resolve_p_hat clamps into rails even if base+adj is outside."""
+    # Base 0.9 + adj 0.08 = 0.98; rails (0.3, 0.7) -> result should be 0.7 (V2 skipped for non-IN_PROGRESS)
+    frame = _frame(alive_counts=(5, 0), hp_totals=(500.0, 0.0), loadout_totals=(20000.0, 0.0))
+    config = _config(prematch_map=0.9)
+    state = _state()
+    rails = (0.3, 0.7)
+    p, _ = resolve_p_hat(frame, config, state, rails)
+    assert p >= 0.3
+    assert p <= 0.7
+    assert p == 0.7  # base+adj would be > 0.7, clamped to rail_high
+
+
+def test_resolve_clamps_to_01() -> None:
+    """resolve_p_hat result is in [0, 1]."""
+    frame = _frame(alive_counts=(5, 0), hp_totals=(500.0, 0.0))
+    config = _config(prematch_map=0.5)
+    state = _state()
+    rails = (0.0, 1.0)
+    p, _ = resolve_p_hat(frame, config, state, rails)
+    assert 0 <= p <= 1
+
+
+def test_midround_buy_time_frozen_midpoint() -> None:
+    """When round_phase is BUY_TIME, p_hat_final = rail midpoint (no loadout pegging)."""
+    frame = _frame(
+        alive_counts=(4, 2),
+        hp_totals=(350.0, 250.0),
+        bomb_phase_time_remaining={"round_phase": "BUY_TIME"},
+    )
+    config = _config(prematch_map=0.5)
+    state = _state()
+    rails = (0.2, 0.8)
+    rail_low, rail_high = rails
+    p, dbg = resolve_p_hat(frame, config, state, rails)
+    assert dbg["midround_weight"] == 0.0
+    expected_mid = 0.5 * (rail_low + rail_high)
+    assert dbg["p_hat_final"] == expected_mid
+    assert p == expected_mid
+    mv2 = dbg.get("midround_v2") or {}
+    assert mv2.get("skipped") is True
+    assert mv2.get("reason") == "buy_time_frozen_midpoint"
+    assert mv2.get("round_phase") == "BUY_TIME"
+
+
+def test_midround_freezetime_frozen_midpoint() -> None:
+    """FREEZETIME: same as BUY_TIME, p_hat = rail midpoint."""
+    frame = _frame(
+        alive_counts=(5, 5),
+        hp_totals=(400.0, 400.0),
+        bomb_phase_time_remaining={"round_phase": "FREEZETIME"},
+    )
+    config = _config(prematch_map=0.5)
+    state = _state()
+    rails = (0.2, 0.8)
+    rail_low, rail_high = rails
+    p, dbg = resolve_p_hat(frame, config, state, rails)
+    expected_mid = 0.5 * (rail_low + rail_high)
+    assert p == expected_mid
+    mv2 = dbg.get("midround_v2") or {}
+    assert mv2.get("skipped") is True
+    assert mv2.get("reason") == "buy_time_frozen_midpoint"
+    assert mv2.get("round_phase") == "FREEZETIME"
+
+
+def test_midround_in_progress_stays_within_rails() -> None:
+    """When round_phase is IN_PROGRESS, V2 is applied and p_hat_final within rails."""
+    frame = _frame(
+        alive_counts=(5, 1),
+        hp_totals=(400.0, 100.0),
+        bomb_phase_time_remaining={"round_phase": "IN_PROGRESS"},
+    )
+    config = _config(prematch_map=0.5)
+    state = _state()
+    rails = (0.25, 0.75)
+    p, dbg = resolve_p_hat(frame, config, state, rails)
+    assert dbg["midround_weight"] == 0.25
+    mv2 = dbg.get("midround_v2") or {}
+    assert mv2.get("skipped") is not True
+    rlo, rhi = rails
+    assert rlo <= p <= rhi
+    assert p == dbg["p_hat_final"]
+
+
+def test_midround_monotonic_higher_q_intra_raises_p_hat() -> None:
+    """With IN_PROGRESS (V2 applied), more A advantage => higher p_hat_final when rails allow."""
+    state = _state()
+    rails = (0.2, 0.8)
+    config = _config(prematch_map=0.5)
+    bomb = {"round_phase": "IN_PROGRESS"}
+    frame_low = _frame(
+        alive_counts=(3, 3),
+        hp_totals=(300.0, 300.0),
+        loadout_totals=(5000.0, 5000.0),
+        bomb_phase_time_remaining=bomb,
+    )
+    p_low, dbg_low = resolve_p_hat(frame_low, config, state, rails)
+    frame_high = _frame(
+        alive_counts=(5, 2),
+        hp_totals=(450.0, 150.0),
+        loadout_totals=(12000.0, 6000.0),
+        bomb_phase_time_remaining=bomb,
+    )
+    p_high, dbg_high = resolve_p_hat(frame_high, config, state, rails)
+    v2_low = dbg_low.get("midround_v2") or {}
+    v2_high = dbg_high.get("midround_v2") or {}
+    q_low = v2_low.get("q_intra", dbg_low["q_intra"].get("q_intra_round_win_a", 0.5))
+    q_high = v2_high.get("q_intra", dbg_high["q_intra"].get("q_intra_round_win_a", 0.5))
+    assert q_high > q_low
+    assert p_high >= p_low
+
+
+def test_midround_v2_p_hat_follows_movement_formula_when_rails_wide() -> None:
+    """IN_PROGRESS: p_hat_final = p_hat_old + confidence*(target_p_hat - p_hat_old) clamped to rails (Stage 2)."""
+    state = _state()
+    rail_low, rail_high = 0.01, 0.99
+    rails = (rail_low, rail_high)
+    config = _config(prematch_map=0.5)
+    frame = _frame(
+        alive_counts=(4, 2),
+        hp_totals=(400.0, 200.0),
+        loadout_totals=(10000.0, 5000.0),
+        bomb_phase_time_remaining={"round_phase": "IN_PROGRESS"},
+    )
+    p, dbg = resolve_p_hat(frame, config, state, rails)
+    assert dbg.get("midround_v2") is not None
+    assert dbg["midround_v2"].get("skipped") is not True
+    target_p_hat = dbg["midround_v2"]["p_mid"]
+    p_hat_old = dbg["p_hat_old"]
+    confidence = dbg["midround_weight"]
+    expected = p_hat_old + confidence * (target_p_hat - p_hat_old)
+    expected_clamped = max(rail_low, min(rail_high, expected))
+    assert p == expected_clamped
+    assert rail_low <= p <= rail_high
+
+
+REQUIRED_EXPLAIN_KEYS = (
+    "phase",
+    "p_base_map",
+    "p_base_series",
+    "midround_weight",
+    "q_intra_total",
+    "q_terms",
+    "micro_adj",
+    "rails",
+    "final",
+)
+
+REQUIRED_TIMER_DIAG_KEYS = (
+    "timer_contract_version",
+    "timer_state",
+    "timer_source_class",
+    "timer_remaining_s",
+    "timer_valid",
+    "a_side_used",
+    "timer_direction_expected",
+    "timer_direction_applied",
+    "timer_direction_term",
+    "timer_direction_reason_code",
+    "defuse_time_s",
+    "defuse_time_source",
+    "hard_boundary_active",
+    "hard_boundary_reason_code",
+)
+
+
+def test_resolve_debug_contains_explain_with_required_keys() -> None:
+    """HistoryPoint is built from resolve debug; debug must contain explain with required keys."""
+    frame = _frame(
+        alive_counts=(4, 2),
+        hp_totals=(300.0, 200.0),
+        loadout_totals=(8000.0, 4000.0),
+        bomb_phase_time_remaining={"round_phase": "IN_PROGRESS"},
+    )
+    config = _config(prematch_map=0.55)
+    state = _state()
+    rails = (0.2, 0.8)
+    _, dbg = resolve_p_hat(frame, config, state, rails)
+    assert "explain" in dbg, "resolve_p_hat debug_dict must include explain"
+    explain = dbg["explain"]
+    for key in REQUIRED_EXPLAIN_KEYS:
+        assert key in explain, f"explain must contain {key!r}"
+    assert "alive_adj" in explain["micro_adj"]
+    assert "hp_adj" in explain["micro_adj"]
+    assert "econ_adj" in explain["micro_adj"]
+    assert "rail_low" in explain["rails"]
+    assert "rail_high" in explain["rails"]
+    assert "corridor_width" in explain["rails"]
+    assert "p_hat_final" in explain["final"]
+    assert "clamp_reason" in explain["final"]
+
+
+def test_resolve_contract_diagnostics_emits_required_timer_keys() -> None:
+    frame = _frame(
+        alive_counts=(4, 3),
+        hp_totals=(320.0, 280.0),
+        loadout_totals=(8500.0, 8000.0),
+        bomb_phase_time_remaining={"round_phase": "IN_PROGRESS", "is_bomb_planted": False},
+        round_time_remaining_s=42.0,
+        a_side="CT",
+    )
+    config = _config(prematch_map=0.55)
+    config.source = "BO3"
+    state = _state()
+    _, dbg = resolve_p_hat(frame, config, state, (0.2, 0.8))
+    diag = dbg["contract_diagnostics"]
+    for key in REQUIRED_TIMER_DIAG_KEYS:
+        assert key in diag, f"contract_diagnostics missing timer key {key!r}"
+    assert diag["timer_contract_version"] == "timer_contract.v1"
+
+
+def test_resolve_boundary_ct_sets_q_contract_to_zero() -> None:
+    frame = _frame(
+        alive_counts=(3, 3),
+        hp_totals=(260.0, 260.0),
+        loadout_totals=(7000.0, 7000.0),
+        bomb_phase_time_remaining={"round_phase": "IN_PROGRESS", "is_bomb_planted": True},
+        round_time_remaining_s=4.0,
+        a_side="CT",
+        players_a=[{"alive": True, "has_kit": True}],
+        players_b=[{"alive": True, "has_kit": None}],
+    )
+    config = _config(prematch_map=0.5)
+    config.source = "BO3"
+    setattr(config, "contract_testing_mode", True)
+    state = _state()
+    _, dbg = resolve_p_hat(frame, config, state, (0.2, 0.8))
+    diag = dbg["contract_diagnostics"]
+    assert diag["hard_boundary_active"] is True
+    assert diag["hard_boundary_reason_code"] == "HARD_BOUNDARY_ACTIVE_CT_IMPOSSIBLE"
+    assert diag["q_intra_total"] == 0.0
+
+
+def test_resolve_boundary_t_sets_q_contract_to_one() -> None:
+    frame = _frame(
+        alive_counts=(3, 3),
+        hp_totals=(260.0, 260.0),
+        loadout_totals=(7000.0, 7000.0),
+        bomb_phase_time_remaining={"round_phase": "IN_PROGRESS", "is_bomb_planted": True},
+        round_time_remaining_s=4.0,
+        a_side="T",
+        players_a=[{"alive": True, "has_kit": None}],
+        players_b=[{"alive": True, "has_kit": True}],
+    )
+    config = _config(prematch_map=0.5)
+    config.source = "BO3"
+    setattr(config, "contract_testing_mode", True)
+    state = _state()
+    _, dbg = resolve_p_hat(frame, config, state, (0.2, 0.8))
+    diag = dbg["contract_diagnostics"]
+    assert diag["hard_boundary_active"] is True
+    assert diag["hard_boundary_reason_code"] == "HARD_BOUNDARY_ACTIVE_CT_IMPOSSIBLE"
+    assert diag["q_intra_total"] == 1.0
+
+
+def test_contract_target_matches_bible_formula() -> None:
+    """Diagnostics expose target_p_hat = rail_low + q * (rail_high - rail_low)."""
+    frame = _frame(
+        alive_counts=(4, 2),
+        hp_totals=(400.0, 200.0),
+        loadout_totals=(10000.0, 6000.0),
+        bomb_phase_time_remaining={"round_phase": "IN_PROGRESS"},
+    )
+    config = _config(prematch_map=0.5)
+    setattr(config, "contract_testing_mode", True)
+    state = _state()
+    rails = (0.2, 0.8)
+    _, dbg = resolve_p_hat(frame, config, state, rails)
+    diag = dbg["contract_diagnostics"]
+    q = diag["q_intra_total"]
+    assert q is not None
+    expected_target = rails[0] + q * (rails[1] - rails[0])
+    assert diag["target_p_hat"] == expected_target
+
+
+def test_contract_testing_mode_runtime_follows_movement_contract() -> None:
+    """Stage 2: runtime uses movement step so IN_PROGRESS p_hat_final matches contract (no movement_contract_gap)."""
+    frame = _frame(
+        alive_counts=(5, 1),
+        hp_totals=(450.0, 100.0),
+        loadout_totals=(12000.0, 3000.0),
+        bomb_phase_time_remaining={"round_phase": "IN_PROGRESS"},
+    )
+    config = _config(prematch_map=0.5)
+    setattr(config, "contract_testing_mode", True)
+    state = _state()
+    rails = (0.2, 0.8)
+    p_hat_final, dbg = resolve_p_hat(frame, config, state, rails)
+    diag = dbg["contract_diagnostics"]
+    assert diag["contract_testing_mode"] is True
+    expected_after_movement = diag.get("expected_p_hat_after_movement")
+    assert expected_after_movement is not None
+    assert abs(p_hat_final - expected_after_movement) < 1e-9, "runtime p_hat_final should follow movement contract"
+    assert "movement_contract_gap" not in diag["behavioral_violations"]
+
+
+def test_contract_testing_mode_off_suppresses_behavioral_flags() -> None:
+    """When testing mode is off, contract diagnostics do not emit behavioral violations."""
+    frame = _frame(
+        alive_counts=(5, 1),
+        hp_totals=(450.0, 100.0),
+        loadout_totals=(12000.0, 3000.0),
+        bomb_phase_time_remaining={"round_phase": "IN_PROGRESS"},
+    )
+    config = _config(prematch_map=0.5)
+    state = _state()
+    rails = (0.2, 0.8)
+    _, dbg = resolve_p_hat(frame, config, state, rails)
+    diag = dbg["contract_diagnostics"]
+    assert diag["contract_testing_mode"] is False
+    assert diag["behavioral_violations"] == []
+
+
+class TestResolveMicroAdj(unittest.TestCase):
+    """Run the same tests via unittest."""
+
+    def test_micro_fields_missing_adj_zero(self) -> None:
+        test_micro_fields_missing_adj_zero()
+
+    def test_strong_a_advantage_adj_positive(self) -> None:
+        test_strong_a_advantage_adj_positive()
+
+    def test_strong_a_disadvantage_adj_negative(self) -> None:
+        test_strong_a_disadvantage_adj_negative()
+
+    def test_resolve_clamps_into_rails(self) -> None:
+        test_resolve_clamps_into_rails()
+
+    def test_resolve_clamps_to_01(self) -> None:
+        test_resolve_clamps_to_01()
+
+    def test_midround_buy_time_frozen_midpoint(self) -> None:
+        test_midround_buy_time_frozen_midpoint()
+
+    def test_midround_freezetime_frozen_midpoint(self) -> None:
+        test_midround_freezetime_frozen_midpoint()
+
+    def test_midround_in_progress_stays_within_rails(self) -> None:
+        test_midround_in_progress_stays_within_rails()
+
+    def test_midround_monotonic_higher_q_intra_raises_p_hat(self) -> None:
+        test_midround_monotonic_higher_q_intra_raises_p_hat()
+
+    def test_midround_v2_p_hat_follows_movement_formula_when_rails_wide(self) -> None:
+        test_midround_v2_p_hat_follows_movement_formula_when_rails_wide()
+
+    def test_resolve_debug_contains_explain_with_required_keys(self) -> None:
+        test_resolve_debug_contains_explain_with_required_keys()
+
+    def test_contract_target_matches_bible_formula(self) -> None:
+        test_contract_target_matches_bible_formula()
+
+    def test_contract_testing_mode_runtime_follows_movement_contract(self) -> None:
+        test_contract_testing_mode_runtime_follows_movement_contract()
+
+    def test_contract_testing_mode_off_suppresses_behavioral_flags(self) -> None:
+        test_contract_testing_mode_off_suppresses_behavioral_flags()
+
+
+if __name__ == "__main__":
+    unittest.main()

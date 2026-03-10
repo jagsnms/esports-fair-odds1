@@ -1,0 +1,20 @@
+{
+  "data": {
+    "__schema": {
+      "queryType": {
+        "name": "Query",
+        "fields": [
+          {
+            "name": "seriesState"
+          },
+          {
+            "name": "latestSeriesStateByPlayerId"
+          },
+          {
+            "name": "_service"
+          }
+        ]
+      }
+    }
+  }
+}

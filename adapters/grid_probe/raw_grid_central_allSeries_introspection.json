@@ -1,0 +1,102 @@
+{
+  "endpoint": "central",
+  "field": "allSeries",
+  "queryField": {
+    "name": "allSeries",
+    "args": [
+      {
+        "name": "first",
+        "type": {
+          "kind": "SCALAR",
+          "name": "Int"
+        }
+      },
+      {
+        "name": "after",
+        "type": {
+          "kind": "SCALAR",
+          "name": "String"
+        }
+      },
+      {
+        "name": "filter",
+        "type": {
+          "kind": "INPUT_OBJECT",
+          "name": "SeriesFilter"
+        }
+      },
+      {
+        "name": "last",
+        "type": {
+          "kind": "SCALAR",
+          "name": "Int"
+        }
+      },
+      {
+        "name": "before",
+        "type": {
+          "kind": "SCALAR",
+          "name": "String"
+        }
+      },
+      {
+        "name": "orderBy",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "ENUM",
+            "name": "SeriesOrderBy"
+          }
+        }
+      },
+      {
+        "name": "orderDirection",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "ENUM",
+            "name": "OrderDirection"
+          }
+        }
+      }
+    ],
+    "type": {
+      "kind": "NON_NULL",
+      "ofType": {
+        "kind": "OBJECT",
+        "name": "SeriesConnection"
+      }
+    }
+  },
+  "returnTypeFields": [
+    {
+      "name": "totalCount",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "Int"
+        }
+      }
+    },
+    {
+      "name": "edges",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "LIST"
+        }
+      }
+    },
+    {
+      "name": "pageInfo",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "OBJECT",
+          "name": "PageInfo"
+        }
+      }
+    }
+  ]
+}

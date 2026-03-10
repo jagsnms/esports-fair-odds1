@@ -1,0 +1,159 @@
+{
+  "endpoint": "series_state",
+  "field": "seriesState",
+  "queryField": {
+    "name": "seriesState",
+    "args": [
+      {
+        "name": "id",
+        "type": {
+          "kind": "NON_NULL",
+          "ofType": {
+            "kind": "SCALAR",
+            "name": "ID"
+          }
+        }
+      }
+    ],
+    "type": {
+      "kind": "OBJECT",
+      "name": "SeriesState"
+    }
+  },
+  "returnTypeFields": [
+    {
+      "name": "version",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "Version"
+        }
+      }
+    },
+    {
+      "name": "id",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "ID"
+        }
+      }
+    },
+    {
+      "name": "title",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "OBJECT",
+          "name": "Title"
+        }
+      }
+    },
+    {
+      "name": "format",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "String"
+        }
+      }
+    },
+    {
+      "name": "started",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "Boolean"
+        }
+      }
+    },
+    {
+      "name": "finished",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "Boolean"
+        }
+      }
+    },
+    {
+      "name": "forfeited",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "Boolean"
+        }
+      }
+    },
+    {
+      "name": "valid",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "Boolean"
+        }
+      }
+    },
+    {
+      "name": "teams",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "LIST"
+        }
+      }
+    },
+    {
+      "name": "games",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "LIST"
+        }
+      }
+    },
+    {
+      "name": "draftActions",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "LIST"
+        }
+      }
+    },
+    {
+      "name": "updatedAt",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "DateTime"
+        }
+      }
+    },
+    {
+      "name": "startedAt",
+      "type": {
+        "kind": "SCALAR",
+        "name": "DateTime"
+      }
+    },
+    {
+      "name": "duration",
+      "type": {
+        "kind": "NON_NULL",
+        "ofType": {
+          "kind": "SCALAR",
+          "name": "Duration"
+        }
+      }
+    }
+  ]
+}

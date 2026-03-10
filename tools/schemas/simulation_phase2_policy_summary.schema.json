@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tools/schemas/simulation_phase2_policy_summary.schema.json",
+  "title": "SimulationPhase2PolicySummary",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema_version",
+    "seed",
+    "policy_profile",
+    "canonical_engine_path",
+    "round_count",
+    "ticks_per_round",
+    "generated_payload_count",
+    "policy_families",
+    "realized_family_counts",
+    "structural_violations_total",
+    "behavioral_violations_total",
+    "invariant_violations_total",
+    "p_hat_min",
+    "p_hat_max",
+    "p_hat_count",
+    "p_hat_median",
+    "policy_distribution",
+    "replay_comparable_summary"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "simulation_phase2_policy_summary.v1"
+    },
+    "seed": {
+      "type": "integer"
+    },
+    "policy_profile": {
+      "type": "string",
+      "const": "balanced_v1"
+    },
+    "canonical_engine_path": {
+      "type": "string",
+      "const": "compute_bounds>compute_rails>resolve_p_hat"
+    },
+    "round_count": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "ticks_per_round": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "generated_payload_count": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "policy_families": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "realized_family_counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "structural_violations_total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "behavioral_violations_total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "invariant_violations_total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "p_hat_min": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "p_hat_max": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "p_hat_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "p_hat_median": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "policy_distribution": {
+      "type": "object",
+      "required": [
+        "seed",
+        "rounds",
+        "ticks_per_round",
+        "policy_profile",
+        "target_family_quotas",
+        "effective_family_quotas",
+        "realized_family_counts",
+        "realized_family_rates",
+        "quota_delta",
+        "family_sequence",
+        "feasibility_adjustment_applied",
+        "feasibility_adjustment_reason"
+      ],
+      "additionalProperties": true
+    },
+    "replay_comparable_summary": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "fixture_class",
+        "replay_path",
+        "total_points_captured",
+        "raw_contract_points",
+        "structural_violations_total",
+        "behavioral_violations_total",
+        "invariant_violations_total",
+        "p_hat_min",
+        "p_hat_max",
+        "p_hat_count",
+        "p_hat_median"
+      ],
+      "additionalProperties": true
+    }
+  }
+}
