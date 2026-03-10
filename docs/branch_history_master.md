@@ -45,6 +45,7 @@
 - **Risks / red flags:** This binds one canonical `balanced_v1` slice only. It does not expand profiles or seeds, and it does not complete broad replay/simulation comparison.
 - **Why this push matters:** Replay/simulation decisions are now about the real landed canonical Phase 2 slice rather than a separate in-progress synthetic raw lane.
 - **Next likely step (at this time):** Re-rank whether a bounded next comparison/alignment step on the canonical slice beats pausing or a different Bible-level gap.
+
 ## 2026-03-10 - Bounded canonical round-alignment search for the landed `balanced_v1` Phase 2 slice
 - **Branch:** `master`
 - **Initiative / phase:** Bounded canonical alignment-search step (`balanced_v1` only)
@@ -60,3 +61,16 @@
 - **Why this push matters:** The canonical slice is now decision-useful when an approved nearby canonical candidate aligns, without reopening the old raw synthetic lane or widening the project into a matrix search.
 - **Next likely step (at this time):** Re-rank whether a bounded next comparison/alignment step still beats pausing or a different Bible-level gap.
 
+## 2026-03-10 - [LOCAL STAGE] Canonical simulation trace export with per-point prediction/outcome labels
+- **Branch:** `codex/phase2-trace-export-stage1`
+- **Initiative / phase:** Bounded canonical trace-export/source-contract step (`balanced_v1` only)
+- **Summary of local stage work:** Added one deterministic machine-readable trace-export path for the landed canonical `balanced_v1` simulation lane so prediction points can be paired only with truthful runner-emitted `round_result` labels.
+- **Key files/subsystems touched:**
+  - `engine/simulation/phase2.py`
+  - `tests/simulation/test_phase2_trace_export.py`
+  - `docs/branch_history_master.md`
+  - `docs/current_status_master.md`
+- **Checks run and result (local stage):** focused replay/simulation pilot pytest passed; the Phase 2 summary CLI emitted canonical trace-export output for seed `20260310` showing `124` labeled prediction records, `31` truthful `round_result` events, and `4` explicitly excluded unlabeled final-round prediction points; the approved `tests/simulation/...` pytest commands still need one more clean confirmation in the current `.venv311` launcher setup.
+- **Risks / red flags:** This is still one bounded `balanced_v1` slice only. The export is a source-contract step, not a calibration lane, and unlabeled final-round prediction points are excluded rather than given pseudo-labels.
+- **Why this local stage matters:** It opens the truthful raw source contract that later downstream evidence work was missing, without faking calibration-ready outputs or broadening simulation semantics.
+- **Next likely step (from this local stage):** Finish the approved Stage 1 validation pass and decide whether this bounded trace-export contract is promotion-worthy.
