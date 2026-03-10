@@ -1,5 +1,26 @@
 # Branch History - `master`
 
+## 2026-03-10 - [LOCAL STAGE] Replay-anchored multi-source decision contract (`balanced_v1` vs `eco_bias_v1`)
+- **Branch:** `codex/replay-multisource-decision-stage1`
+- **Initiative / phase:** Stage 1 bounded replay-anchored two-source decision contract (fixed seed `20260310`)
+- **Summary of local stage work:** Added one bounded replay-anchored decision layer that evaluates exactly two canonical simulation sources, `balanced_v1` and `eco_bias_v1`, against one replay input and emits one combined machine-readable decision artifact instead of leaving the new second-source pressure surface unanchored to replay truth.
+- **Project commits:**
+  - `81fec184069f2fc04b30d5b209a0a72314e95e42` `Add replay anchored multisource decision contract`
+  - `11fe43ee1ffe938524b8db70095c674fec8bfe75` `Tighten replay multisource no-difference rule`
+- **Project changes in scope:**
+  - `tools/run_replay_simulation_validation_pilot.py`
+  - `tools/run_replay_multisource_decision.py`
+  - `tests/unit/test_run_replay_multisource_decision.py`
+  - `automation/reports/replay_multisource_decision_balanced_v1_vs_eco_bias_v1_seed20260310.json`
+  - `docs/branch_history_master.md`
+  - `docs/current_status_master.md`
+- **Bounded decision-contract output:** one combined artifact with replay anchor metadata, exactly two source blocks (`balanced_v1` and `eco_bias_v1`), explicit source contracts and fixed seed/shape basis, per-source local sanity/alignment/failed-check state, and one explicit decision block with `decision_basis = "replay_anchored_multi_source"`, reasons, and a no-material-difference rule.
+- **Checks run and result (local stage):** `tests/unit/test_run_replay_simulation_validation_pilot.py` passed (`9 passed`); `tests/unit/test_run_replay_multisource_decision.py` passed (`4 passed`), including the focused equal-count / different-failed-check regression case added in the corrective pass; the direct `.venv311` replay-anchored multi-source decision CLI validation completed successfully after bypassing the local environment/sandbox launcher quirk and emitted `automation/reports/replay_multisource_decision_balanced_v1_vs_eco_bias_v1_seed20260310.json`; the bounded direct `.venv311` single-source replay/simulation pilot CLI validation also completed successfully and remained supported.
+- **Current replay-anchored outcome:** the combined decision artifact is truthful but `inconclusive` on `tools/fixtures/replay_carryover_complete_v1.jsonl` because neither canonical source satisfies the bounded alignment threshold on that replay slice.
+- **Corrective guardrail:** the final local stage now requires failed-check identity compatibility and mismatch-class compatibility before `no_material_difference` is possible, so replay disagreement kind cannot be flattened into count similarity alone.
+- **Risks / red flags:** This is still one bounded replay-anchored pressure test only. It does not broaden replay assessment, add more sources/seeds, redesign calibration, or prove broad representativeness. The current slice adds honesty and decision visibility, not a strong directional winner.
+- **Why this local stage matters:** The repo can now answer the right question in the right order: not just whether the two canonical sources differ, but whether replay truth distinguishes them enough to matter.
+- **Next likely step (from this local stage):** Review whether this bounded replay-anchored decision contract should be promoted as a worthwhile honesty/integrity step despite the current replay result remaining `inconclusive`.
 ## [BACKFILLED] 2026-03-10 - Master catch-up merge from `agent-initiative-base`
 - **Branch:** `master`
 - **Initiative / phase:** Deliberate source-of-truth catch-up merge

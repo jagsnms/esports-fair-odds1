@@ -1,0 +1,176 @@
+{
+  "decision": {
+    "decision": "inconclusive",
+    "decision_basis": "replay_anchored_multi_source",
+    "no_material_difference_rule": "emit no_material_difference only when both aligned source blocks share the same replay-vs-source failed-check identities, the same mismatch_class, and each key replay-vs-source absolute delta differs by <= 0.01",
+    "reasons": [
+      "balanced_v1 source block is not replay-comparable enough for a two-source decision",
+      "eco_bias_v1 source block is not replay-comparable enough for a two-source decision"
+    ]
+  },
+  "decision_contract_version": "replay_anchored_multi_source_decision.v1",
+  "generated_at": "2026-03-10T00:00:00Z",
+  "replay_anchor": {
+    "fixture_class": "replay_carryover_complete_v1",
+    "generated_at": "2026-03-10T00:00:00Z",
+    "replay_input_path": "tools\\fixtures\\replay_carryover_complete_v1.jsonl"
+  },
+  "run_id": "replay_multisource_decision_slice2",
+  "schema_version": "replay_multisource_decision.v1",
+  "sources": {
+    "balanced_v1": {
+      "alignment_result": {
+        "alignment_achieved": false,
+        "attempt_results": [
+          {
+            "abs_delta": 156,
+            "attempted_rounds": 32,
+            "synthetic_total_points": 159
+          },
+          {
+            "abs_delta": 151,
+            "attempted_rounds": 31,
+            "synthetic_total_points": 154
+          },
+          {
+            "abs_delta": 161,
+            "attempted_rounds": 33,
+            "synthetic_total_points": 164
+          },
+          {
+            "abs_delta": 146,
+            "attempted_rounds": 30,
+            "synthetic_total_points": 149
+          },
+          {
+            "abs_delta": 166,
+            "attempted_rounds": 34,
+            "synthetic_total_points": 169
+          }
+        ],
+        "attempted_synthetic_rounds": [
+          32,
+          31,
+          33,
+          30,
+          34
+        ],
+        "selected_synthetic_rounds": null,
+        "stop_reason": "alignment inconclusive: no synthetic round candidate satisfied abs(replay.total_points_captured - synthetic.total_points_captured) <= 1",
+        "target_replay_total_points": 3
+      },
+      "canonical_source_contract": "canonical_phase2_balanced_v1",
+      "cross_surface_failed_checks": [],
+      "cross_surface_pass": false,
+      "cross_surface_reasons": [],
+      "fixed_shape_basis": {
+        "requested_rounds": 32,
+        "requested_ticks_per_round": 4,
+        "round_candidates": [
+          32,
+          31,
+          33,
+          30,
+          34
+        ],
+        "selected_rounds": null
+      },
+      "key_replay_vs_source_deltas": {
+        "p_hat_max_abs_delta": null,
+        "p_hat_median_abs_delta": null,
+        "p_hat_min_abs_delta": null,
+        "total_points_captured_abs_delta": null
+      },
+      "local_sanity_result": {
+        "replay_pass": true,
+        "replay_reasons": [],
+        "synthetic_pass": true,
+        "synthetic_reasons": []
+      },
+      "mismatch_class": "none",
+      "policy_profile": "balanced_v1",
+      "source_decision": "inconclusive",
+      "source_decision_reasons": [
+        "alignment inconclusive: no synthetic round candidate satisfied abs(replay.total_points_captured - synthetic.total_points_captured) <= 1"
+      ],
+      "synthetic_seed": 20260310
+    },
+    "eco_bias_v1": {
+      "alignment_result": {
+        "alignment_achieved": false,
+        "attempt_results": [
+          {
+            "abs_delta": 156,
+            "attempted_rounds": 32,
+            "synthetic_total_points": 159
+          },
+          {
+            "abs_delta": 151,
+            "attempted_rounds": 31,
+            "synthetic_total_points": 154
+          },
+          {
+            "abs_delta": 161,
+            "attempted_rounds": 33,
+            "synthetic_total_points": 164
+          },
+          {
+            "abs_delta": 146,
+            "attempted_rounds": 30,
+            "synthetic_total_points": 149
+          },
+          {
+            "abs_delta": 166,
+            "attempted_rounds": 34,
+            "synthetic_total_points": 169
+          }
+        ],
+        "attempted_synthetic_rounds": [
+          32,
+          31,
+          33,
+          30,
+          34
+        ],
+        "selected_synthetic_rounds": null,
+        "stop_reason": "alignment inconclusive: no synthetic round candidate satisfied abs(replay.total_points_captured - synthetic.total_points_captured) <= 1",
+        "target_replay_total_points": 3
+      },
+      "canonical_source_contract": "canonical_phase2_eco_bias_v1",
+      "cross_surface_failed_checks": [],
+      "cross_surface_pass": false,
+      "cross_surface_reasons": [],
+      "fixed_shape_basis": {
+        "requested_rounds": 32,
+        "requested_ticks_per_round": 4,
+        "round_candidates": [
+          32,
+          31,
+          33,
+          30,
+          34
+        ],
+        "selected_rounds": null
+      },
+      "key_replay_vs_source_deltas": {
+        "p_hat_max_abs_delta": null,
+        "p_hat_median_abs_delta": null,
+        "p_hat_min_abs_delta": null,
+        "total_points_captured_abs_delta": null
+      },
+      "local_sanity_result": {
+        "replay_pass": true,
+        "replay_reasons": [],
+        "synthetic_pass": true,
+        "synthetic_reasons": []
+      },
+      "mismatch_class": "none",
+      "policy_profile": "eco_bias_v1",
+      "source_decision": "inconclusive",
+      "source_decision_reasons": [
+        "alignment inconclusive: no synthetic round candidate satisfied abs(replay.total_points_captured - synthetic.total_points_captured) <= 1"
+      ],
+      "synthetic_seed": 20260310
+    }
+  }
+}
