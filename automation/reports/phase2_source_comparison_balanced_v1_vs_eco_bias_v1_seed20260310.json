@@ -1,0 +1,191 @@
+{
+  "comparison": {
+    "decision_pressure": {
+      "basis": "same seed/shape and same truthful trace rule, but different canonical source definition",
+      "family_distribution_changed": true,
+      "p_hat_median_abs_delta": 0.004823398596269013,
+      "pressure_present": true
+    },
+    "policy_family_count_deltas_eco_minus_balanced": {
+      "clutch": -3,
+      "eco_force": 6,
+      "execute": 0,
+      "retake": -3
+    },
+    "replay_metric_deltas_eco_minus_balanced": {
+      "labeled_prediction_record_count_delta": 0,
+      "p_hat_max_delta": 0.04112158946329025,
+      "p_hat_median_delta": 0.004823398596269013,
+      "p_hat_min_delta": 0.12911042115090476,
+      "total_points_captured_delta": 0,
+      "unlabeled_prediction_points_excluded_delta": 0
+    },
+    "same_carryover_complete_floor": true,
+    "same_labeled_point_only_rule": true,
+    "same_seed": true,
+    "same_shape": true,
+    "same_trace_export_rule": true,
+    "source_identity_explicit": true,
+    "source_vs_source_not_baseline_current": true
+  },
+  "comparison_basis": {
+    "left_policy_profile": "balanced_v1",
+    "right_policy_profile": "eco_bias_v1",
+    "round_count": 32,
+    "seed": 20260310,
+    "ticks_per_round": 4,
+    "type": "canonical_phase2_source_vs_source"
+  },
+  "generated_at": "2026-03-10T00:00:00Z",
+  "left_source": {
+    "canonical_source_contract": "canonical_phase2_balanced_v1",
+    "comparison_basis": {
+      "assessment_path": "canonical replay_comparable_summary",
+      "label_scope": "round_result",
+      "trace_path": "labeled-point-only trace_export"
+    },
+    "policy_distribution": {
+      "family_sequence": [
+        "retake",
+        "eco_force",
+        "retake",
+        "eco_force",
+        "retake",
+        "clutch",
+        "clutch",
+        "execute",
+        "retake",
+        "eco_force",
+        "clutch",
+        "execute",
+        "clutch",
+        "eco_force",
+        "execute",
+        "execute",
+        "retake",
+        "execute",
+        "eco_force",
+        "execute",
+        "retake",
+        "clutch",
+        "eco_force",
+        "clutch",
+        "clutch",
+        "clutch",
+        "retake",
+        "execute",
+        "execute",
+        "eco_force",
+        "retake",
+        "eco_force"
+      ],
+      "realized_family_counts": {
+        "clutch": 8,
+        "eco_force": 8,
+        "execute": 8,
+        "retake": 8
+      }
+    },
+    "policy_profile": "balanced_v1",
+    "replay_comparable_summary": {
+      "p_hat_max": 0.643698209183057,
+      "p_hat_median": 0.5586410601496629,
+      "p_hat_min": 0.30253799509772283,
+      "rail_input_v1_fallback_points": 0,
+      "rail_input_v2_activated_points": 159,
+      "raw_contract_points": 159,
+      "total_points_captured": 159
+    },
+    "round_count": 32,
+    "safety_floor": {
+      "behavioral_violations_total": 0,
+      "invariant_violations_total": 0,
+      "preserved": true,
+      "structural_violations_total": 0
+    },
+    "seed": 20260310,
+    "ticks_per_round": 4,
+    "trace_export": {
+      "labeled_prediction_record_count": 124,
+      "round_result_event_count": 31,
+      "unlabeled_prediction_points_excluded": 4
+    },
+    "trace_source_contract": "canonical_phase2_balanced_v1_trace"
+  },
+  "right_source": {
+    "canonical_source_contract": "canonical_phase2_eco_bias_v1",
+    "comparison_basis": {
+      "assessment_path": "canonical replay_comparable_summary",
+      "label_scope": "round_result",
+      "trace_path": "labeled-point-only trace_export"
+    },
+    "policy_distribution": {
+      "family_sequence": [
+        "clutch",
+        "eco_force",
+        "clutch",
+        "eco_force",
+        "retake",
+        "execute",
+        "execute",
+        "eco_force",
+        "retake",
+        "eco_force",
+        "execute",
+        "eco_force",
+        "execute",
+        "eco_force",
+        "eco_force",
+        "eco_force",
+        "retake",
+        "eco_force",
+        "clutch",
+        "eco_force",
+        "retake",
+        "eco_force",
+        "eco_force",
+        "execute",
+        "clutch",
+        "execute",
+        "execute",
+        "clutch",
+        "execute",
+        "eco_force",
+        "retake",
+        "eco_force"
+      ],
+      "realized_family_counts": {
+        "clutch": 5,
+        "eco_force": 14,
+        "execute": 8,
+        "retake": 5
+      }
+    },
+    "policy_profile": "eco_bias_v1",
+    "replay_comparable_summary": {
+      "p_hat_max": 0.6848197986463472,
+      "p_hat_median": 0.5634644587459319,
+      "p_hat_min": 0.4316484162486276,
+      "rail_input_v1_fallback_points": 0,
+      "rail_input_v2_activated_points": 159,
+      "raw_contract_points": 159,
+      "total_points_captured": 159
+    },
+    "round_count": 32,
+    "safety_floor": {
+      "behavioral_violations_total": 0,
+      "invariant_violations_total": 0,
+      "preserved": true,
+      "structural_violations_total": 0
+    },
+    "seed": 20260310,
+    "ticks_per_round": 4,
+    "trace_export": {
+      "labeled_prediction_record_count": 124,
+      "round_result_event_count": 31,
+      "unlabeled_prediction_points_excluded": 4
+    },
+    "trace_source_contract": "canonical_phase2_eco_bias_v1_trace"
+  },
+  "schema_version": "phase2_source_comparison.v1"
+}

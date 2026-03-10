@@ -18,7 +18,13 @@ from tools.synthetic_state_generator import (
 SIMULATION_PHASE2_SUMMARY_VERSION = "simulation_phase2_policy_summary.v1"
 SIMULATION_PHASE2_TRACE_SCHEMA_VERSION = "simulation_phase2_trace.v1"
 CANONICAL_ENGINE_PATH = "compute_bounds>compute_rails>resolve_p_hat"
-PHASE2_STAGE1_POLICY_PROFILE = "balanced_v1"
+PHASE2_DEFAULT_POLICY_PROFILE = "balanced_v1"
+PHASE2_SECOND_SOURCE_POLICY_PROFILE = "eco_bias_v1"
+PHASE2_SUPPORTED_POLICY_PROFILES = (
+    PHASE2_DEFAULT_POLICY_PROFILE,
+    PHASE2_SECOND_SOURCE_POLICY_PROFILE,
+)
+PHASE2_STAGE1_POLICY_PROFILE = PHASE2_DEFAULT_POLICY_PROFILE
 PHASE2_STAGE1_ROUNDS = 32
 PHASE2_STAGE1_TICKS_PER_ROUND = 4
 PHASE2_STAGE1_FIXTURE_CLASS = "phase2_balanced_v1_policy_canonical"
@@ -31,31 +37,67 @@ PHASE2_TRACE_JOIN_KEYS = ("game_number", "map_index", "round_number")
 PHASE2_TRACE_EXPORT_CONDITION = "export_only_prediction_points_with_unique_round_result_event"
 
 
+def _normalize_phase2_policy_profile(policy_profile: str) -> str:
+    profile = str(policy_profile or PHASE2_DEFAULT_POLICY_PROFILE)
+    if profile not in PHASE2_SUPPORTED_POLICY_PROFILES:
+        raise ValueError(f"unsupported canonical phase2 policy profile: {profile}")
+    return profile
 
-def _sanitize_replay_summary(replay_summary: dict[str, Any], *, seed: int) -> dict[str, Any]:
+
+def phase2_source_contract(policy_profile: str) -> str:
+    profile = _normalize_phase2_policy_profile(policy_profile)
+    return f"canonical_phase2_{profile}"
+
+
+def phase2_fixture_class(policy_profile: str) -> str:
+    profile = _normalize_phase2_policy_profile(policy_profile)
+    return f"phase2_{profile}_policy_canonical"
+
+
+def phase2_trace_source_contract(policy_profile: str) -> str:
+    profile = _normalize_phase2_policy_profile(policy_profile)
+    return f"canonical_phase2_{profile}_trace"
+
+
+def phase2_replay_path(*, policy_profile: str, seed: int) -> str:
+    profile = _normalize_phase2_policy_profile(policy_profile)
+    return f"synthetic://phase2/{profile}/seed/{int(seed)}"
+
+
+def phase2_summary_metadata(policy_profile: str) -> dict[str, str]:
+    profile = _normalize_phase2_policy_profile(policy_profile)
+    return {
+        "policy_profile": profile,
+        "canonical_source_contract": phase2_source_contract(profile),
+        "fixture_class": phase2_fixture_class(profile),
+        "trace_source_contract": phase2_trace_source_contract(profile),
+    }
+
+
+
+def _sanitize_replay_summary(
+    replay_summary: dict[str, Any],
+    *,
+    seed: int,
+    policy_profile: str,
+) -> dict[str, Any]:
+    metadata = phase2_summary_metadata(policy_profile)
     sanitized = dict(replay_summary)
-    sanitized["fixture_class"] = PHASE2_STAGE1_FIXTURE_CLASS
-    sanitized["replay_path"] = f"synthetic://phase2/{PHASE2_STAGE1_POLICY_PROFILE}/seed/{int(seed)}"
+    sanitized["fixture_class"] = metadata["fixture_class"]
+    sanitized["replay_path"] = phase2_replay_path(policy_profile=policy_profile, seed=int(seed))
     sanitized["replay_path_exists"] = False
+    sanitized["canonical_source_contract"] = metadata["canonical_source_contract"]
     return sanitized
 
 
-def _build_phase2_raw_replay(
+def _build_phase2_trace_export(
     *,
+    captured_points: list[dict[str, Any]],
     seed: int,
     rounds: int,
-) -> tuple[dict[str, Any], Path, int]:
-    round_count = int(rounds)
-    policy_distribution = generate_synthetic_distribution_summary(
-        seed=int(seed),
-        rounds=round_count,
-        ticks_per_round=PHASE2_STAGE1_TICKS_PER_ROUND,
-        policy_profile=PHASE2_STAGE1_POLICY_PROFILE,
-    )
-    return policy_distribution, Path("phase2_balanced_v1_policy_raw.jsonl"), round_count
-
-
-def _build_phase2_trace_export(*, captured_points: list[dict[str, Any]], seed: int, rounds: int) -> dict[str, Any]:
+    policy_profile: str,
+) -> dict[str, Any]:
+    profile = _normalize_phase2_policy_profile(policy_profile)
     round_result_labels: dict[tuple[int | None, int | None, int | None], dict[str, Any]] = {}
     round_result_event_count = 0
     for point in captured_points:
@@ -117,10 +159,10 @@ def _build_phase2_trace_export(*, captured_points: list[dict[str, Any]], seed: i
     return {
         "schema_version": SIMULATION_PHASE2_TRACE_SCHEMA_VERSION,
         "seed": int(seed),
-        "policy_profile": PHASE2_STAGE1_POLICY_PROFILE,
+        "policy_profile": profile,
         "round_count": int(rounds),
         "ticks_per_round": PHASE2_STAGE1_TICKS_PER_ROUND,
-        "canonical_source_contract": PHASE2_TRACE_SOURCE_CONTRACT,
+        "canonical_source_contract": phase2_trace_source_contract(profile),
         "pairing_rule": {
             "id": PHASE2_TRACE_PAIRING_RULE_ID,
             "label_event_type": PHASE2_TRACE_LABEL_EVENT_TYPE,
@@ -135,23 +177,30 @@ def _build_phase2_trace_export(*, captured_points: list[dict[str, Any]], seed: i
     }
 
 
-async def _generate_phase2_summary_async(seed: int, *, rounds: int = PHASE2_STAGE1_ROUNDS) -> dict[str, Any]:
+async def _generate_phase2_summary_async(
+    seed: int,
+    *,
+    rounds: int = PHASE2_STAGE1_ROUNDS,
+    policy_profile: str = PHASE2_STAGE1_POLICY_PROFILE,
+) -> dict[str, Any]:
+    profile = _normalize_phase2_policy_profile(policy_profile)
+    metadata = phase2_summary_metadata(profile)
     round_count = int(rounds)
     policy_distribution = generate_synthetic_distribution_summary(
         seed=int(seed),
         rounds=round_count,
         ticks_per_round=PHASE2_STAGE1_TICKS_PER_ROUND,
-        policy_profile=PHASE2_STAGE1_POLICY_PROFILE,
+        policy_profile=profile,
     )
 
-    with tempfile.TemporaryDirectory(prefix="phase2_balanced_v1.") as tmpdir:
-        replay_path = Path(tmpdir) / "phase2_balanced_v1_policy_raw.jsonl"
+    with tempfile.TemporaryDirectory(prefix=f"phase2_{profile}.") as tmpdir:
+        replay_path = Path(tmpdir) / f"phase2_{profile}_policy_raw.jsonl"
         generated_payload_count = write_synthetic_raw_replay_jsonl(
             replay_path,
             seed=int(seed),
             rounds=round_count,
             ticks_per_round=PHASE2_STAGE1_TICKS_PER_ROUND,
-            policy_profile=PHASE2_STAGE1_POLICY_PROFILE,
+            policy_profile=profile,
         )
         replay_summary = await run_assessment(
             str(replay_path),
@@ -163,16 +212,22 @@ async def _generate_phase2_summary_async(seed: int, *, rounds: int = PHASE2_STAG
         dict(item.get("point") or {})
         for item in replay_summary.pop("captured_points", [])
     ]
-    replay_comparable_summary = _sanitize_replay_summary(replay_summary, seed=int(seed))
+    replay_comparable_summary = _sanitize_replay_summary(
+        replay_summary,
+        seed=int(seed),
+        policy_profile=profile,
+    )
     trace_export = _build_phase2_trace_export(
         captured_points=captured_points,
         seed=int(seed),
         rounds=round_count,
+        policy_profile=profile,
     )
     return {
         "schema_version": SIMULATION_PHASE2_SUMMARY_VERSION,
         "seed": int(seed),
-        "policy_profile": PHASE2_STAGE1_POLICY_PROFILE,
+        "policy_profile": profile,
+        "canonical_source_contract": metadata["canonical_source_contract"],
         "canonical_engine_path": CANONICAL_ENGINE_PATH,
         "round_count": round_count,
         "ticks_per_round": PHASE2_STAGE1_TICKS_PER_ROUND,
@@ -192,8 +247,13 @@ async def _generate_phase2_summary_async(seed: int, *, rounds: int = PHASE2_STAG
     }
 
 
-def generate_phase2_summary(seed: int, *, rounds: int = PHASE2_STAGE1_ROUNDS) -> dict[str, Any]:
-    return asyncio.run(_generate_phase2_summary_async(seed, rounds=rounds))
+def generate_phase2_summary(
+    seed: int,
+    *,
+    rounds: int = PHASE2_STAGE1_ROUNDS,
+    policy_profile: str = PHASE2_STAGE1_POLICY_PROFILE,
+) -> dict[str, Any]:
+    return asyncio.run(_generate_phase2_summary_async(seed, rounds=rounds, policy_profile=policy_profile))
 
 
 def emit_phase2_summary(
@@ -201,11 +261,11 @@ def emit_phase2_summary(
     output_path: str | Path | None = None,
     *,
     rounds: int = PHASE2_STAGE1_ROUNDS,
+    policy_profile: str = PHASE2_STAGE1_POLICY_PROFILE,
 ) -> dict[str, Any]:
-    summary = generate_phase2_summary(seed, rounds=rounds)
+    summary = generate_phase2_summary(seed, rounds=rounds, policy_profile=policy_profile)
     if output_path is not None:
         path = Path(output_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return summary
-

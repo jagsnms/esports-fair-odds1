@@ -130,3 +130,23 @@
 - **Risks / red flags:** This is still bounded `balanced_v1` evidence only, not calibration redesign or general simulation-calibration completion. Baseline/current are explicit but identical at this stage, and final-round prediction points remain unlabeled under current canonical semantics and are excluded explicitly rather than imputed.
 - **Why this push matters:** The repo now has one truthful downstream simulation evidence path derived from promoted canonical trace records instead of a hard-disabled simulation side.
 - **Next likely step (at this time):** Re-rank the next meaningful project from current `master` reality without assuming more Phase 2 or broader calibration work automatically.
+
+## 2026-03-10 - [LOCAL STAGE] Bounded `eco_bias_v1` second source and source-vs-source comparison pressure
+- **Branch:** `codex/stage1-eco-bias-second-source`
+- **Initiative / phase:** Stage 1 bounded second-source pressure step (`balanced_v1` vs `eco_bias_v1`, fixed seed `20260310`)
+- **Summary of local stage work:** Added exactly one second canonical Phase 2 source using `eco_bias_v1` on the same fixed seed/shape/truthfulness rules as `balanced_v1`, preserved the same replay-comparable carryover-complete safety floor, and emitted one thin machine-readable source-vs-source comparison artifact that keeps source identity explicit instead of abusing baseline/current semantics.
+- **Project changes in scope:**
+  - `engine/simulation/phase2.py`
+  - `tools/simulate_phase2.py`
+  - `tools/compare_phase2_sources.py`
+  - `tools/schemas/simulation_phase2_policy_summary.schema.json`
+  - `tests/simulation/test_phase2_policy_contract.py`
+  - `tests/simulation/test_phase2_trace_export.py`
+  - `automation/reports/phase2_source_comparison_balanced_v1_vs_eco_bias_v1_seed20260310.json`
+  - `docs/branch_history_master.md`
+  - `docs/current_status_master.md`
+- **Bounded second-source contract:** `eco_bias_v1`, seed `20260310`, `round_count = 32`, `ticks_per_round = 4`, same canonical engine path, same replay-comparable assessment path, same labeled-point-only trace export rule, same explicit unlabeled-point exclusion count reporting, and zero structural / behavioral / invariant violations.
+- **Checks run and result (local stage):** focused Phase 2 policy-contract and trace-export pytest passed; the approved `balanced_v1` CLI run completed deterministically; the approved trace-export test emitted `automation/reports/phase2_source_comparison_balanced_v1_vs_eco_bias_v1_seed20260310.json` with explicit left/right source identity, same seed/shape basis, preserved safety floor, and non-zero family-distribution deltas; direct `.venv311` script invocation for the extra-argument `eco_bias_v1` CLI variant and the direct comparison CLI remained subject to a local Windows venv launcher quirk.
+- **Risks / red flags:** This is still only one extra bounded source and one fixed seed. It creates decision pressure, but it does not answer broader representativeness by itself and must not be misread as a generic multi-source framework.
+- **Why this local stage matters:** The canonical simulation lane is no longer stuck with a single truthful source and no comparison pressure; the repo can now tell whether a materially different bounded source changes the observed lane enough to justify further work.
+- **Next likely step (from this local stage):** Review whether the new source-vs-source pressure is strong enough to justify promotion or whether the correct answer is still pause.
