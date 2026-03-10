@@ -1,4 +1,4 @@
-"""Policy-driven canonical simulation Phase 2 Stage 1 contract."""
+﻿"""Policy-driven canonical simulation Phase 2 Stage 1 contract."""
 from __future__ import annotations
 
 import asyncio
@@ -20,6 +20,7 @@ PHASE2_STAGE1_POLICY_PROFILE = "balanced_v1"
 PHASE2_STAGE1_ROUNDS = 32
 PHASE2_STAGE1_TICKS_PER_ROUND = 4
 PHASE2_STAGE1_FIXTURE_CLASS = "phase2_balanced_v1_policy_canonical"
+PHASE2_STAGE2_PREMATCH_MAP = 0.55
 
 
 def _sanitize_replay_summary(replay_summary: dict[str, Any], *, seed: int) -> dict[str, Any]:
@@ -47,7 +48,9 @@ def generate_phase2_summary(seed: int) -> dict[str, Any]:
             ticks_per_round=PHASE2_STAGE1_TICKS_PER_ROUND,
             policy_profile=PHASE2_STAGE1_POLICY_PROFILE,
         )
-        replay_summary = asyncio.run(run_assessment(str(replay_path)))
+        replay_summary = asyncio.run(
+            run_assessment(str(replay_path), prematch_map=PHASE2_STAGE2_PREMATCH_MAP)
+        )
 
     replay_comparable_summary = _sanitize_replay_summary(replay_summary, seed=int(seed))
     return {
@@ -79,3 +82,6 @@ def emit_phase2_summary(seed: int, output_path: str | Path | None = None) -> dic
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return summary
+
+
+

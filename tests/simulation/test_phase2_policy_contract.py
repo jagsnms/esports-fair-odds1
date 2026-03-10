@@ -1,4 +1,4 @@
-"""Contract tests for the bounded Phase 2 policy-driven simulation harness."""
+﻿"""Contract tests for the bounded Phase 2 policy-driven simulation harness."""
 from __future__ import annotations
 
 import json
@@ -66,11 +66,24 @@ class TestSimulationPhase2PolicyContract(unittest.TestCase):
         replay_summary = summary["replay_comparable_summary"]
         self.assertEqual(replay_summary["schema_version"], "replay_validation_summary.v1")
         self.assertEqual(replay_summary["fixture_class"], phase2.PHASE2_STAGE1_FIXTURE_CLASS)
+        self.assertEqual(replay_summary["assessment_prematch_map"], phase2.PHASE2_STAGE2_PREMATCH_MAP)
         self.assertEqual(replay_summary["replay_path"], f"synthetic://phase2/balanced_v1/seed/{SEED}")
         self.assertIs(replay_summary["replay_path_exists"], False)
         self.assertEqual(replay_summary["total_points_captured"], replay_summary["raw_contract_points"])
         self.assertEqual(replay_summary["unknown_replay_mode_points"], 0)
         self.assertEqual(replay_summary["point_passthrough_points"], 0)
+        self.assertGreater(replay_summary["rail_input_v2_activated_points"], 0)
+        self.assertEqual(replay_summary["rail_input_v1_fallback_points"], 0)
+        self.assertNotIn("V2_REQUIRED_FIELDS_MISSING", replay_summary["rail_input_reason_code_counts"])
+        self.assertEqual(
+            replay_summary["rail_input_reason_code_counts"].get("V2_STRICT_ACTIVATED"),
+            replay_summary["total_points_captured"],
+        )
+        carryover = replay_summary["carryover_evidence_by_source_class"]["REPLAY_raw"]
+        self.assertGreater(carryover["required_complete_points"], 0)
+        self.assertEqual(carryover["required_incomplete_points"], 0)
+        self.assertEqual(carryover["v2_activated_points"], replay_summary["total_points_captured"])
+        self.assertEqual(carryover["v1_fallback_points"], 0)
         self.assertEqual(replay_summary["structural_violations_total"], 0)
         self.assertEqual(replay_summary["behavioral_violations_total"], 0)
         self.assertEqual(replay_summary["invariant_violations_total"], 0)
@@ -79,3 +92,4 @@ class TestSimulationPhase2PolicyContract(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
