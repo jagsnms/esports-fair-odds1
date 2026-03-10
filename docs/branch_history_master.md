@@ -1,4 +1,4 @@
-﻿# Branch History - `master`
+# Branch History - `master`
 
 ## [BACKFILLED] 2026-03-10 - Master catch-up merge from `agent-initiative-base`
 - **Branch:** `master`
@@ -31,3 +31,17 @@
 - **Risks / red flags:** This is bounded V2 activation on one slice only. It does not broaden profiles, seeds, calibration/export integration, or complete all Phase 2 semantics.
 - **Why this push matters:** It turns the landed Phase 2 slice from policy-driven-but-fallback-only into policy-driven-with-real-V2-activation through the canonical path.
 - **Next likely step (at this time):** Re-rank whether a bounded next Phase 2 semantic extension still beats pausing or another Bible-level project.
+
+## 2026-03-10 - Replay/simulation decision layer bound to canonical `balanced_v1` Phase 2 slice
+- **Branch:** `master`
+- **Initiative / phase:** Bounded replay/simulation decision-layer binding (`balanced_v1` only)
+- **Summary of push:** Rebound the decision layer so its simulation side now comes from the landed canonical Phase 2 `balanced_v1` slice instead of the older direct raw synthetic generator path, and preserved explicit alignment honesty by resolving the fixed unaligned slice to `inconclusive`.
+- **Key files/subsystems touched:**
+  - `tools/run_replay_simulation_validation_pilot.py`
+  - `tests/unit/test_run_replay_simulation_validation_pilot.py`
+  - `docs/branch_history_master.md`
+  - `docs/current_status_master.md`
+- **Tests/checks run and result:** focused pilot pytest passed (`8 passed`); bounded pilot command against `tools/fixtures/replay_carryover_complete_v1.jsonl` with seed `20260310` emitted a machine-readable artifact showing canonical Phase 2 provenance, `alignment_achieved = false`, `selected_synthetic_rounds = null`, the fixed-slice note as both stop reason and decision reason, and `decision = inconclusive`.
+- **Risks / red flags:** This binds one canonical `balanced_v1` slice only. It does not expand profiles or seeds, and it does not complete broad replay/simulation comparison.
+- **Why this push matters:** Replay/simulation decisions are now about the real landed canonical Phase 2 slice rather than a separate in-progress synthetic raw lane.
+- **Next likely step (at this time):** Re-rank whether a bounded next comparison/alignment step on the canonical slice beats pausing or a different Bible-level gap.
