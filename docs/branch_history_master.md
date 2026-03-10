@@ -61,24 +61,6 @@
 - **Why this push matters:** The canonical slice is now decision-useful when an approved nearby canonical candidate aligns, without reopening the old raw synthetic lane or widening the project into a matrix search.
 - **Next likely step (at this time):** Re-rank whether a bounded next comparison/alignment step still beats pausing or a different Bible-level gap.
 
-## 2026-03-10 - [LOCAL STAGE] Canonical simulation trace export with per-point prediction/outcome labels
-- **Branch:** `codex/phase2-trace-export-stage1`
-- **Initiative / phase:** Bounded canonical trace-export/source-contract step (`balanced_v1` only)
-- **Summary of local stage work:** Added one deterministic machine-readable trace-export path for the landed canonical `balanced_v1` simulation lane so prediction points can be paired only with truthful runner-emitted `round_result` labels, then removed the duplicate canonical execution introduced in the initial implementation by reusing the existing canonical assessment pass.
-- **Project commits:**
-  - `897f97400e21e6099ba4abc887d9d55eaca0c9cb` `Add canonical Phase 2 trace export contract`
-  - `374485d9df58f12213076ffb4716cf0729f061c6` `Reuse assessment pass for Phase 2 trace export`
-- **Key files/subsystems touched:**
-  - `engine/simulation/phase2.py`
-  - `tools/replay_verification_assess.py`
-  - `tests/simulation/test_phase2_trace_export.py`
-  - `docs/branch_history_master.md`
-  - `docs/current_status_master.md`
-- **Checks run and result (local stage):** approved validations now pass: `tests/unit/test_run_replay_simulation_validation_pilot.py`, `tests/simulation/test_phase2_policy_contract.py`, and `tests/simulation/test_phase2_trace_export.py`; repeated `tools/simulate_phase2.py --seed 20260310` runs emitted identical machine-readable output.
-- **Risks / red flags:** This is still one bounded `balanced_v1` slice only. The export is a source-contract step, not a calibration lane, and unlabeled final-round prediction points are excluded rather than given pseudo-labels. The earlier pytest launcher issue was an environment/sandbox quirk, not a product failure.
-- **Why this local stage matters:** It opens the truthful raw source contract that later downstream evidence work was missing, without faking calibration-ready outputs or broadening simulation semantics.
-- **Next likely step (from this local stage):** Decide whether this bounded source-contract step should be promoted, without overstating it as calibration-lane work.
-
 ## 2026-03-10 - Canonical simulation trace export with per-point prediction/outcome labels
 - **Branch:** `master`
 - **Initiative / phase:** Bounded canonical trace-export/source-contract step (`balanced_v1` only)
@@ -97,3 +79,31 @@
 - **Risks / red flags:** This is still one bounded `balanced_v1` slice only. The export is a source-contract step, not a calibration lane, and unlabeled final-round prediction points are excluded rather than given pseudo-labels. The earlier pytest launcher issue was an environment/sandbox quirk, not a product failure.
 - **Why this push matters:** It opens the truthful raw source contract that later downstream evidence work was missing, without faking calibration-ready outputs or broadening simulation semantics.
 - **Next likely step (at this time):** Re-rank the next meaningful project from current `master` reality rather than continuing by inertia.
+
+## 2026-03-10 - [LOCAL STAGE] Bounded true simulation calibration evidence from canonical Phase 2 trace export
+- **Branch:** `codex/sim-calibration-evidence-stage1`
+- **Initiative / phase:** Bounded simulation evidence-path step (`balanced_v1` only, fixed seed `20260310`)
+- **Summary of local stage work:** Enabled one truthful simulation calibration evidence path sourced only from explicit canonical `balanced_v1` trace inputs, emitted bounded baseline/current simulation evidence records that match the existing gate/schema contract, and replaced the prior hard-disabled simulation export state for this bounded source only.
+- **Project changes in scope:**
+  - `tools/export_calibration_reliability_evidence.py`
+  - `tools/calibration_reliability_evidence_gate.py`
+  - `tools/fixtures/calibration_reliability_simulation_exported_v1.json`
+  - `tools/fixtures/canonical_phase2_balanced_v1_trace_baseline_v1.json`
+  - `tools/fixtures/canonical_phase2_balanced_v1_trace_current_v1.json`
+  - `automation/reports/calibration_reliability_evidence_export_manifest_v1.json`
+  - `tests/unit/test_export_calibration_reliability_evidence.py`
+  - `tests/unit/test_run_calibration_reliability_evidence_gate.py`
+  - `tests/unit/test_calibration_reliability_evidence_schema.py`
+  - `docs/branch_history_master.md`
+  - `docs/current_status_master.md`
+- **Explicit baseline/current input method:** Two explicit canonical trace-export JSON inputs are used, one for `baseline` and one for `current`. In this bounded stage they are separate files but identical `balanced_v1`/seed `20260310` traces, so the lane is truthful about source identity without claiming comparative improvement.
+- **Checks run and result (local stage):**
+  - `tests/unit/test_export_calibration_reliability_evidence.py` passed
+  - `tests/unit/test_run_calibration_reliability_evidence_gate.py` passed
+  - `tests/unit/test_calibration_reliability_evidence_schema.py` passed
+  - `tests/simulation/test_phase2_trace_export.py` passed
+  - repeated `tools/simulate_phase2.py --seed 20260310` runs remained deterministic
+  - bounded calibration export path emitted simulation evidence records and truthful manifest provenance, including unlabeled-point exclusion counts
+- **Risks / red flags:** This is still bounded `balanced_v1` evidence only, not a calibration redesign or broad simulation-calibration solution. Final-round prediction points remain unlabeled under current canonical semantics and are excluded explicitly rather than imputed.
+- **Why this local stage matters:** The repo now has one truthful downstream simulation evidence path derived from promoted canonical trace records instead of a hard-disabled simulation side.
+- **Next likely step (from this local stage):** Review whether this bounded evidence-path step should be promoted, without overstating it as broad simulation calibration completion.

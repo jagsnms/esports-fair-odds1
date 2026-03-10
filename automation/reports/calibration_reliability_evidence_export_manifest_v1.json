@@ -12,23 +12,58 @@
     },
     "null_empty_bin_policy": "retain_all_bins; for n==0 with null p_mean/y_rate, export 0.0 and preserve source_* fields",
     "segment_value": "global",
-    "simulation_export_reason": "true simulation calibration evidence is not available from the approved source report",
-    "simulation_export_status": "disabled_no_true_simulation_source",
-    "simulation_seed": 1337
+    "simulation_bin_policy": "fixed_decile_bins_from_labeled_trace_records",
+    "simulation_dataset_id": "canonical_phase2_balanced_v1_trace_v1",
+    "simulation_export_reason": "bounded simulation calibration evidence is derived from explicit canonical phase2 trace inputs",
+    "simulation_export_status": "enabled_canonical_phase2_trace",
+    "simulation_label_scope": "round_result",
+    "simulation_policy_profile": "balanced_v1",
+    "simulation_seed": 20260310,
+    "simulation_source_contract": "canonical_phase2_balanced_v1_trace"
   },
-  "generated_at": "2026-03-09T00:00:00Z",
+  "generated_at": "2026-03-10T00:00:00Z",
   "outputs": {
-    "replay_evidence_path": "/workspace/tools/fixtures/calibration_reliability_replay_exported_v1.json",
+    "replay_evidence_path": "C:\\Users\\court\\OneDrive\\Desktop\\parlay\\esports-fair-odds\\tools\\fixtures\\calibration_reliability_replay_exported_v1.json",
     "replay_evidence_sha256": "34d87991067d0b219edd18ef4a48eef8d6d8e7623c193597b996ddc52b8b59c6",
     "replay_record_count": 2,
-    "simulation_evidence_path": "/workspace/tools/fixtures/calibration_reliability_simulation_exported_v1.json",
-    "simulation_evidence_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
-    "simulation_record_count": 0
+    "simulation_evidence_path": "C:\\Users\\court\\OneDrive\\Desktop\\parlay\\esports-fair-odds\\tools\\fixtures\\calibration_reliability_simulation_exported_v1.json",
+    "simulation_evidence_sha256": "1d2785ad2b1a3d16975b463e94af279e977db4153f356d79319d60c9b72bb94e",
+    "simulation_record_count": 2
   },
   "schema_version": "calibration_reliability_evidence_export.v1",
-  "source_calibration_path": "/workspace/config/p_calibration.json",
+  "simulation_trace_inputs": {
+    "baseline_trace": {
+      "canonical_source_contract": "canonical_phase2_balanced_v1_trace",
+      "label_scope": "round_result",
+      "labeled_prediction_record_count": 124,
+      "policy_profile": "balanced_v1",
+      "round_count": 32,
+      "round_result_event_count": 31,
+      "schema_version": "simulation_phase2_trace.v1",
+      "seed": 20260310,
+      "source_path": "C:\\Users\\court\\OneDrive\\Desktop\\parlay\\esports-fair-odds\\tools\\fixtures\\canonical_phase2_balanced_v1_trace_baseline_v1.json",
+      "source_sha256": "fc7341d39c7c0857303426d56bd5fa605fc77878d75889ce5ea29323ca9aff90",
+      "ticks_per_round": 4,
+      "unlabeled_prediction_points_excluded": 4
+    },
+    "current_trace": {
+      "canonical_source_contract": "canonical_phase2_balanced_v1_trace",
+      "label_scope": "round_result",
+      "labeled_prediction_record_count": 124,
+      "policy_profile": "balanced_v1",
+      "round_count": 32,
+      "round_result_event_count": 31,
+      "schema_version": "simulation_phase2_trace.v1",
+      "seed": 20260310,
+      "source_path": "C:\\Users\\court\\OneDrive\\Desktop\\parlay\\esports-fair-odds\\tools\\fixtures\\canonical_phase2_balanced_v1_trace_current_v1.json",
+      "source_sha256": "fc7341d39c7c0857303426d56bd5fa605fc77878d75889ce5ea29323ca9aff90",
+      "ticks_per_round": 4,
+      "unlabeled_prediction_points_excluded": 4
+    }
+  },
+  "source_calibration_path": "C:\\Users\\court\\OneDrive\\Desktop\\parlay\\esports-fair-odds\\config\\p_calibration.json",
   "source_calibration_sha256": "cd4d46ed60d5d8540f0b29c443ca385a962cc03aa5d75e3730ee8b01185fa1d8",
-  "source_report_path": "/workspace/config/p_calibration_report.json",
+  "source_report_path": "C:\\Users\\court\\OneDrive\\Desktop\\parlay\\esports-fair-odds\\config\\p_calibration_report.json",
   "source_report_ran_at": "2026-02-20 07:02:30",
   "source_report_sha256": "d3cb09be295bd7321e87fe221d17b169fc268bde316193e399bca978aa14f6c9"
 }

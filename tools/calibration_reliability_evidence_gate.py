@@ -83,6 +83,17 @@ def _validate_bins_shape(bins: Any) -> bool:
     return True
 
 
+def _minimal_gate_bins(bins: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "bin_index": int(row["bin_index"]),
+            "count": int(row["count"]),
+            "mean_prediction": float(row["mean_prediction"]),
+            "empirical_rate": float(row["empirical_rate"]),
+        }
+        for row in bins
+    ]
+
 def _delta_bins(
     baseline_bins: list[dict[str, Any]],
     current_bins: list[dict[str, Any]],
@@ -223,12 +234,12 @@ def build_calibration_reliability_summary(
         baseline_metrics = {
             "brier_score": float(scopes["baseline"]["brier_score"]),
             "log_loss": float(scopes["baseline"]["log_loss"]),
-            "reliability_curve_bins": scopes["baseline"]["reliability_curve_bins"],
+            "reliability_curve_bins": _minimal_gate_bins(scopes["baseline"]["reliability_curve_bins"]),
         }
         current_metrics = {
             "brier_score": float(scopes["current"]["brier_score"]),
             "log_loss": float(scopes["current"]["log_loss"]),
-            "reliability_curve_bins": scopes["current"]["reliability_curve_bins"],
+            "reliability_curve_bins": _minimal_gate_bins(scopes["current"]["reliability_curve_bins"]),
         }
         comparison_pairs.append(
             {
@@ -315,3 +326,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
