@@ -150,3 +150,26 @@
 - **Risks / red flags:** This is still only one extra bounded source and one fixed seed. It creates decision pressure, but it does not answer broader representativeness by itself and must not be misread as a generic multi-source framework.
 - **Why this local stage matters:** The canonical simulation lane is no longer stuck with a single truthful source and no comparison pressure; the repo can now tell whether a materially different bounded source changes the observed lane enough to justify further work.
 - **Next likely step (from this local stage):** Review whether the new source-vs-source pressure is strong enough to justify promotion or whether the correct answer is still pause.
+
+## 2026-03-10 - Bounded `eco_bias_v1` second source and source-vs-source comparison pressure
+- **Branch:** `master`
+- **Initiative / phase:** Bounded second-source pressure step (`balanced_v1` vs `eco_bias_v1`, fixed seed `20260310`)
+- **Summary of push:** Promoted exactly one bounded second canonical Phase 2 source using `eco_bias_v1` on the same fixed seed/shape/truthfulness rules as `balanced_v1`, and landed one thin machine-readable source-vs-source comparison artifact that keeps source identity explicit instead of abusing baseline/current semantics.
+- **Project commits:**
+  - `5a50f4781099eb78309d943e467037c1da437ffc` `Add bounded eco bias Phase 2 second source`
+  - `9cbaad2f6430c3e71744bb616facf2bd2c100bcd` `Correct second source validation status docs`
+- **Key files/subsystems touched:**
+  - `engine/simulation/phase2.py`
+  - `tools/simulate_phase2.py`
+  - `tools/compare_phase2_sources.py`
+  - `tools/schemas/simulation_phase2_policy_summary.schema.json`
+  - `tests/simulation/test_phase2_policy_contract.py`
+  - `tests/simulation/test_phase2_trace_export.py`
+  - `automation/reports/phase2_source_comparison_balanced_v1_vs_eco_bias_v1_seed20260310.json`
+  - `docs/branch_history_master.md`
+  - `docs/current_status_master.md`
+- **Bounded second-source contract:** `eco_bias_v1`, seed `20260310`, `round_count = 32`, `ticks_per_round = 4`, same canonical engine path, same replay-comparable assessment path, same labeled-point-only trace export rule, same explicit unlabeled-point exclusion count reporting, and zero structural / behavioral / invariant violations.
+- **Tests/checks run and result:** `tests/simulation/test_phase2_policy_contract.py` and `tests/simulation/test_phase2_trace_export.py` passed; the approved `balanced_v1` CLI simulation run completed deterministically; the direct `.venv311` `eco_bias_v1` CLI validation completed successfully; the direct `.venv311` comparison CLI validation completed successfully and emitted a machine-readable artifact with explicit left/right source identity, same seed/shape basis, preserved safety floor, and non-zero family-distribution deltas; the earlier launcher trouble proved to be an environment/sandbox execution quirk rather than a product failure.
+- **Risks / red flags:** This is still only one extra bounded source and one fixed seed. It creates decision pressure, but it does not answer broader representativeness by itself and must not be misread as broad simulation/calibration completion.
+- **Why this push matters:** The canonical simulation lane is no longer stuck with a single truthful source and no comparison pressure; `master` can now test whether a materially different bounded source changes the observed lane enough to justify further work.
+- **Next likely step (at this time):** Re-rank the next meaningful project from current `master` reality rather than assuming more Phase 2 expansion automatically.
