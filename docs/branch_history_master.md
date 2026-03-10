@@ -45,6 +45,7 @@
 - **Risks / red flags:** This binds one canonical `balanced_v1` slice only. It does not expand profiles or seeds, and it does not complete broad replay/simulation comparison.
 - **Why this push matters:** Replay/simulation decisions are now about the real landed canonical Phase 2 slice rather than a separate in-progress synthetic raw lane.
 - **Next likely step (at this time):** Re-rank whether a bounded next comparison/alignment step on the canonical slice beats pausing or a different Bible-level gap.
+
 ## 2026-03-10 - Bounded canonical round-alignment search for the landed `balanced_v1` Phase 2 slice
 - **Branch:** `master`
 - **Initiative / phase:** Bounded canonical alignment-search step (`balanced_v1` only)
@@ -60,3 +61,39 @@
 - **Why this push matters:** The canonical slice is now decision-useful when an approved nearby canonical candidate aligns, without reopening the old raw synthetic lane or widening the project into a matrix search.
 - **Next likely step (at this time):** Re-rank whether a bounded next comparison/alignment step still beats pausing or a different Bible-level gap.
 
+## 2026-03-10 - [LOCAL STAGE] Canonical simulation trace export with per-point prediction/outcome labels
+- **Branch:** `codex/phase2-trace-export-stage1`
+- **Initiative / phase:** Bounded canonical trace-export/source-contract step (`balanced_v1` only)
+- **Summary of local stage work:** Added one deterministic machine-readable trace-export path for the landed canonical `balanced_v1` simulation lane so prediction points can be paired only with truthful runner-emitted `round_result` labels, then removed the duplicate canonical execution introduced in the initial implementation by reusing the existing canonical assessment pass.
+- **Project commits:**
+  - `897f97400e21e6099ba4abc887d9d55eaca0c9cb` `Add canonical Phase 2 trace export contract`
+  - `374485d9df58f12213076ffb4716cf0729f061c6` `Reuse assessment pass for Phase 2 trace export`
+- **Key files/subsystems touched:**
+  - `engine/simulation/phase2.py`
+  - `tools/replay_verification_assess.py`
+  - `tests/simulation/test_phase2_trace_export.py`
+  - `docs/branch_history_master.md`
+  - `docs/current_status_master.md`
+- **Checks run and result (local stage):** approved validations now pass: `tests/unit/test_run_replay_simulation_validation_pilot.py`, `tests/simulation/test_phase2_policy_contract.py`, and `tests/simulation/test_phase2_trace_export.py`; repeated `tools/simulate_phase2.py --seed 20260310` runs emitted identical machine-readable output.
+- **Risks / red flags:** This is still one bounded `balanced_v1` slice only. The export is a source-contract step, not a calibration lane, and unlabeled final-round prediction points are excluded rather than given pseudo-labels. The earlier pytest launcher issue was an environment/sandbox quirk, not a product failure.
+- **Why this local stage matters:** It opens the truthful raw source contract that later downstream evidence work was missing, without faking calibration-ready outputs or broadening simulation semantics.
+- **Next likely step (from this local stage):** Decide whether this bounded source-contract step should be promoted, without overstating it as calibration-lane work.
+
+## 2026-03-10 - Canonical simulation trace export with per-point prediction/outcome labels
+- **Branch:** `master`
+- **Initiative / phase:** Bounded canonical trace-export/source-contract step (`balanced_v1` only)
+- **Summary of push:** Landed one deterministic machine-readable trace-export path for the canonical `balanced_v1` simulation lane so prediction points are paired only to truthful runner-emitted `round_result` labels, and removed the duplicate canonical execution introduced in the initial implementation by reusing the existing canonical assessment pass.
+- **Project commits:**
+  - `897f97400e21e6099ba4abc887d9d55eaca0c9cb` `Add canonical Phase 2 trace export contract`
+  - `374485d9df58f12213076ffb4716cf0729f061c6` `Reuse assessment pass for Phase 2 trace export`
+  - `d1dfab139698fc31ef65c9e71fc50207ccf3b99c` `Update master docs for validated trace export stage`
+- **Key files/subsystems touched:**
+  - `engine/simulation/phase2.py`
+  - `tools/replay_verification_assess.py`
+  - `tests/simulation/test_phase2_trace_export.py`
+  - `docs/branch_history_master.md`
+  - `docs/current_status_master.md`
+- **Tests/checks run and result:** approved validations passed: `tests/unit/test_run_replay_simulation_validation_pilot.py`, `tests/simulation/test_phase2_policy_contract.py`, and `tests/simulation/test_phase2_trace_export.py`; repeated `tools/simulate_phase2.py --seed 20260310` runs emitted identical machine-readable output.
+- **Risks / red flags:** This is still one bounded `balanced_v1` slice only. The export is a source-contract step, not a calibration lane, and unlabeled final-round prediction points are excluded rather than given pseudo-labels. The earlier pytest launcher issue was an environment/sandbox quirk, not a product failure.
+- **Why this push matters:** It opens the truthful raw source contract that later downstream evidence work was missing, without faking calibration-ready outputs or broadening simulation semantics.
+- **Next likely step (at this time):** Re-rank the next meaningful project from current `master` reality rather than continuing by inertia.

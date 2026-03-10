@@ -3,22 +3,27 @@
 Last updated: 2026-03-10
 
 ## Snapshot
-- **Active initiative:** Bounded canonical round-alignment search for the landed `balanced_v1` Phase 2 slice completed and ready for publication in this push.
-- **Branch-state assessment:** `master` now contains the merged canonical engine/replay/simulation groundwork, the bounded Phase 2 policy-driven simulation contract, bounded V2 activation on the landed `balanced_v1` slice, truthful replay/simulation decision-layer binding to that canonical slice, and this follow-on step that adds a tiny canonical round-candidate search around the landed slice.
+- **Active initiative:** Canonical simulation trace export with per-point prediction/outcome labels is now landed on `master` as a bounded source-contract step for the canonical `balanced_v1` simulation lane.
+- **Branch-state assessment:** `master` remains green and now includes a deterministic machine-readable trace-export path that pairs prediction records only to truthful runner-emitted `round_result` labels from the same canonical assessment pass.
 
 ## Main red flags
-1. **This is still one bounded canonical slice only.** The search is limited to `balanced_v1` with a tiny fixed candidate set near `32`, not broad replay/simulation completion.
-2. **The current real fixture still remains `inconclusive`.** That is honest: the artifact reports attempted candidates `[32, 31, 33, 30, 34]`, `selected_synthetic_rounds = null`, and no approved candidate aligned.
-3. **No profile or seed expansion was done here.** Later generalization still requires an explicit decision.
+1. **This is still one bounded canonical slice only.** The trace path is limited to `balanced_v1`, one fixed seed flow, and the existing canonical Phase 2 semantics.
+2. **The export is a source-contract step, not a calibration lane.** It does not compute `brier_score`, `log_loss`, or `reliability_curve_bins`, and it does not integrate with calibration export/gate paths.
+3. **Not every prediction point is labelable under current semantics.** The current bounded export excludes unlabeled final-round prediction points and reports that exclusion explicitly rather than inventing a pseudo-label.
 
 ## Most recent completed checks
 - Focused replay/simulation pilot tests pass.
-- Same replay input plus seed `20260310` remains deterministic in the focused pilot path.
-- The bounded pilot artifact reports truthful canonical Phase 2 provenance and the fixed attempted candidate list `[32, 31, 33, 30, 34]`.
-- The same artifact reports `alignment_achieved = false`, `selected_synthetic_rounds = null`, truthful stop and decision reasons, and `decision = inconclusive` for the current real fixture.
+- The approved validations now pass:
+  - `tests/unit/test_run_replay_simulation_validation_pilot.py`
+  - `tests/simulation/test_phase2_policy_contract.py`
+  - `tests/simulation/test_phase2_trace_export.py`
+- The canonical Phase 2 summary/trace CLI output for seed `20260310` emits deterministic identical machine-readable trace output across two runs.
+- The emitted trace contract reports canonical provenance, a machine-readable pairing rule, `124` labeled prediction records, `31` truthful `round_result` events, and `4` explicitly excluded unlabeled final-round prediction points.
+- The duplicate canonical execution introduced in the initial trace-export commit was removed in the corrective follow-up by reusing the existing canonical assessment pass.
+- The earlier `.venv311` pytest launcher issue was an environment/sandbox execution quirk, not a product failure.
 
 ## Next likely step
-- Re-rank whether another bounded canonical comparison/alignment step beats pausing or a different Bible-level project.
+- Re-rank the next meaningful project from current `master` reality without overstating this bounded source-contract step as calibration-lane work.
 
 ## Process note for future pushes
 - Append one new entry to `docs/branch_history_master.md` per final push.

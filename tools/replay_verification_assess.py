@@ -127,7 +127,12 @@ def _median(values: list[float]) -> float | None:
     return float((ordered[mid - 1] + ordered[mid]) / 2.0)
 
 
-async def run_assessment(replay_path: str, *, prematch_map: float | None = None) -> dict[str, Any]:
+async def run_assessment(
+    replay_path: str,
+    *,
+    prematch_map: float | None = None,
+    include_captured_points: bool = False,
+) -> dict[str, Any]:
     """Run replay with invariant_diagnostics=True; capture each appended point's derived; return metrics."""
     os.chdir(ROOT)
     path = Path(replay_path)
@@ -150,6 +155,11 @@ async def run_assessment(replay_path: str, *, prematch_map: float | None = None)
             "p_hat": getattr(point, "p_hat", None),
             "rail_low": getattr(point, "rail_low", None),
             "rail_high": getattr(point, "rail_high", None),
+            "game_number": getattr(point, "game_number", None),
+            "map_index": getattr(point, "map_index", None),
+            "round_number": getattr(point, "round_number", None),
+            "event": getattr(point, "event", None),
+            "time": getattr(point, "time", None),
         }
         captured.append({"point": pt, "derived": asdict(derived)})
         await original_append(point, state, derived)
@@ -376,6 +386,7 @@ async def run_assessment(replay_path: str, *, prematch_map: float | None = None)
         "p_hat_median": _median(p_hats),
         "rail_low_min": min(rail_lows) if rail_lows else None,
         "rail_high_max": max(rail_highs) if rail_highs else None,
+        **({"captured_points": captured} if include_captured_points else {}),
     }
 
 
@@ -412,3 +423,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
