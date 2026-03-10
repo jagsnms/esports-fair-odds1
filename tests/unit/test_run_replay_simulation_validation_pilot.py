@@ -37,12 +37,17 @@ def _summary(
     }
 
 
-def _canonical_phase2_artifact(*, seed: int, replay_summary: dict[str, object]) -> dict[str, object]:
+def _canonical_phase2_artifact(
+    *,
+    seed: int,
+    replay_summary: dict[str, object],
+    round_count: int = phase2.PHASE2_STAGE1_ROUNDS,
+) -> dict[str, object]:
     return {
         "schema_version": pilot.SIMULATION_PHASE2_SUMMARY_VERSION,
         "seed": int(seed),
         "policy_profile": phase2.PHASE2_STAGE1_POLICY_PROFILE,
-        "round_count": phase2.PHASE2_STAGE1_ROUNDS,
+        "round_count": int(round_count),
         "ticks_per_round": phase2.PHASE2_STAGE1_TICKS_PER_ROUND,
         "replay_comparable_summary": replay_summary,
     }
@@ -144,19 +149,20 @@ def test_runner_writes_stable_artifact_for_canonical_phase2_inputs(tmp_path: Pat
     replay_input.write_text('{"dummy": true}\n', encoding="utf-8")
     output_path = tmp_path / "pilot.json"
 
-    seeds_seen: list[int] = []
+    calls: list[tuple[int, int]] = []
 
-    def _fake_generate_phase2_summary(seed: int) -> dict[str, object]:
-        seeds_seen.append(int(seed))
+    def _fake_generate_phase2_summary(seed: int, *, rounds: int = phase2.PHASE2_STAGE1_ROUNDS) -> dict[str, object]:
+        calls.append((int(seed), int(rounds)))
         return _canonical_phase2_artifact(
             seed=seed,
-            replay_summary=_summary(p_hat_min=0.43, p_hat_max=0.59),
+            round_count=rounds,
+            replay_summary=_summary(total_points_captured=10, raw_contract_points=10, p_hat_min=0.43, p_hat_max=0.59),
         )
 
     async def _fake_run_assessment(path: str, *, prematch_map: float | None = None) -> dict[str, object]:
         _ = path
         _ = prematch_map
-        return _summary(p_hat_min=0.41, p_hat_max=0.58)
+        return _summary(total_points_captured=10, raw_contract_points=10, p_hat_min=0.41, p_hat_max=0.58)
 
     monkeypatch.setattr(pilot, "generate_phase2_summary", _fake_generate_phase2_summary)
     monkeypatch.setattr(pilot, "run_assessment", _fake_run_assessment)
@@ -181,21 +187,68 @@ def test_runner_writes_stable_artifact_for_canonical_phase2_inputs(tmp_path: Pat
     assert first.decision == "pass"
     assert second.decision == "pass"
     assert first_text == second_text
-    assert seeds_seen == [1337, 1337]
+    assert calls == [(1337, 32), (1337, 32)]
 
     payload = json.loads(first_text)
     _assert_decision_contract_coherence(payload)
     assert payload["slice"]["replay_input_path"] == str(replay_input)
     assert payload["slice"]["synthetic_seed"] == 1337
     assert payload["slice"]["synthetic_policy_profile"] == phase2.PHASE2_STAGE1_POLICY_PROFILE
-    assert payload["slice"]["synthetic_rounds"] == phase2.PHASE2_STAGE1_ROUNDS
+    assert payload["slice"]["synthetic_rounds"] == 32
     assert payload["slice"]["synthetic_ticks_per_round"] == phase2.PHASE2_STAGE1_TICKS_PER_ROUND
     assert payload["slice"]["synthetic_source_contract"] == pilot.CANONICAL_PHASE2_SOURCE_CONTRACT
     assert payload["slice"]["synthetic_source_schema_version"] == pilot.SIMULATION_PHASE2_SUMMARY_VERSION
     assert payload["synthetic"]["p_hat_min"] == 0.43
     assert payload["synthetic"]["p_hat_max"] == 0.59
-    assert payload["alignment"]["attempted_synthetic_rounds"] == [phase2.PHASE2_STAGE1_ROUNDS]
-    assert payload["alignment"]["selected_synthetic_rounds"] == phase2.PHASE2_STAGE1_ROUNDS
+    assert payload["alignment"]["attempted_synthetic_rounds"] == [32]
+    assert payload["alignment"]["selected_synthetic_rounds"] == 32
+
+
+def test_runner_selects_first_aligned_canonical_round_candidate(tmp_path: Path, monkeypatch) -> None:
+    replay_input = tmp_path / "replay.jsonl"
+    replay_input.write_text('{"dummy": true}\n', encoding="utf-8")
+    output_path = tmp_path / "pilot_aligned.json"
+
+    calls: list[tuple[int, int]] = []
+
+    def _fake_generate_phase2_summary(seed: int, *, rounds: int = phase2.PHASE2_STAGE1_ROUNDS) -> dict[str, object]:
+        calls.append((int(seed), int(rounds)))
+        total_points = {32: 20, 31: 10, 33: 14, 30: 18, 34: 22}[int(rounds)]
+        return _canonical_phase2_artifact(
+            seed=seed,
+            round_count=rounds,
+            replay_summary=_summary(total_points_captured=total_points, raw_contract_points=total_points),
+        )
+
+    async def _fake_run_assessment(path: str, *, prematch_map: float | None = None) -> dict[str, object]:
+        _ = path
+        _ = prematch_map
+        return _summary(total_points_captured=10, raw_contract_points=10)
+
+    monkeypatch.setattr(pilot, "generate_phase2_summary", _fake_generate_phase2_summary)
+    monkeypatch.setattr(pilot, "run_assessment", _fake_run_assessment)
+
+    result = pilot.run_replay_simulation_validation_pilot(
+        replay_input_path=str(replay_input),
+        run_id="pilot_aligned_candidate",
+        synthetic_seed=20260310,
+        synthetic_policy_profile=phase2.PHASE2_STAGE1_POLICY_PROFILE,
+        synthetic_rounds=phase2.PHASE2_STAGE1_ROUNDS,
+        synthetic_ticks_per_round=phase2.PHASE2_STAGE1_TICKS_PER_ROUND,
+        generated_at="2026-03-09T00:00:00Z",
+        output_path=output_path,
+    )
+
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert result.exit_code == 0
+    assert result.decision == "pass"
+    assert calls == [(20260310, 32), (20260310, 31)]
+    assert payload["alignment"]["attempted_synthetic_rounds"] == [32, 31]
+    assert payload["alignment"]["selected_synthetic_rounds"] == 31
+    assert payload["alignment"]["alignment_achieved"] is True
+    assert payload["alignment"]["stop_reason"] is None
+    assert payload["slice"]["synthetic_rounds"] == 31
+    assert payload["slice"]["synthetic_source_contract"] == pilot.CANONICAL_PHASE2_SOURCE_CONTRACT
 
 
 def test_runner_rejects_noncanonical_profile() -> None:
@@ -230,15 +283,20 @@ def test_runner_rejects_noncanonical_shape() -> None:
     assert "canonical Phase 2 binding only supports rounds=32, ticks_per_round=4" in result.message
 
 
-def test_runner_marks_unaligned_canonical_fixed_slice_inconclusive(tmp_path: Path, monkeypatch) -> None:
+def test_runner_marks_unaligned_canonical_search_inconclusive(tmp_path: Path, monkeypatch) -> None:
     replay_input = tmp_path / "replay.jsonl"
     replay_input.write_text('{"dummy": true}\n', encoding="utf-8")
     output_path = tmp_path / "pilot_unaligned.json"
 
-    def _fake_generate_phase2_summary(seed: int) -> dict[str, object]:
+    calls: list[tuple[int, int]] = []
+
+    def _fake_generate_phase2_summary(seed: int, *, rounds: int = phase2.PHASE2_STAGE1_ROUNDS) -> dict[str, object]:
+        calls.append((int(seed), int(rounds)))
+        total_points = {32: 159, 31: 154, 33: 164, 30: 149, 34: 169}[int(rounds)]
         return _canonical_phase2_artifact(
             seed=seed,
-            replay_summary=_summary(total_points_captured=159, raw_contract_points=159, p_hat_min=0.30, p_hat_max=0.64),
+            round_count=rounds,
+            replay_summary=_summary(total_points_captured=total_points, raw_contract_points=total_points, p_hat_min=0.30, p_hat_max=0.64),
         )
 
     async def _fake_run_assessment(path: str, *, prematch_map: float | None = None) -> dict[str, object]:
@@ -251,7 +309,7 @@ def test_runner_marks_unaligned_canonical_fixed_slice_inconclusive(tmp_path: Pat
 
     result = pilot.run_replay_simulation_validation_pilot(
         replay_input_path=str(replay_input),
-        run_id="pilot_unaligned_fixed_slice",
+        run_id="pilot_unaligned_search",
         synthetic_seed=20260310,
         synthetic_policy_profile=phase2.PHASE2_STAGE1_POLICY_PROFILE,
         synthetic_rounds=phase2.PHASE2_STAGE1_ROUNDS,
@@ -263,11 +321,14 @@ def test_runner_marks_unaligned_canonical_fixed_slice_inconclusive(tmp_path: Pat
     payload = json.loads(output_path.read_text(encoding="utf-8"))
     assert result.exit_code == 1
     assert result.decision == "inconclusive"
+    assert calls == [(20260310, 32), (20260310, 31), (20260310, 33), (20260310, 30), (20260310, 34)]
     assert payload["decision"] == "inconclusive"
-    assert payload["decision_reasons"] == [pilot.CANONICAL_PHASE2_FIXED_SLICE_NOTE]
+    assert payload["decision_reasons"] == [pilot.ALIGNMENT_STOP_REASON]
     assert payload["alignment"]["alignment_achieved"] is False
+    assert payload["alignment"]["attempted_synthetic_rounds"] == list(pilot.CANONICAL_PHASE2_ROUND_CANDIDATES)
     assert payload["alignment"]["selected_synthetic_rounds"] is None
-    assert payload["alignment"]["stop_reason"] == pilot.CANONICAL_PHASE2_FIXED_SLICE_NOTE
+    assert payload["alignment"]["stop_reason"] == pilot.ALIGNMENT_STOP_REASON
+    assert payload["slice"]["synthetic_rounds"] == pilot.CANONICAL_PHASE2_ROUND_CANDIDATES[0]
     assert payload["slice"]["synthetic_source_contract"] == pilot.CANONICAL_PHASE2_SOURCE_CONTRACT
 
 
@@ -298,15 +359,20 @@ def test_runner_uses_canonical_phase2_slice_for_real_fixture_deterministically(t
     assert first_payload["slice"]["synthetic_policy_profile"] == phase2.PHASE2_STAGE1_POLICY_PROFILE
     assert first_payload["slice"]["synthetic_source_contract"] == pilot.CANONICAL_PHASE2_SOURCE_CONTRACT
     assert first_payload["slice"]["synthetic_source_schema_version"] == pilot.SIMULATION_PHASE2_SUMMARY_VERSION
-    assert first_payload["alignment"]["attempted_synthetic_rounds"] == [phase2.PHASE2_STAGE1_ROUNDS]
+    assert first_payload["alignment"]["attempted_synthetic_rounds"]
+    assert tuple(first_payload["alignment"]["attempted_synthetic_rounds"]) in (
+        pilot.CANONICAL_PHASE2_ROUND_CANDIDATES,
+        pilot.CANONICAL_PHASE2_ROUND_CANDIDATES[: len(first_payload["alignment"]["attempted_synthetic_rounds"])],
+    )
     if first_payload["alignment"]["alignment_achieved"]:
-        assert first_payload["alignment"]["selected_synthetic_rounds"] == phase2.PHASE2_STAGE1_ROUNDS
+        assert first_payload["alignment"]["selected_synthetic_rounds"] in pilot.CANONICAL_PHASE2_ROUND_CANDIDATES
+        assert first_payload["slice"]["synthetic_rounds"] == first_payload["alignment"]["selected_synthetic_rounds"]
         assert first_payload["decision"] in ("pass", "mismatch")
     else:
+        assert first_payload["alignment"]["attempted_synthetic_rounds"] == list(pilot.CANONICAL_PHASE2_ROUND_CANDIDATES)
         assert first_payload["alignment"]["selected_synthetic_rounds"] is None
         assert first_payload["decision"] == "inconclusive"
-        assert first_payload["decision_reasons"] == [pilot.CANONICAL_PHASE2_FIXED_SLICE_NOTE]
-        assert first_payload["alignment"]["stop_reason"] == pilot.CANONICAL_PHASE2_FIXED_SLICE_NOTE
+        assert first_payload["decision_reasons"] == [pilot.ALIGNMENT_STOP_REASON]
+        assert first_payload["alignment"]["stop_reason"] == pilot.ALIGNMENT_STOP_REASON
     assert first_payload["synthetic"]["invariant_violations_total"] == 0
     assert first_payload["synthetic"]["behavioral_violations_total"] == 0
-

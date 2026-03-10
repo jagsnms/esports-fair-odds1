@@ -45,3 +45,18 @@
 - **Risks / red flags:** This binds one canonical `balanced_v1` slice only. It does not expand profiles or seeds, and it does not complete broad replay/simulation comparison.
 - **Why this push matters:** Replay/simulation decisions are now about the real landed canonical Phase 2 slice rather than a separate in-progress synthetic raw lane.
 - **Next likely step (at this time):** Re-rank whether a bounded next comparison/alignment step on the canonical slice beats pausing or a different Bible-level gap.
+## 2026-03-10 - Bounded canonical round-alignment search for the landed `balanced_v1` Phase 2 slice
+- **Branch:** `master`
+- **Initiative / phase:** Bounded canonical alignment-search step (`balanced_v1` only)
+- **Summary of push:** Added a tiny fixed canonical round-candidate search so the replay/simulation decision layer can try nearby canonical `balanced_v1` slices through the real Phase 2 path instead of assuming one fixed 32-round slice is the only comparison candidate.
+- **Key files/subsystems touched:**
+  - `engine/simulation/phase2.py`
+  - `tools/run_replay_simulation_validation_pilot.py`
+  - `tests/unit/test_run_replay_simulation_validation_pilot.py`
+  - `docs/branch_history_master.md`
+  - `docs/current_status_master.md`
+- **Tests/checks run and result:** focused pilot pytest passed (`9 passed`); bounded pilot command against `tools/fixtures/replay_carryover_complete_v1.jsonl` with seed `20260310` emitted a machine-readable artifact showing canonical Phase 2 provenance, attempted candidates `[32, 31, 33, 30, 34]`, `selected_synthetic_rounds = null`, `alignment_achieved = false`, truthful stop and decision reasons, and `decision = inconclusive`.
+- **Risks / red flags:** This search surface is still tiny and fixed. It does not broaden profiles or seeds, and it does not guarantee alignment for every replay fixture.
+- **Why this push matters:** The canonical slice is now decision-useful when an approved nearby canonical candidate aligns, without reopening the old raw synthetic lane or widening the project into a matrix search.
+- **Next likely step (at this time):** Re-rank whether a bounded next comparison/alignment step still beats pausing or a different Bible-level gap.
+
