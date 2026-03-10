@@ -436,6 +436,7 @@ from legacy.fair_odds.logs import (
     log_row, export_logs_df,
     persist_inplay_row, persist_inplay_result, persist_inplay_map_result,
     persist_cs2_replay_snapshot, persist_cs2_ml_feature_snapshot, derive_cs2_ml_feature_row,
+    augment_bo3_live_capture_contract, should_persist_bo3_live_capture_contract,
     show_inplay_log_paths,
 )
 from legacy.fair_odds.scrapers import scrape_cs2_matches, scrape_dota_matches_gosu_subprocess, fetch_dota_matches
@@ -4544,6 +4545,7 @@ with tabs[3]:
             snapshot_status = feed.get("snapshot_status")
             st.session_state["cs2_bo3_feed_error"] = feed_error
             st.session_state["cs2_bo3_feed_snapshot_status"] = snapshot_status
+            st.session_state["cs2_bo3_last_feed"] = feed
             # If feed contains full raw snapshot (team_one/team_two), normalize it and compute economy from it
             # (cash + equipment value per team; latch at round start is applied below)
             if isinstance(payload, dict) and payload and ("team_one" in payload or "team_two" in payload):
@@ -5300,7 +5302,7 @@ with tabs[3]:
                     _replay_speed = st.session_state.get("cs2_bo3_replay_speed", 1.0)
                     st_autorefresh(interval=interval_ms, limit=None, key=f"bo3_replay_autorefresh_{_replay_mid}_{_replay_speed}")
         else:
-            cs2_bo3_record_jsonl = st.checkbox("Record BO3 pulls (JSONL) for replay", value=True, key="cs2_bo3_record_jsonl", help="Append each poll to logs/bo3_pulls.jsonl for later replay without market data.")
+            cs2_bo3_record_jsonl = st.checkbox("Record BO3 pulls (JSONL) for replay anchoring", value=True, key="cs2_bo3_record_jsonl", disabled=True, help="The bounded BO3 live-capture contract always records raw pulls to logs/bo3_pulls.jsonl while live auto pull is active so later replay-anchored parity work keeps raw-event linkage.")
             if bo3_active:
                 st.success("Auto data pull ON (every 5 s). Live scores and sides are updating from BO3.gg.")
             # Read feed file for current status so UI matches logs/bo3_live_feed.json
@@ -5436,7 +5438,7 @@ with tabs[3]:
                                             "active": True,
                                             "match_id": int(match_id),
                                             "team_a_is_team_one": team_a_is_team_one,
-                                            "record_enabled": st.session_state.get("cs2_bo3_record_jsonl", True),
+                                            "record_enabled": True,
                                             "record_path": str(PROJECT_ROOT / "logs" / "bo3_pulls.jsonl"),
                                         }, f)
                                     # Write initial feed so file exists and app can show team names until poller overwrites
@@ -5456,7 +5458,13 @@ with tabs[3]:
                                     BO3_FEED_FILE = PROJECT_ROOT / "logs" / "bo3_live_feed.json"
                                     BO3_FEED_FILE.parent.mkdir(parents=True, exist_ok=True)
                                     with open(BO3_FEED_FILE, "w", encoding="utf-8") as f:
-                                        json.dump({"timestamp": time.time(), "payload": initial_payload}, f, indent=2)
+                                        json.dump({
+                                            "timestamp": time.time(),
+                                            "payload": initial_payload,
+                                            "team_a_is_team_one": team_a_is_team_one,
+                                            "raw_record_path": str(PROJECT_ROOT / "logs" / "bo3_pulls.jsonl"),
+                                            "snapshot_status": "empty",
+                                        }, f, indent=2)
                                     st.session_state["cs2_bo3_auto_active"] = True
                                     st.session_state["cs2_bo3_pending_match_id"] = str(match_id)
                                     # Set initial live fields so they show after rerun even if poller overwrites feed with empty payload
@@ -8031,11 +8039,52 @@ with tabs[3]:
         snapshot_row["app_build_version"] = "dev"
         snapshot_row["match_id"] = str(st.session_state.get("cs2_inplay_match_id", "")).strip() or None
         snapshot_row["force_reason"] = st.session_state.get("cs2_force_snapshot_reason")
+        _persisted_snapshot_row = False
+        if st.session_state.get("cs2_live_source") == CS2_LIVE_SOURCE_BO3:
+            _bo3_live_frame = {
+                "game_number": int(st.session_state["cs2_live_game_number"]) if st.session_state.get("cs2_live_game_number") is not None else None,
+                "round_number": int(st.session_state["cs2_live_round_number"]) if st.session_state.get("cs2_live_round_number") is not None else None,
+                "round_phase": str(st.session_state.get("cs2_live_round_phase")) if st.session_state.get("cs2_live_round_phase") is not None else None,
+                "a_side": str(st.session_state.get("cs2_live_a_side")) if st.session_state.get("cs2_live_a_side") is not None else None,
+                "team_a_side_used": str(st.session_state.get("cs2_live_team_a_side")) if st.session_state.get("cs2_live_team_a_side") is not None else None,
+                "team_b_side_used": str(st.session_state.get("cs2_live_team_b_side")) if st.session_state.get("cs2_live_team_b_side") is not None else None,
+                "bomb_planted": bool(st.session_state.get("cs2_live_bomb_planted")) if st.session_state.get("cs2_live_bomb_planted") is not None else None,
+                "round_time_remaining_s": float(st.session_state.get("cs2_live_round_time_remaining_s")) if st.session_state.get("cs2_live_round_time_remaining_s") is not None else None,
+                "alive_count_a": int(st.session_state.get("cs2_live_team_a_alive_count")) if st.session_state.get("cs2_live_team_a_alive_count") is not None else None,
+                "alive_count_b": int(st.session_state.get("cs2_live_team_b_alive_count")) if st.session_state.get("cs2_live_team_b_alive_count") is not None else None,
+                "hp_alive_total_a": float(st.session_state.get("cs2_live_team_a_hp_alive_total")) if st.session_state.get("cs2_live_team_a_hp_alive_total") is not None else None,
+                "hp_alive_total_b": float(st.session_state.get("cs2_live_team_b_hp_alive_total")) if st.session_state.get("cs2_live_team_b_hp_alive_total") is not None else None,
+                "cash_total_a": float(st.session_state.get("cs2_live_team_a_cash_total")) if st.session_state.get("cs2_live_team_a_cash_total") is not None else None,
+                "cash_total_b": float(st.session_state.get("cs2_live_team_b_cash_total")) if st.session_state.get("cs2_live_team_b_cash_total") is not None else None,
+                "loadout_est_total_a": float(st.session_state.get("cs2_live_team_a_loadout_est_total")) if st.session_state.get("cs2_live_team_a_loadout_est_total") is not None else None,
+                "loadout_est_total_b": float(st.session_state.get("cs2_live_team_b_loadout_est_total")) if st.session_state.get("cs2_live_team_b_loadout_est_total") is not None else None,
+                "alive_loadout_total_a": float(st.session_state.get("cs2_live_team_a_alive_loadout_total")) if st.session_state.get("cs2_live_team_a_alive_loadout_total") is not None else None,
+                "alive_loadout_total_b": float(st.session_state.get("cs2_live_team_b_alive_loadout_total")) if st.session_state.get("cs2_live_team_b_alive_loadout_total") is not None else None,
+                "armor_alive_total_a": float(st.session_state.get("cs2_live_team_a_armor_alive_total")) if st.session_state.get("cs2_live_team_a_armor_alive_total") is not None else None,
+                "armor_alive_total_b": float(st.session_state.get("cs2_live_team_b_armor_alive_total")) if st.session_state.get("cs2_live_team_b_armor_alive_total") is not None else None,
+                "intraround_state_source": str(st.session_state.get("cs2_live_intraround_state_source")) if st.session_state.get("cs2_live_intraround_state_source") is not None else None,
+            }
+            snapshot_row = augment_bo3_live_capture_contract(
+                snapshot_row,
+                st.session_state.get("cs2_bo3_last_feed") or {},
+                _bo3_live_frame,
+            )
         st.session_state["cs2_live_rows"].append(snapshot_row)
         st.session_state.pop("cs2_force_snapshot_reason", None)
-        if bool(st.session_state.get("cs2_inplay_persist", False)) and snapshot_row.get("match_id"):
+        if should_persist_bo3_live_capture_contract(
+            snapshot_row,
+            bo3_source_mode=st.session_state.get("cs2_bo3_source_mode"),
+            snapshot_status=st.session_state.get("cs2_bo3_feed_snapshot_status"),
+        ):
             try:
                 persist_cs2_replay_snapshot(snapshot_row)
+                _persisted_snapshot_row = True
+            except Exception as _e_bo3_capture:
+                st.warning(f"BO3 live-capture parquet persist failed: {_e_bo3_capture}")
+        if bool(st.session_state.get("cs2_inplay_persist", False)) and snapshot_row.get("match_id"):
+            try:
+                if not _persisted_snapshot_row:
+                    persist_cs2_replay_snapshot(snapshot_row)
                 ml_row = derive_cs2_ml_feature_row(snapshot_row)
                 persist_cs2_ml_feature_snapshot(ml_row)
             except Exception as _e_parquet:

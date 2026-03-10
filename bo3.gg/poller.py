@@ -37,7 +37,13 @@ def read_control() -> dict:
         return {}
 
 
-def write_feed(payload: dict, error: str | None = None, team_a_is_team_one: bool = True):
+def write_feed(
+    payload: dict,
+    error: str | None = None,
+    team_a_is_team_one: bool = True,
+    raw_ts_utc: str | None = None,
+    raw_record_path: str | None = None,
+):
     """Write feed file. payload is the full raw snapshot from the API (so the feed provides everything)."""
     _ensure_logs()
     out = {
@@ -45,6 +51,10 @@ def write_feed(payload: dict, error: str | None = None, team_a_is_team_one: bool
         "payload": payload,
         "team_a_is_team_one": team_a_is_team_one,
     }
+    if raw_ts_utc:
+        out["raw_ts_utc"] = raw_ts_utc
+    if raw_record_path:
+        out["raw_record_path"] = raw_record_path
     if error:
         out["error"] = error
         out["snapshot_status"] = "empty"
@@ -55,6 +65,7 @@ def write_feed(payload: dict, error: str | None = None, team_a_is_team_one: bool
             json.dump(out, f, indent=2)
     except Exception:
         pass
+
 
 
 def main_loop():
@@ -126,7 +137,12 @@ def main_loop():
             print(f"poller: status=empty error={error_msg or 'snapshot fetch returned empty'}", file=sys.stderr, flush=True)
         else:
             last_snapshot = snapshot
-            write_feed(snapshot, team_a_is_team_one=team_a_is_team_one)
+            write_feed(
+                snapshot,
+                team_a_is_team_one=team_a_is_team_one,
+                raw_ts_utc=rec.get("ts_utc") if record_path else None,
+                raw_record_path=str(record_path) if record_path else None,
+            )
             keys = ",".join(sorted(snapshot.keys())) if isinstance(snapshot, dict) else "(none)"
             print(f"poller: status=live payload_keys={keys}", file=sys.stderr, flush=True)
         time.sleep(INTERVAL_SEC)
@@ -139,3 +155,4 @@ if __name__ == "__main__":
         except Exception:
             pass
     main_loop()
+

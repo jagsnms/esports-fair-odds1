@@ -264,6 +264,145 @@ def persist_inplay_map_result(
 
 # --- CS2 replay snapshot + ML feature parquet persistence ---
 CS2_FEATURE_SCHEMA_VERSION = 1
+BO3_LIVE_CAPTURE_SCHEMA_VERSION = "bo3_live_capture_contract.v1"
+
+
+def _pick_present(*values: Any) -> Any:
+    for value in values:
+        if value is None:
+            continue
+        if isinstance(value, str) and not value.strip():
+            continue
+        return value
+    return None
+
+
+def _int_or_none(value: Any) -> Optional[int]:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _str_or_none(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _normalize_cs2_side(value: Any) -> Optional[str]:
+    text = _str_or_none(value)
+    if text is None:
+        return None
+    upper = text.upper()
+    if upper in ("T", "TERRORIST"):
+        return "T"
+    if upper in ("CT", "COUNTER-TERRORIST", "COUNTER TERRORIST"):
+        return "CT"
+    if upper == "UNKNOWN":
+        return "Unknown"
+    return text
+
+
+def build_bo3_live_capture_context(feed: dict) -> dict:
+    payload = feed.get("payload") if isinstance(feed, dict) else None
+    if not isinstance(payload, dict):
+        payload = {}
+    team_a_is_team_one = bool(feed.get("team_a_is_team_one", True)) if isinstance(feed, dict) else True
+    team_one = payload.get("team_one") if isinstance(payload.get("team_one"), dict) else {}
+    team_two = payload.get("team_two") if isinstance(payload.get("team_two"), dict) else {}
+    team_a = team_one if team_a_is_team_one else team_two
+    team_b = team_two if team_a_is_team_one else team_one
+    return {
+        "team_a_is_team_one": team_a_is_team_one,
+        "raw_ts_utc": _str_or_none(feed.get("raw_ts_utc")) if isinstance(feed, dict) else None,
+        "raw_provider_event_id": _str_or_none(payload.get("provider_event_id")),
+        "raw_seq_index": _int_or_none(payload.get("seq_index")),
+        "raw_sent_time": _str_or_none(payload.get("sent_time")),
+        "raw_updated_at": _str_or_none(payload.get("updated_at")),
+        "raw_record_path": _str_or_none(feed.get("raw_record_path")) if isinstance(feed, dict) else None,
+        "game_number": _int_or_none(payload.get("game_number")),
+        "round_number": _int_or_none(payload.get("round_number")),
+        "round_phase": _str_or_none(payload.get("round_phase") or payload.get("phase")),
+        "team_a_id": _int_or_none(team_a.get("id")),
+        "team_b_id": _int_or_none(team_b.get("id")),
+        "team_a_provider_id": _str_or_none(team_a.get("provider_id")),
+        "team_b_provider_id": _str_or_none(team_b.get("provider_id")),
+        "team_a_side_used": _normalize_cs2_side(team_a.get("side")),
+        "team_b_side_used": _normalize_cs2_side(team_b.get("side")),
+    }
+
+
+def augment_bo3_live_capture_contract(snapshot_row: dict, feed: dict, live_frame: Optional[dict] = None) -> dict:
+    row = dict(snapshot_row or {})
+    frame = dict(live_frame or {})
+    ctx = build_bo3_live_capture_context(feed if isinstance(feed, dict) else {})
+    row.update({
+        "schema_version": BO3_LIVE_CAPTURE_SCHEMA_VERSION,
+        "live_source": "BO3",
+        "capture_ts_iso": _pick_present(row.get("snapshot_ts_iso"), row.get("snapshot_ts")),
+        "team_a_is_team_one": ctx.get("team_a_is_team_one"),
+        "raw_ts_utc": ctx.get("raw_ts_utc"),
+        "raw_provider_event_id": ctx.get("raw_provider_event_id"),
+        "raw_seq_index": ctx.get("raw_seq_index"),
+        "raw_sent_time": ctx.get("raw_sent_time"),
+        "raw_updated_at": ctx.get("raw_updated_at"),
+        "raw_record_path": ctx.get("raw_record_path"),
+        "game_number": _pick_present(frame.get("game_number"), ctx.get("game_number")),
+        "round_number": _pick_present(frame.get("round_number"), ctx.get("round_number")),
+        "round_phase": _pick_present(frame.get("round_phase"), ctx.get("round_phase")),
+        "a_side": _pick_present(frame.get("a_side"), ctx.get("team_a_side_used"), row.get("drv_team_a_side")),
+        "team_a_id": ctx.get("team_a_id"),
+        "team_b_id": ctx.get("team_b_id"),
+        "team_a_provider_id": ctx.get("team_a_provider_id"),
+        "team_b_provider_id": ctx.get("team_b_provider_id"),
+        "team_a_side_used": _pick_present(ctx.get("team_a_side_used"), frame.get("team_a_side_used"), row.get("drv_team_a_side")),
+        "team_b_side_used": _pick_present(ctx.get("team_b_side_used"), frame.get("team_b_side_used")),
+        "bomb_planted": _pick_present(frame.get("bomb_planted"), row.get("drv_bomb_planted"), row.get("mid_bomb_planted")),
+        "round_time_remaining_s": _pick_present(frame.get("round_time_remaining_s"), row.get("drv_round_time_remaining_s"), row.get("mid_time_remaining_s")),
+        "alive_count_a": _pick_present(frame.get("alive_count_a"), row.get("drv_alive_count_a"), row.get("team_a_alive_count")),
+        "alive_count_b": _pick_present(frame.get("alive_count_b"), row.get("drv_alive_count_b"), row.get("team_b_alive_count")),
+        "hp_alive_total_a": _pick_present(frame.get("hp_alive_total_a"), row.get("drv_hp_alive_total_a"), row.get("team_a_hp_alive_total")),
+        "hp_alive_total_b": _pick_present(frame.get("hp_alive_total_b"), row.get("drv_hp_alive_total_b"), row.get("team_b_hp_alive_total")),
+        "cash_total_a": _pick_present(frame.get("cash_total_a"), row.get("team_a_cash_total"), row.get("team_a_money_total")),
+        "cash_total_b": _pick_present(frame.get("cash_total_b"), row.get("team_b_cash_total"), row.get("team_b_money_total")),
+        "loadout_est_total_a": _pick_present(frame.get("loadout_est_total_a"), row.get("team_a_loadout_est_total")),
+        "loadout_est_total_b": _pick_present(frame.get("loadout_est_total_b"), row.get("team_b_loadout_est_total")),
+        "alive_loadout_total_a": _pick_present(frame.get("alive_loadout_total_a"), row.get("drv_alive_loadout_est_total_a"), row.get("team_a_alive_loadout_est_total")),
+        "alive_loadout_total_b": _pick_present(frame.get("alive_loadout_total_b"), row.get("drv_alive_loadout_est_total_b"), row.get("team_b_alive_loadout_est_total")),
+        "armor_alive_total_a": _pick_present(frame.get("armor_alive_total_a"), row.get("armor_alive_total_a")),
+        "armor_alive_total_b": _pick_present(frame.get("armor_alive_total_b"), row.get("armor_alive_total_b")),
+        "intraround_state_source": _pick_present(frame.get("intraround_state_source"), row.get("intraround_state_source")),
+        "rail_low": _pick_present(row.get("rail_low"), row.get("rail_p_if_next_round_loss")),
+        "rail_high": _pick_present(row.get("rail_high"), row.get("rail_p_if_next_round_win")),
+    })
+    return row
+
+
+def should_persist_bo3_live_capture_contract(
+    snapshot_row: dict,
+    *,
+    bo3_source_mode: Optional[str] = None,
+    snapshot_status: Optional[str] = None,
+) -> bool:
+    if snapshot_row.get("live_source") != "BO3":
+        return False
+    if bo3_source_mode and bo3_source_mode != "LIVE (poller feed file)":
+        return False
+    if snapshot_status and snapshot_status != "live":
+        return False
+    if not _str_or_none(snapshot_row.get("match_id")):
+        return False
+    if not _str_or_none(snapshot_row.get("raw_record_path")):
+        return False
+    has_raw_identity = bool(
+        _str_or_none(snapshot_row.get("raw_provider_event_id"))
+        or snapshot_row.get("raw_seq_index") is not None
+    )
+    return has_raw_identity
 
 
 def _parquet_append_row(path: Path, columns: list, entry: dict) -> None:
@@ -434,3 +573,4 @@ def show_inplay_log_paths():
     st.caption(f"In-play logs: {INPLAY_LOG_PATH}")
     st.caption(f"Match results: {INPLAY_RESULTS_PATH}")
     st.caption(f"Map results: {INPLAY_MAP_RESULTS_PATH}")
+

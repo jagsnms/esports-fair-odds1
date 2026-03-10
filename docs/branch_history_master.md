@@ -1,5 +1,24 @@
 # Branch History - `master`
 
+## 2026-03-10 - [LOCAL STAGE] Bounded BO3 live-capture/source contract for replay-anchored parity work
+- **Branch:** `master` (local stage; not promoted)
+- **Initiative / phase:** Stage 1 bounded BO3-authoritative live-capture/source-contract step
+- **Summary of local stage work:** Added one bounded BO3-authoritative canonical live-capture contract so real BO3 auto-pull runs now produce one append-only persisted artifact row in `data/processed/cs2_replay_snapshots.parquet` with explicit raw-event linkage, replay-anchorable round identity, normalized engine-consumed frame fields, and derived intraround/parity diagnostics.
+- **Project changes in scope:**
+  - `bo3.gg/poller.py`
+  - `legacy/app/app35_ml.py`
+  - `legacy/fair_odds/logs.py`
+  - `legacy/fair_odds/paths.py`
+  - `tests/unit/test_bo3_live_capture_contract.py`
+  - `docs/branch_history_master.md`
+  - `docs/current_status_master.md`
+- **Bounded contract decision:** BO3 is the only authoritative live source for this stage. The existing `data/processed/cs2_replay_snapshots.parquet` artifact remains the canonical persisted path, but now carries explicit BO3 live-capture contract fields instead of relying on scattered raw JSONL plus optional snapshot persistence.
+- **Default capture behavior change:** BO3 live auto activation now always records raw pulls to `logs/bo3_pulls.jsonl`, and canonical BO3 live snapshot persistence no longer depends on the old broad `cs2_inplay_persist` toggle.
+- **Checks run and result (local stage):** `tests/unit/test_bo3_live_capture_contract.py` passed (`4 passed`), including raw-linkage mapping, append-only artifact generation, live-only persistence gating, and a parse smoke check for `legacy/app/app35_ml.py`; the focused artifact-generation check `tests/unit/test_bo3_live_capture_contract.py::test_bo3_live_capture_contract_persists_append_only_artifact` also passed and confirmed that the canonical BO3 artifact is produced, append-only, preserves raw-event linkage, includes normalized frame fields, includes derived intraround/parity diagnostics, and does not rely on the old broad toggle.
+- **Risks / red flags:** This is capture-contract work only. It is not live parity implementation, not replay/live comparison logic, not BO3+GRID unification, and not proof that BO3 is sufficient for eventual full parity work.
+- **Why this local stage matters:** The repo can now collect real BO3 matches into one reusable linked artifact instead of a fragmented mix of overwrite-only feed state, raw pulls, optional parquet snapshots, and downstream history logs.
+- **Next likely step (from this local stage):** Review whether this bounded BO3 live-capture/source-contract step is clean enough for promotion before opening any replay/live parity project.
+
 ## 2026-03-10 - Replay-anchored multi-source decision contract (`balanced_v1` vs `eco_bias_v1`)
 - **Branch:** `master`
 - **Initiative / phase:** Bounded replay-anchored two-source decision contract (fixed seed `20260310`)
@@ -194,3 +213,6 @@
 - **Risks / red flags:** This is still only one extra bounded source and one fixed seed. It creates decision pressure, but it does not answer broader representativeness by itself and must not be misread as broad simulation/calibration completion.
 - **Why this push matters:** The canonical simulation lane is no longer stuck with a single truthful source and no comparison pressure; `master` can now test whether a materially different bounded source changes the observed lane enough to justify further work.
 - **Next likely step (at this time):** Re-rank the next meaningful project from current `master` reality rather than assuming more Phase 2 expansion automatically.
+
+
+

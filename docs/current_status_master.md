@@ -3,31 +3,34 @@
 Last updated: 2026-03-10
 
 ## Snapshot
-- **Promoted `master` initiative:** Bounded replay-anchored two-source decision contract on the canonical Phase 2 lane is now landed on `master`.
-- **Branch-state assessment:** `master` now includes one replay-primary decision surface that evaluates exactly two canonical simulation sources, `balanced_v1` and `eco_bias_v1`, against one replay input and emits one combined machine-readable decision artifact. The landed result is still honestly `inconclusive` on the current bounded replay slice.
+- **Promoted `master` initiative:** Bounded replay-anchored two-source decision contract on the canonical Phase 2 lane remains the current promoted `master` state.
+- **Local-stage assessment:** A bounded BO3-authoritative live-capture/source contract now sits on top of `master` locally. Real BO3 auto-pull runs now persist one append-only canonical live artifact row in `data/processed/cs2_replay_snapshots.parquet` with explicit raw-event linkage, normalized engine-consumed frame fields, and derived intraround/parity diagnostics suitable for later replay-anchored parity work.
 
 ## Main red flags
-1. **`master` is still not broadly representative.** This promoted step remains fixed at exactly two canonical sources, one replay input, one fixed seed, and the existing bounded round-candidate discipline.
-2. **This promotion is not broad replay resolution.** It adds one replay-anchored decision contract only; it does not broaden replay assessment, live-feed scope, or general replay/simulation coverage.
-3. **This promotion is not broad simulation/calibration completion.** It does not redesign calibration, add matrices/seeds, or establish broad representativeness.
-4. **Final-round prediction points remain unlabeled under current truthful semantics.** That constraint is unchanged for both canonical simulation sources.
+1. **This local stage is not live parity implementation.** It does not compare live against replay, does not claim parity, and does not open broad live/replay decision logic.
+2. **This local stage is BO3-only on purpose.** It does not unify BO3 and GRID, and it does not claim BO3 is the final best source for full live parity.
+3. **This local stage is still bounded capture-contract work only.** It creates one reusable evidence artifact; it does not establish broad representativeness or broader replay/live resolution.
+4. **Promoted `master` is still otherwise narrow.** The previously landed replay/simulation and simulation-evidence lanes remain truthful but intentionally bounded.
 
 ## Most recent completed checks
-- `tests/unit/test_run_replay_simulation_validation_pilot.py` passed.
-- `tests/unit/test_run_replay_multisource_decision.py` passed, including the focused equal-count / different-failed-check regression case.
-- The direct `.venv311` replay-anchored multi-source decision CLI validation completed successfully after bypassing the local environment/sandbox launcher quirk and emitted `automation/reports/replay_multisource_decision_balanced_v1_vs_eco_bias_v1_seed20260310.json`.
-- The bounded direct `.venv311` single-source replay/simulation pilot CLI validation completed successfully after bypassing the same launcher quirk and remained supported.
-- The current replay slice produced truthful `inconclusive` outcomes for both the combined two-source contract and the bounded single-source pilot because no approved canonical round candidate satisfied the alignment threshold.
+- `tests/unit/test_bo3_live_capture_contract.py` passed (`4 passed`), covering raw-linkage preservation, append-only artifact generation, live-only persistence gating, and a parse smoke check for `legacy/app/app35_ml.py`.
+- The focused bounded artifact-generation check `tests/unit/test_bo3_live_capture_contract.py::test_bo3_live_capture_contract_persists_append_only_artifact` passed and confirmed that the canonical BO3 live artifact is produced, append-only, preserves raw-event linkage, includes normalized frame fields, includes derived diagnostics, and does not rely on the old broad `cs2_inplay_persist` toggle.
+- The local `.venv311` launcher still required the known outside-sandbox workaround for pytest invocation; this remained an environment quirk, not a product failure.
 
 ## Current initiative status
-- **Promoted `master` contract:** exactly two canonical simulation sources, `balanced_v1` and `eco_bias_v1`, fixed seed `20260310`, same bounded round/tick discipline, replay remains the primary anchor, and one combined artifact with explicit `decision_basis = "replay_anchored_multi_source"`.
-- **Combined artifact path:** `automation/reports/replay_multisource_decision_balanced_v1_vs_eco_bias_v1_seed20260310.json`.
-- **Current replay-anchored outcome:** `decision = "inconclusive"` with explicit reasons that both source blocks are not replay-comparable enough for a two-source decision because the bounded alignment search failed for both.
-- **Corrective guardrail:** `no_material_difference` is now only possible when replay disagreement is compatible in kind, not merely similar in count; the landed contract requires failed-check identity compatibility and mismatch-class compatibility in addition to close replay-vs-source deltas.
-- **Truthfulness guardrail:** when replay-vs-source comparison metrics are unavailable because alignment failed, the combined artifact records those deltas as `null` rather than flattening them into fake zeroes.
+- **Canonical live artifact path:** `data/processed/cs2_replay_snapshots.parquet`.
+- **Authoritative live source for this stage:** BO3 only.
+- **Minimum contract now persisted for BO3 live rows:**
+  - source identity: `schema_version = "bo3_live_capture_contract.v1"`, `live_source = "BO3"`, `capture_ts_iso`, `match_id`, `team_a_is_team_one`
+  - raw linkage: `raw_ts_utc`, `raw_provider_event_id`, `raw_seq_index`, `raw_sent_time`, `raw_updated_at`, `raw_record_path`
+  - replay-anchorable identity: `game_number`, `round_number`, `round_phase`, `round_key_current`, team ids/provider ids, side mapping used by the engine
+  - normalized frame fields: map/round scores, `a_side`, `bomb_planted`, `round_time_remaining_s`, alive counts, HP totals, cash/loadout/armor totals, and `intraround_state_source`
+  - derived diagnostics: `p_hat`, `p_hat_map`, `rail_low`, `rail_high`, `q_intra_round_win_a`, `q_intra_round_win_a_source`, plus existing intraround score terms already emitted by the snapshot row
+- **Default capture behavior change:** BO3 live auto activation now always records raw BO3 pulls to `logs/bo3_pulls.jsonl`, and canonical BO3 live snapshot persistence no longer depends on the old broad `Persist snapshots + results` toggle.
+- **Truth boundary:** this stage makes real-match BO3 collection reusable later; it does not claim that the current repo can already answer replay/live parity questions.
 
 ## Next likely step
-- Re-rank the next meaningful project from current `master` reality rather than assuming further replay/simulation expansion automatically.
+- Review whether this bounded BO3 live-capture/source-contract step is clean enough for promotion before opening any replay/live parity project.
 
 ## Process note for future pushes
 - Append one new entry to `docs/branch_history_master.md` per final push.
