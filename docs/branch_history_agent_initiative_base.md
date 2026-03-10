@@ -149,3 +149,18 @@ Policy after this one-time setup: append-only, one new entry per final push (exc
 - **Risks / red flags:** This is a minimal seeded Phase 1 contract only. It does not establish broad simulation realism, replay/simulation equivalence, or any tuning/calibration improvement.
 - **Why this push matters:** The Bible/spec required a seeded simulation truth surface and the repo previously had none.
 - **Next expected step (at this time):** Decide whether one small Phase 2 simulation extension is truly worth doing, or shift back to a higher-leverage engine gap now that the missing Phase 1 surface exists.
+## 2026-03-10 - Close the Fake `simulation` Calibration Evidence Path
+- **Branch:** `agent-initiative-base`
+- **Initiative / phase:** Close the Fake `simulation` Calibration Evidence Path
+- **Summary of push:** Disabled the exporter path that relabeled `valorant` report data as `simulation`, corrected the committed fake simulation fixture to an empty array, corrected the committed manifest to report zero simulation records with explicit disabled-status reason, and added one narrow exporter test module.
+- **Key files/subsystems touched:**
+  - `tools/export_calibration_reliability_evidence.py`
+  - `tools/fixtures/calibration_reliability_simulation_exported_v1.json`
+  - `automation/reports/calibration_reliability_evidence_export_manifest_v1.json`
+  - `tests/unit/test_export_calibration_reliability_evidence.py`
+  - `docs/branch_history_agent_initiative_base.md`
+  - `docs/current_status_agent_initiative_base.md`
+- **Tests/checks run and result:** targeted exporter unittest passed; narrow existing gate/schema checks passed; committed manifest hashes/counts matched current committed replay/simulation fixtures and source files; exporter confirmed no `simulation` records from `valorant` and gate surfaced missing true simulation evidence as `incomplete_evidence`.
+- **Risks / red flags:** This patch removes a fake simulation evidence path; it does not create real simulation calibration evidence. Manifest seed metadata still exists but is now explicitly marked as disabled-status metadata only.
+- **Why this push matters:** Once a real minimal simulation lane existed, continuing to label non-simulation calibration data as `simulation` was a concrete truth-surface lie.
+- **Next expected step (at this time):** Re-rank whether a bounded next move should connect honest simulation evidence into a real downstream path or whether another Bible-ranked engine gap now outranks more calibration/simulation work.

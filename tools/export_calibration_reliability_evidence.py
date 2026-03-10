@@ -4,7 +4,8 @@ Export gate-ready calibration reliability evidence with provenance manifest.
 
 This exporter is intentionally narrow:
 - Reads only approved upstream calibration outputs.
-- Emits one replay evidence JSON, one simulation evidence JSON.
+- Emits one replay evidence JSON and one explicit empty simulation evidence JSON when
+  no true simulation calibration source exists.
 - Emits one provenance manifest with source/output hashes.
 """
 from __future__ import annotations
@@ -34,10 +35,11 @@ DEFAULT_MANIFEST_OUTPUT = ROOT / "automation" / "reports" / "calibration_reliabi
 
 GAME_TO_SURFACE = {
     "cs2": "replay",
-    "valorant": "simulation",
 }
 BIN_PRESERVATION_POLICY = "preserve_full_source_bin_coverage"
 NULL_EMPTY_BIN_POLICY = "retain_all_bins; for n==0 with null p_mean/y_rate, export 0.0 and preserve source_* fields"
+SIMULATION_EXPORT_STATUS = "disabled_no_true_simulation_source"
+SIMULATION_EXPORT_REASON = "true simulation calibration evidence is not available from the approved source report"
 
 
 @dataclass(frozen=True)
@@ -228,22 +230,7 @@ def run_export(
                 seed=None,
             ),
         ]
-        simulation_records = [
-            _build_record(
-                report_games=games,
-                game="valorant",
-                evidence_source="simulation",
-                evaluation_scope="baseline",
-                seed=int(simulation_seed),
-            ),
-            _build_record(
-                report_games=games,
-                game="valorant",
-                evidence_source="simulation",
-                evaluation_scope="current",
-                seed=int(simulation_seed),
-            ),
-        ]
+        simulation_records: list[dict[str, Any]] = []
     except ValueError as exc:
         return ExportResult(exit_code=1, message=str(exc))
 
@@ -279,6 +266,8 @@ def run_export(
             "dataset_id_pattern": "{game}_calibration_report_v1",
             "segment_value": "global",
             "simulation_seed": int(simulation_seed),
+            "simulation_export_status": SIMULATION_EXPORT_STATUS,
+            "simulation_export_reason": SIMULATION_EXPORT_REASON,
             "bin_preservation_policy": BIN_PRESERVATION_POLICY,
             "null_empty_bin_policy": NULL_EMPTY_BIN_POLICY,
         },
@@ -298,7 +287,7 @@ def run_export(
 
     return ExportResult(
         exit_code=0,
-        message="export completed",
+        message="export completed; true simulation calibration evidence unavailable",
         replay_output_path=replay_output_path,
         simulation_output_path=simulation_output_path,
         manifest_output_path=manifest_output_path,
@@ -338,7 +327,7 @@ def main() -> int:
     parser.add_argument("--current-ref", required=True, help="Current reference")
     parser.add_argument("--run-id", required=True, help="Export run id ([a-z0-9_-]+)")
     parser.add_argument("--generated-at", default=None, help="Optional fixed generated_at timestamp")
-    parser.add_argument("--simulation-seed", type=int, default=1337, help="Simulation seed in exported records")
+    parser.add_argument("--simulation-seed", type=int, default=1337, help="Simulation seed metadata only when no true simulation evidence exists")
     args = parser.parse_args()
 
     source_report_path = Path(args.source_report)
