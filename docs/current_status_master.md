@@ -3,27 +3,32 @@
 Last updated: 2026-03-10
 
 ## Snapshot
-- **Active initiative:** Canonical simulation trace export with per-point prediction/outcome labels is now landed on `master` as a bounded source-contract step for the canonical `balanced_v1` simulation lane.
-- **Branch-state assessment:** `master` remains green and now includes a deterministic machine-readable trace-export path that pairs prediction records only to truthful runner-emitted `round_result` labels from the same canonical assessment pass.
+- **Active initiative:** Bounded true simulation calibration evidence from canonical Phase 2 trace export is now landed on `master` as one bounded truthful simulation evidence path sourced only from explicit canonical `balanced_v1` trace inputs.
+- **Branch-state assessment:** `master` remains green and now includes a gate/schema-compatible simulation evidence lane for one fixed-seed canonical trace source, without broadening into calibration redesign or general simulation calibration completion.
 
 ## Main red flags
-1. **This is still one bounded canonical slice only.** The trace path is limited to `balanced_v1`, one fixed seed flow, and the existing canonical Phase 2 semantics.
-2. **The export is a source-contract step, not a calibration lane.** It does not compute `brier_score`, `log_loss`, or `reliability_curve_bins`, and it does not integrate with calibration export/gate paths.
-3. **Not every prediction point is labelable under current semantics.** The current bounded export excludes unlabeled final-round prediction points and reports that exclusion explicitly rather than inventing a pseudo-label.
+1. **This is still one bounded evidence source only.** The path is limited to `balanced_v1`, one fixed seed flow (`20260310`), and explicit baseline/current canonical trace inputs only.
+2. **This is not calibration redesign or broad simulation calibration completion.** The work enables one bounded simulation evidence path that conforms to the existing exporter/gate/schema contract.
+3. **Baseline/current are explicit but not comparative.** The current bounded fixtures are separate baseline/current trace files but identical canonical traces, so the lane is truthful about source identity without claiming improvement.
+4. **Not every prediction point is labelable under current semantics.** Final-round prediction points still lack a truthful `round_result` event and remain explicitly excluded from metrics and recorded in manifest provenance.
 
 ## Most recent completed checks
-- Focused replay/simulation pilot tests pass.
-- The approved validations now pass:
-  - `tests/unit/test_run_replay_simulation_validation_pilot.py`
-  - `tests/simulation/test_phase2_policy_contract.py`
-  - `tests/simulation/test_phase2_trace_export.py`
-- The canonical Phase 2 summary/trace CLI output for seed `20260310` emits deterministic identical machine-readable trace output across two runs.
-- The emitted trace contract reports canonical provenance, a machine-readable pairing rule, `124` labeled prediction records, `31` truthful `round_result` events, and `4` explicitly excluded unlabeled final-round prediction points.
-- The duplicate canonical execution introduced in the initial trace-export commit was removed in the corrective follow-up by reusing the existing canonical assessment pass.
-- The earlier `.venv311` pytest launcher issue was an environment/sandbox execution quirk, not a product failure.
+- `tests/unit/test_export_calibration_reliability_evidence.py` passed.
+- `tests/unit/test_run_calibration_reliability_evidence_gate.py` passed.
+- `tests/unit/test_calibration_reliability_evidence_schema.py` passed.
+- `tests/simulation/test_phase2_trace_export.py` passed.
+- Repeated `tools/simulate_phase2.py --seed 20260310` runs remained deterministic.
+- The bounded calibration evidence export path now emits simulation evidence records instead of a hard-disabled empty simulation side.
+- The exporter manifest now records truthful canonical trace provenance and explicit unlabeled-point exclusion counts for both baseline and current inputs.
+
+## Current initiative status
+- **Implementation state:** Promoted on `master`.
+- **Implementation shape:** One bounded simulation evidence path derived only from promoted canonical Phase 2 trace export.
+- **Simulation evidence contract now emitted:** one `baseline` and one `current` simulation record with `evidence_source = "simulation"`, `dataset_id = "canonical_phase2_balanced_v1_trace_v1"`, fixed seed `20260310`, `segment = "global"`, and labeled-point-only `brier_score`, `log_loss`, and `reliability_curve_bins`.
+- **Truthfulness note:** The earlier simulation export status `disabled_no_true_simulation_source` is now replaced only for this bounded canonical trace source.
 
 ## Next likely step
-- Re-rank the next meaningful project from current `master` reality without overstating this bounded source-contract step as calibration-lane work.
+- Re-rank the next meaningful project from current `master` reality without overstating this bounded evidence-path step as broad simulation calibration completion.
 
 ## Process note for future pushes
 - Append one new entry to `docs/branch_history_master.md` per final push.

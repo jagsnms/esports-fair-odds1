@@ -1,1 +1,144 @@
-[]
+[
+  {
+    "brier_score": 0.27396092599228206,
+    "dataset_id": "canonical_phase2_balanced_v1_trace_v1",
+    "evaluation_scope": "baseline",
+    "evidence_source": "simulation",
+    "log_loss": 0.7432380172418777,
+    "reliability_curve_bins": [
+      {
+        "bin_index": 0,
+        "count": 0,
+        "empirical_rate": 0.0,
+        "mean_prediction": 0.0
+      },
+      {
+        "bin_index": 1,
+        "count": 0,
+        "empirical_rate": 0.0,
+        "mean_prediction": 0.0
+      },
+      {
+        "bin_index": 2,
+        "count": 0,
+        "empirical_rate": 0.0,
+        "mean_prediction": 0.0
+      },
+      {
+        "bin_index": 3,
+        "count": 24,
+        "empirical_rate": 0.6666666666666666,
+        "mean_prediction": 0.3302816818833854
+      },
+      {
+        "bin_index": 4,
+        "count": 11,
+        "empirical_rate": 0.0,
+        "mean_prediction": 0.46587634271951317
+      },
+      {
+        "bin_index": 5,
+        "count": 74,
+        "empirical_rate": 0.44594594594594594,
+        "mean_prediction": 0.5639518465121456
+      },
+      {
+        "bin_index": 6,
+        "count": 15,
+        "empirical_rate": 0.4666666666666667,
+        "mean_prediction": 0.6281700244912216
+      },
+      {
+        "bin_index": 7,
+        "count": 0,
+        "empirical_rate": 0.0,
+        "mean_prediction": 0.0
+      },
+      {
+        "bin_index": 8,
+        "count": 0,
+        "empirical_rate": 0.0,
+        "mean_prediction": 0.0
+      },
+      {
+        "bin_index": 9,
+        "count": 0,
+        "empirical_rate": 0.0,
+        "mean_prediction": 0.0
+      }
+    ],
+    "seed": 20260310,
+    "segment": "global"
+  },
+  {
+    "brier_score": 0.27396092599228206,
+    "dataset_id": "canonical_phase2_balanced_v1_trace_v1",
+    "evaluation_scope": "current",
+    "evidence_source": "simulation",
+    "log_loss": 0.7432380172418777,
+    "reliability_curve_bins": [
+      {
+        "bin_index": 0,
+        "count": 0,
+        "empirical_rate": 0.0,
+        "mean_prediction": 0.0
+      },
+      {
+        "bin_index": 1,
+        "count": 0,
+        "empirical_rate": 0.0,
+        "mean_prediction": 0.0
+      },
+      {
+        "bin_index": 2,
+        "count": 0,
+        "empirical_rate": 0.0,
+        "mean_prediction": 0.0
+      },
+      {
+        "bin_index": 3,
+        "count": 24,
+        "empirical_rate": 0.6666666666666666,
+        "mean_prediction": 0.3302816818833854
+      },
+      {
+        "bin_index": 4,
+        "count": 11,
+        "empirical_rate": 0.0,
+        "mean_prediction": 0.46587634271951317
+      },
+      {
+        "bin_index": 5,
+        "count": 74,
+        "empirical_rate": 0.44594594594594594,
+        "mean_prediction": 0.5639518465121456
+      },
+      {
+        "bin_index": 6,
+        "count": 15,
+        "empirical_rate": 0.4666666666666667,
+        "mean_prediction": 0.6281700244912216
+      },
+      {
+        "bin_index": 7,
+        "count": 0,
+        "empirical_rate": 0.0,
+        "mean_prediction": 0.0
+      },
+      {
+        "bin_index": 8,
+        "count": 0,
+        "empirical_rate": 0.0,
+        "mean_prediction": 0.0
+      },
+      {
+        "bin_index": 9,
+        "count": 0,
+        "empirical_rate": 0.0,
+        "mean_prediction": 0.0
+      }
+    ],
+    "seed": 20260310,
+    "segment": "global"
+  }
+]

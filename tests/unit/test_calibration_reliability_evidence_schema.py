@@ -10,6 +10,8 @@ from tools.run_calibration_reliability_evidence_gate import run_evidence_gate_ru
 
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_PATH = ROOT / "tools" / "schemas" / "calibration_reliability_evidence.schema.json"
+COMMITTED_REPLAY_FIXTURE = ROOT / "tools" / "fixtures" / "calibration_reliability_replay_exported_v1.json"
+COMMITTED_SIMULATION_FIXTURE = ROOT / "tools" / "fixtures" / "calibration_reliability_simulation_exported_v1.json"
 
 
 def _bins(a: float, b: float) -> list[dict[str, Any]]:
@@ -264,4 +266,24 @@ def test_runner_generated_pass_artifact_conforms_to_schema(tmp_path: Path) -> No
     assert result.exit_code == 0
     assert result.output_path is not None
     payload = json.loads(result.output_path.read_text(encoding="utf-8"))
+    _assert_schema_conformance(payload, schema)
+
+
+def test_committed_bounded_simulation_fixture_supports_gate_schema(tmp_path: Path) -> None:
+    schema = _load_schema()
+    reports_dir = tmp_path / "reports"
+    result = run_evidence_gate_runner(
+        replay_input_path=str(COMMITTED_REPLAY_FIXTURE),
+        simulation_input_path=str(COMMITTED_SIMULATION_FIXTURE),
+        baseline_ref="baseline:committed",
+        current_ref="current:committed",
+        run_id="committed_bounded_sim",
+        generated_at="2026-03-10T00:00:00Z",
+        reports_dir=reports_dir,
+    )
+
+    assert result.exit_code == 0
+    assert result.output_path is not None
+    payload = json.loads(result.output_path.read_text(encoding="utf-8"))
+    assert payload["gate_status"] == "pass"
     _assert_schema_conformance(payload, schema)
