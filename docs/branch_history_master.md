@@ -107,3 +107,26 @@
 - **Risks / red flags:** This is still bounded `balanced_v1` evidence only, not a calibration redesign or broad simulation-calibration solution. Final-round prediction points remain unlabeled under current canonical semantics and are excluded explicitly rather than imputed.
 - **Why this local stage matters:** The repo now has one truthful downstream simulation evidence path derived from promoted canonical trace records instead of a hard-disabled simulation side.
 - **Next likely step (from this local stage):** Review whether this bounded evidence-path step should be promoted, without overstating it as broad simulation calibration completion.
+## 2026-03-10 - Bounded true simulation calibration evidence from canonical Phase 2 trace export
+- **Branch:** `master`
+- **Initiative / phase:** Bounded simulation evidence-path step (`balanced_v1` only, fixed seed `20260310`)
+- **Summary of push:** Landed one truthful simulation calibration evidence path sourced only from explicit canonical `balanced_v1` trace inputs, replacing the prior hard-disabled simulation export state for this bounded source with gate/schema-compatible baseline/current simulation evidence records.
+- **Project commit:**
+  - `4b0147761780c64e919c97d5b4eab1303714f283` `Add bounded canonical simulation calibration evidence path`
+- **Key files/subsystems touched:**
+  - `tools/export_calibration_reliability_evidence.py`
+  - `tools/calibration_reliability_evidence_gate.py`
+  - `tools/fixtures/calibration_reliability_simulation_exported_v1.json`
+  - `tools/fixtures/canonical_phase2_balanced_v1_trace_baseline_v1.json`
+  - `tools/fixtures/canonical_phase2_balanced_v1_trace_current_v1.json`
+  - `automation/reports/calibration_reliability_evidence_export_manifest_v1.json`
+  - `tests/unit/test_export_calibration_reliability_evidence.py`
+  - `tests/unit/test_run_calibration_reliability_evidence_gate.py`
+  - `tests/unit/test_calibration_reliability_evidence_schema.py`
+  - `docs/branch_history_master.md`
+  - `docs/current_status_master.md`
+- **Explicit baseline/current input method:** Two explicit canonical trace-export JSON inputs are used, one for `baseline` and one for `current`. In this bounded stage they are separate files but identical `balanced_v1`/seed `20260310` traces, so the lane is truthful about source identity without claiming comparative improvement.
+- **Tests/checks run and result:** `tests/unit/test_export_calibration_reliability_evidence.py`, `tests/unit/test_run_calibration_reliability_evidence_gate.py`, `tests/unit/test_calibration_reliability_evidence_schema.py`, and `tests/simulation/test_phase2_trace_export.py` all passed; repeated `tools/simulate_phase2.py --seed 20260310` runs remained deterministic; the bounded calibration export path emitted simulation evidence records and truthful manifest provenance including unlabeled-point exclusion counts.
+- **Risks / red flags:** This is still bounded `balanced_v1` evidence only, not calibration redesign or general simulation-calibration completion. Baseline/current are explicit but identical at this stage, and final-round prediction points remain unlabeled under current canonical semantics and are excluded explicitly rather than imputed.
+- **Why this push matters:** The repo now has one truthful downstream simulation evidence path derived from promoted canonical trace records instead of a hard-disabled simulation side.
+- **Next likely step (at this time):** Re-rank the next meaningful project from current `master` reality without assuming more Phase 2 or broader calibration work automatically.
