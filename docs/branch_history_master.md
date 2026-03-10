@@ -1,5 +1,22 @@
 # Branch History - `master`
 
+## 2026-03-10 - Backend-native BO3 live-capture/source contract for replay-anchored parity work
+- **Branch:** `master`
+- **Initiative / phase:** Backend-native BO3 live-capture/source-contract step on the real FastAPI/backend runtime
+- **Summary of push:** Promoted one bounded backend-native BO3 live-capture contract on the real runtime path so `backend/services/runner.py` now appends one canonical JSONL artifact row per accepted live BO3 frame, preserving explicit raw-event linkage, replay-anchorable match/map/round identity, normalized engine-consumed frame fields, and derived diagnostics already available on the backend computation path.
+- **Project commit:**
+  - `38fd71022f9c080ecd3e1b3f7d334b241a9d7486` `Add backend BO3 live capture contract`
+- **Files in scope:**
+  - `backend/services/runner.py`
+  - `backend/services/bo3_capture_contract.py`
+  - `tests/unit/test_backend_bo3_capture_contract.py`
+  - `docs/branch_history_master.md`
+  - `docs/current_status_master.md`
+- **Bounded contract decision:** BO3 is the only authoritative live source for this step, the real runtime path is the FastAPI/backend runner, and the canonical artifact is one append-only JSONL file at `logs/bo3_backend_live_capture_contract.jsonl`.
+- **Checks run and result:** `tests/unit/test_backend_bo3_capture_contract.py` passed (`2 passed`); the focused backend artifact-generation check `tests/unit/test_backend_bo3_capture_contract.py -k 'appends_jsonl_rows'` also passed and confirmed that accepted BO3 live frames append a readable JSONL row with raw-event linkage, normalized frame fields, and derived diagnostics on the real backend path.
+- **Risks / red flags:** This is capture-contract work only. It is not live parity implementation, not replay/live comparison logic, not GRID work, and not broad telemetry-platform architecture.
+- **Why this push matters:** The actual backend/frontend runtime can now produce one reusable live artifact for later replay-anchored parity work instead of leaving operators with only raw BO3 JSONL plus downstream history logs.
+- **Next likely step (at this time):** Re-rank the next justified project from current `master` reality rather than assuming automatic live-parity expansion.
 ## 2026-03-10 - [LOCAL STAGE] Backend-native BO3 live-capture/source contract for replay-anchored parity work
 - **Branch:** `master` (local stage; not promoted)
 - **Initiative / phase:** Stage 1 backend-native BO3 live-capture/source-contract step
