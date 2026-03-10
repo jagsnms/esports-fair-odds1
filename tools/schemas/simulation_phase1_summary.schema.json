@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tools/schemas/simulation_phase1_summary.schema.json",
+  "title": "SimulationPhase1Summary",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema_version",
+    "seed",
+    "canonical_engine_path",
+    "trajectory_family_counts",
+    "trajectory_tick_counts",
+    "total_ticks_evaluated",
+    "structural_violations_total",
+    "behavioral_violations_total",
+    "invariant_violations_total",
+    "p_hat_min",
+    "p_hat_max",
+    "p_hat_count",
+    "rail_low_min",
+    "rail_low_max",
+    "rail_high_min",
+    "rail_high_max"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "simulation_phase1_summary.v1"
+    },
+    "seed": {
+      "type": "integer"
+    },
+    "canonical_engine_path": {
+      "type": "string",
+      "const": "compute_bounds>compute_rails>resolve_p_hat"
+    },
+    "trajectory_family_counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "trajectory_tick_counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "total_ticks_evaluated": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "structural_violations_total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "behavioral_violations_total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "invariant_violations_total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "p_hat_min": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "p_hat_max": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "p_hat_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "rail_low_min": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "rail_low_max": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "rail_high_min": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "rail_high_max": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    }
+  }
+}

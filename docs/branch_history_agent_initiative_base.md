@@ -132,3 +132,20 @@ Policy after this one-time setup: append-only, one new entry per final push (exc
 - **Risks / red flags:** This is provenance/gate hardening, not calibration-quality improvement; single-source extraction path remains a bounded first step.
 - **Why this push matters:** Closed the specific provenance hole that blocked prior calibration gate artifact acceptance.
 - **Next expected step (at that time):** New initiative selection (either broader calibration truth evidence or other higher-leverage Bible gap).
+
+## 2026-03-10 - Seeded Simulation Phase-1 Contract Freeze
+- **Branch:** `agent-initiative-base`
+- **Initiative / phase:** Seeded Simulation Phase-1 Contract Freeze
+- **Summary of push:** Added the first repo-native seeded simulation surface: one deterministic synthetic generator, one minimal five-family trajectory set, one machine-readable summary schema, one repo-root CLI, and one targeted contract test file.
+- **Key files/subsystems touched:**
+  - `engine/simulation/__init__.py`
+  - `engine/simulation/phase1.py`
+  - `tests/simulation/test_phase1_contract.py`
+  - `tools/simulate_phase1.py`
+  - `tools/schemas/simulation_phase1_summary.schema.json`
+  - `docs/branch_history_agent_initiative_base.md`
+  - `docs/current_status_agent_initiative_base.md`
+- **Tests/checks run and result:** `python -m unittest discover -s tests/simulation -p test_phase1_contract.py` passed; `python tools/simulate_phase1.py --seed 20260310` emitted machine-readable JSON from repo root with `structural_violations_total = 0`; same-seed determinism had already been established in review and promotion-readiness.
+- **Risks / red flags:** This is a minimal seeded Phase 1 contract only. It does not establish broad simulation realism, replay/simulation equivalence, or any tuning/calibration improvement.
+- **Why this push matters:** The Bible/spec required a seeded simulation truth surface and the repo previously had none.
+- **Next expected step (at this time):** Decide whether one small Phase 2 simulation extension is truly worth doing, or shift back to a higher-leverage engine gap now that the missing Phase 1 surface exists.
