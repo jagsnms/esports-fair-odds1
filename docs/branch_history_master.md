@@ -13,6 +13,7 @@
   - `docs/branch_history_master.md`
   - `docs/current_status_master.md`
 - **Bounded contract decision:** BO3 is the only authoritative live source for this step, the real runtime path is the FastAPI/backend runner, and the canonical artifact is one append-only JSONL file at `logs/bo3_backend_live_capture_contract.jsonl`.
+- **Contract truth note:** `bo3_health_reason` is allowed to remain null on healthy live rows; `clamp_reason` is recorded as `"ok"` when the live row is not clamped. Raw BO3 JSONL dedupes identical source snapshots, while the capture/history logs append one row per accepted backend compute tick, so their row counts can exceed raw-row counts.
 - **Checks run and result:** `tests/unit/test_backend_bo3_capture_contract.py` passed (`2 passed`); the focused backend artifact-generation check `tests/unit/test_backend_bo3_capture_contract.py -k 'appends_jsonl_rows'` also passed and confirmed that accepted BO3 live frames append a readable JSONL row with raw-event linkage, normalized frame fields, and derived diagnostics on the real backend path.
 - **Risks / red flags:** This is capture-contract work only. It is not live parity implementation, not replay/live comparison logic, not GRID work, and not broad telemetry-platform architecture.
 - **Why this push matters:** The actual backend/frontend runtime can now produce one reusable live artifact for later replay-anchored parity work instead of leaving operators with only raw BO3 JSONL plus downstream history logs.
@@ -268,6 +269,7 @@
 - **Risks / red flags:** This is still only one extra bounded source and one fixed seed. It creates decision pressure, but it does not answer broader representativeness by itself and must not be misread as broad simulation/calibration completion.
 - **Why this push matters:** The canonical simulation lane is no longer stuck with a single truthful source and no comparison pressure; `master` can now test whether a materially different bounded source changes the observed lane enough to justify further work.
 - **Next likely step (at this time):** Re-rank the next meaningful project from current `master` reality rather than assuming more Phase 2 expansion automatically.
+
 
 
 

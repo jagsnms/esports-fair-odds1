@@ -26,7 +26,8 @@ Last updated: 2026-03-10
   - raw linkage: `raw_provider_event_id`, `raw_seq_index`, `raw_sent_time`, `raw_updated_at`, `raw_snapshot_ts`, `raw_record_path`
   - replay-anchorable identity: `game_number`, `map_index`, `round_number`, `round_phase`, team ids/provider ids, and side mapping actually used by the engine
   - normalized frame fields: map/round scores, `a_side`, `bomb_planted`, `round_time_remaining_s`, alive counts, HP totals, cash/loadout/armor totals, loadout source, and round-time normalization flags
-  - derived diagnostics: `p_hat`, `rail_low`, `rail_high`, `series_low`, `series_high`, `bo3_snapshot_status`, `bo3_health`, `bo3_health_reason`, `bo3_feed_error`, `q_intra_total`, `midround_weight`, `clamp_reason`, and `dominance_score`
+  - derived diagnostics: `p_hat`, `rail_low`, `rail_high`, `series_low`, `series_high`, `bo3_snapshot_status`, `bo3_health`, optional/null `bo3_health_reason` and `bo3_feed_error`, `q_intra_total`, `midround_weight`, `clamp_reason` (`"ok"` when the live row is not clamped), and `dominance_score`
+- **Capture-count behavior on the real backend path:** raw BO3 JSONL dedupes identical source snapshots by signature, while the backend capture contract and history logs append one row per accepted backend compute tick. That means capture/history row counts can legitimately exceed raw BO3 row counts during steady live polling.
 - **Truth boundary:** this promoted step adds a real-runtime capture contract only. It is not live parity and not replay/live comparison completion.
 
 ## Next likely step
@@ -36,3 +37,5 @@ Last updated: 2026-03-10
 - Append one new entry to `docs/branch_history_master.md` per final push.
 - Update this status note to the new `master` branch state each time.
 - Keep local-stage notes explicit when a branch has newer work than promoted `master`.
+
+

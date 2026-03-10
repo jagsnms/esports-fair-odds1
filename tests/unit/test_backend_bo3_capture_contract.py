@@ -152,6 +152,8 @@ async def test_backend_bo3_capture_contract_appends_jsonl_rows(tmp_path: Path) -
     assert first["p_hat"] <= first["rail_high"]
     assert first["bo3_snapshot_status"] == "live"
     assert first["bo3_health"] == "GOOD"
+    assert first["bo3_health_reason"] is None
+    assert first["clamp_reason"] == "ok"
     assert "clamp_reason" in first
     assert "q_intra_total" in first
     assert "midround_weight" in first
@@ -162,7 +164,9 @@ async def test_backend_bo3_capture_contract_appends_jsonl_rows(tmp_path: Path) -
     assert second["round_number"] == 6
     assert second["round_score_a"] == 8
     assert second["round_score_b"] == 6
+    assert second["clamp_reason"] == "ok"
 
 
 def test_backend_bo3_capture_contract_appends_jsonl_rows_sync(tmp_path: Path) -> None:
     asyncio.run(test_backend_bo3_capture_contract_appends_jsonl_rows(tmp_path))
+

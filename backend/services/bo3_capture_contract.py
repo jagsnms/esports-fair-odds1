@@ -47,6 +47,9 @@ def build_bo3_live_capture_record(
     debug = derived.debug if isinstance(derived.debug, dict) else {}
     explain = point.explain if isinstance(point.explain, dict) else {}
     final = explain.get("final") if isinstance(explain.get("final"), dict) else {}
+    clamp_reason = final.get("clamp_reason")
+    if clamp_reason is None:
+        clamp_reason = "ok"
     bomb_phase = frame.bomb_phase_time_remaining if isinstance(frame.bomb_phase_time_remaining, dict) else {}
     round_phase = raw_snapshot.get("round_phase") or raw_snapshot.get("phase") or bomb_phase.get("round_phase")
     raw_snapshot_ts = (
@@ -111,7 +114,7 @@ def build_bo3_live_capture_record(
         "bo3_feed_error": debug.get("bo3_feed_error"),
         "q_intra_total": explain.get("q_intra_total"),
         "midround_weight": explain.get("midround_weight"),
-        "clamp_reason": final.get("clamp_reason"),
+        "clamp_reason": clamp_reason,
         "dominance_score": debug.get("dominance_score"),
         "fragility_missing_microstate_flag": ((debug.get("fragility") or {}).get("missing_microstate_flag")),
         "fragility_clock_invalid_flag": ((debug.get("fragility") or {}).get("clock_invalid_flag")),
@@ -128,3 +131,4 @@ def append_bo3_live_capture_record(record: dict[str, Any]) -> str | None:
     with open(path, "a", encoding="utf-8") as f:
         f.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
     return path
+
