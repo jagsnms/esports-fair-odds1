@@ -18,6 +18,10 @@ from typing import TYPE_CHECKING, Any
 from engine.diagnostics.invariants import compute_corridor_invariants
 from engine.models import Config, Derived, Frame, HistoryPoint, State
 
+from backend.services.bo3_capture_contract import (
+    append_bo3_live_capture_record,
+    build_bo3_live_capture_record,
+)
 from backend.services.trade_episodes import TradeEpisodeManager
 from backend.store.memory_store import _history_point_to_wire
 
@@ -283,6 +287,11 @@ def _bo3_raw_record_signature(payload: dict, match_id: int) -> tuple[Any, ...] |
         gn = None
         rn = None
     return (match_id, gn, rn, phase, s1, s2, ms1, ms2)
+
+
+def _bo3_raw_record_path(match_id: int) -> str:
+    filename = f"bo3_raw_match_{match_id}.jsonl" if _BO3_RAW_RECORD_PER_MATCH else "bo3_raw.jsonl"
+    return os.path.join(_BO3_RAW_RECORD_DIR, filename)
 
 
 def _match_context_diag(ctx: Any, selector_decision: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -1794,33 +1803,33 @@ class Runner:
         match_id: int,
         team_a_is_team_one: bool | None,
         session_runtime: Any = None,
-    ) -> None:
+    ) -> str | None:
         """
         If raw BO3 recording is enabled, validate payload, dedupe by signature, and append one line
         to logs/bo3_raw_match_<match_id>.jsonl (or logs/bo3_raw.jsonl if per-match disabled).
         Does not change engine computations; recording only.
         """
         if not _BO3_RAW_RECORD_ENABLED:
-            return
+            return None
         if not isinstance(payload, dict):
-            return
+            return None
         t1 = payload.get("team_one")
         t2 = payload.get("team_two")
         if not isinstance(t1, dict) or not isinstance(t2, dict):
-            return
+            return None
         # Optional: game_number and round_number present; no strict requirement
         sig = _bo3_raw_record_signature(payload, match_id)
         if sig is None:
-            return
+            return None
         if session_runtime is not None:
             last_sig = session_runtime.bo3_raw_last_sig
             if last_sig is not None and last_sig == sig:
-                return
+                return _bo3_raw_record_path(match_id)
             session_runtime.bo3_raw_last_sig = sig
         else:
             last_sig = self._bo3_raw_last_sig_by_match.get(match_id)
             if last_sig is not None and last_sig == sig:
-                return
+                return _bo3_raw_record_path(match_id)
             self._bo3_raw_last_sig_by_match[match_id] = sig
 
         rec = {
@@ -1833,17 +1842,15 @@ class Runner:
             "ok": True,
         }
         dirpath = _BO3_RAW_RECORD_DIR
-        if _BO3_RAW_RECORD_PER_MATCH:
-            filename = f"bo3_raw_match_{match_id}.jsonl"
-        else:
-            filename = "bo3_raw.jsonl"
-        filepath = os.path.join(dirpath, filename)
+        filepath = _bo3_raw_record_path(match_id)
         try:
             os.makedirs(dirpath, exist_ok=True)
             with open(filepath, "a", encoding="utf-8") as f:
                 f.write(json.dumps(rec, ensure_ascii=False, default=str) + "\n")
         except OSError as e:
             logger.warning("BO3 raw record write failed %s: %s", filepath, e)
+            return None
+        return filepath
 
     async def _tick_bo3(
         self,
@@ -1906,9 +1913,12 @@ class Runner:
             self._bo3_buf_consecutive_failures = session_runtime.bo3_buf_consecutive_failures
             return True
         session_runtime.last_fetch_ts = now
+        raw_record_path = None
         if isinstance(snap, dict):
             session_runtime.bo3_last_raw_snapshot = snap
-            self._maybe_record_raw_bo3_snapshot(snap, mid, team_a_is_team_one, session_runtime=session_runtime)
+            raw_record_path = self._maybe_record_raw_bo3_snapshot(
+                snap, mid, team_a_is_team_one, session_runtime=session_runtime
+            )
         frame = bo3_snapshot_to_frame(snap, team_a_is_team_one=team_a_is_team_one)
         status, feed_error, snapshot_ts, is_fresh = _bo3_snapshot_status(
             snap, frame,
@@ -2353,6 +2363,22 @@ class Runner:
             kappa=0.0,
             debug=dbg,
         )
+        if write_to_store and isinstance(snap, dict):
+            try:
+                capture_record = build_bo3_live_capture_record(
+                    match_id=mid,
+                    team_a_is_team_one=team_a_is_team_one,
+                    raw_snapshot=snap,
+                    raw_record_path=raw_record_path,
+                    frame=frame,
+                    point=point,
+                    derived=derived,
+                )
+                capture_path = append_bo3_live_capture_record(capture_record)
+                if capture_path:
+                    dbg["bo3_backend_capture_path"] = capture_path
+            except OSError as e:
+                logger.warning("BO3 backend capture contract write failed: %s", e)
         if session_runtime is not None:
             session_runtime.last_state = new_state
             session_runtime.last_frame = asdict(frame)

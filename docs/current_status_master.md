@@ -3,34 +3,36 @@
 Last updated: 2026-03-10
 
 ## Snapshot
-- **Promoted `master` initiative:** Bounded BO3-authoritative live-capture/source contract for replay-anchored parity work is now the current promoted `master` state.
-- **Branch-state assessment:** `master` now produces one bounded append-only canonical BO3 live artifact row in `data/processed/cs2_replay_snapshots.parquet` during BO3 auto activation without a separate manual lock step. The row preserves explicit raw-event linkage, normalized engine-consumed frame fields, and derived intraround/parity diagnostics suitable for later replay-anchored parity work.
+- **Promoted `master` initiative:** Bounded BO3-authoritative live-capture/source contract for replay-anchored parity work is still the current promoted `master` state.
+- **Local stage above `master`:** Backend-native BO3 live-capture/source-contract for replay-anchored parity work is now implemented locally on the real FastAPI/backend runtime path centered on `backend/services/runner.py`, but it is not promoted yet.
+- **Branch-state assessment:** promoted `master` still carries the legacy Streamlit-scoped parquet claim only. The new local stage adds a real-runtime append-only JSONL capture artifact at `logs/bo3_backend_live_capture_contract.jsonl` and leaves the legacy path out of the runtime contract.
 
 ## Main red flags
-1. **This promotion is not live parity implementation.** It does not compare live against replay, does not claim parity, and does not open broad live/replay decision logic.
-2. **This promotion is BO3-only on purpose.** It does not unify BO3 and GRID, and it does not claim BO3 is the final best source for full live parity.
-3. **This promotion is still bounded capture-contract work only.** It creates one reusable evidence artifact; it does not establish broad representativeness or broader replay/live resolution.
-4. **`master` is still otherwise narrow.** The previously landed replay/simulation and simulation-evidence lanes remain truthful but intentionally bounded.
+1. **This work is still not live parity implementation.** It does not compare live against replay, does not claim parity, and does not open broad live/replay decision logic.
+2. **This work is BO3-only on purpose.** It does not unify BO3 and GRID, and it does not claim BO3 is the final best source for full live parity.
+3. **Promoted `master` is still legacy-path scoped.** The old parquet capture contract remains a legacy Streamlit promotion; the backend-native JSONL contract is local-stage work only right now.
+4. **The repo is still otherwise narrow.** The replay/simulation and simulation-evidence lanes remain truthful but intentionally bounded.
 
 ## Most recent completed checks
-- `tests/unit/test_bo3_live_capture_contract.py` passed (`5 passed`), covering raw-linkage preservation, append-only artifact generation, live-only persistence gating, the BO3 auto-activation lock/default-capture regression case, and a parse smoke check for `legacy/app/app35_ml.py`.
-- The focused bounded artifact-generation check `tests/unit/test_bo3_live_capture_contract.py::test_bo3_live_capture_contract_persists_append_only_artifact` passed and confirmed that the canonical BO3 live artifact is produced, append-only, preserves raw-event linkage, includes normalized frame fields, includes derived diagnostics, and does not rely on the old broad `cs2_inplay_persist` toggle.
+- `tests/unit/test_backend_bo3_capture_contract.py` passed (`2 passed`) on the real backend runner path and confirmed that accepted BO3 live frames append a backend-native JSONL capture artifact.
+- The focused backend artifact-generation check `tests/unit/test_backend_bo3_capture_contract.py -k 'appends_jsonl_rows'` passed and confirmed that the canonical backend artifact is produced, append-only, preserves raw-event linkage, includes normalized frame fields, and includes derived diagnostics.
 - The local `.venv311` launcher still required the known outside-sandbox workaround for pytest invocation; this remained an environment quirk, not a product failure.
 
 ## Current initiative status
-- **Canonical live artifact path:** `data/processed/cs2_replay_snapshots.parquet`.
-- **Authoritative live source for this promoted stage:** BO3 only.
-- **Minimum contract now persisted for BO3 live rows:**
-  - source identity: `schema_version = "bo3_live_capture_contract.v1"`, `live_source = "BO3"`, `capture_ts_iso`, `match_id`, `team_a_is_team_one`
-  - raw linkage: `raw_ts_utc`, `raw_provider_event_id`, `raw_seq_index`, `raw_sent_time`, `raw_updated_at`, `raw_record_path`
-  - replay-anchorable identity: `game_number`, `round_number`, `round_phase`, `round_key_current`, team ids/provider ids, side mapping used by the engine
-  - normalized frame fields: map/round scores, `a_side`, `bomb_planted`, `round_time_remaining_s`, alive counts, HP totals, cash/loadout/armor totals, and `intraround_state_source`
-  - derived diagnostics: `p_hat`, `p_hat_map`, `rail_low`, `rail_high`, `q_intra_round_win_a`, `q_intra_round_win_a_source`, plus existing intraround score terms already emitted by the snapshot row
-- **Default capture behavior change:** BO3 live auto activation now always records raw BO3 pulls to `logs/bo3_pulls.jsonl`, automatically enables the snapshot-lock gate for this bounded contract, and canonical BO3 live snapshot persistence still stays decoupled from the old broad `Persist snapshots + results` toggle.
-- **Truth boundary:** this promoted step makes real-match BO3 collection reusable later; it does not claim that the current repo can already answer replay/live parity questions.
+- **Promoted legacy-path artifact claim:** `data/processed/cs2_replay_snapshots.parquet` from the old Streamlit path.
+- **Actual current runtime BO3 ingestion path:** `backend/services/runner.py`.
+- **New local-stage backend artifact path:** `logs/bo3_backend_live_capture_contract.jsonl`.
+- **Actual backend-runtime persisted live outputs on the local stage:** raw BO3 snapshot JSONL (`logs/bo3_raw_match_<match_id>.jsonl` or `logs/bo3_raw.jsonl`), backend capture-contract JSONL (`logs/bo3_backend_live_capture_contract.jsonl`), plus backend history JSONL (`logs/history_points.jsonl`, `logs/history_score_points.jsonl`).
+- **Backend-native BO3 capture contract now persisted on the local stage:**
+  - source identity: `schema_version = "backend_bo3_live_capture_contract.v1"`, `live_source = "BO3"`, `capture_ts_iso`, `match_id`, `team_a_is_team_one`
+  - raw linkage: `raw_provider_event_id`, `raw_seq_index`, `raw_sent_time`, `raw_updated_at`, `raw_snapshot_ts`, `raw_record_path`
+  - replay-anchorable identity: `game_number`, `map_index`, `round_number`, `round_phase`, team ids/provider ids, and side mapping actually used by the engine
+  - normalized frame fields: map/round scores, `a_side`, `bomb_planted`, `round_time_remaining_s`, alive counts, HP totals, cash/loadout/armor totals, loadout source, and round-time normalization flags
+  - derived diagnostics: `p_hat`, `rail_low`, `rail_high`, `series_low`, `series_high`, `bo3_snapshot_status`, `bo3_health`, `bo3_health_reason`, `bo3_feed_error`, `q_intra_total`, `midround_weight`, `clamp_reason`, and `dominance_score`
+- **Truth boundary:** this local stage adds a real-runtime capture contract only. It is not promoted, not live parity, and not replay/live comparison completion.
 
 ## Next likely step
-- Re-rank the next justified project from current `master` reality rather than assuming live parity should open automatically.
+- Review whether the backend-native BO3 live-capture/source-contract local stage is clean enough for promotion-readiness.
 
 ## Process note for future pushes
 - Append one new entry to `docs/branch_history_master.md` per final push.
