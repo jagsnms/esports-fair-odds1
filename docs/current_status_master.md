@@ -15,6 +15,7 @@ Last updated: 2026-03-10
 ## Most recent completed checks
 - `tests/unit/test_backend_bo3_capture_contract.py` passed (`2 passed`) on the real backend runner path and confirmed that accepted BO3 live frames append a backend-native JSONL capture artifact.
 - The focused backend artifact-generation check `tests/unit/test_backend_bo3_capture_contract.py -k 'appends_jsonl_rows'` passed and confirmed that the canonical backend artifact is produced, append-only, preserves raw-event linkage, includes normalized frame fields, and includes derived diagnostics.
+- A bounded real FastAPI/backend runtime verification run against live BO3 match `111953` (`K27` vs `Metizport`) succeeded, confirming that the selected match was actually polled on the real runtime path, raw BO3 JSONL appended, backend capture JSONL appended, `bo3_health_reason = null` is the healthy-state value, `clamp_reason = "ok"` is the truthful unclamped value, and the raw-row vs capture-row count difference is expected on this path.
 - The local `.venv311` launcher still required the known outside-sandbox workaround for pytest invocation; this remained an environment quirk, not a product failure.
 
 ## Current initiative status
