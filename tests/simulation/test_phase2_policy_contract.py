@@ -51,6 +51,10 @@ class TestSimulationPhase2PolicyContract(unittest.TestCase):
 
         self.assertEqual(summary["schema_version"], phase2.SIMULATION_PHASE2_SUMMARY_VERSION)
         self.assertEqual(summary["policy_profile"], phase2.PHASE2_STAGE1_POLICY_PROFILE)
+        self.assertEqual(
+            summary["canonical_source_contract"],
+            phase2.phase2_source_contract(phase2.PHASE2_STAGE1_POLICY_PROFILE),
+        )
         self.assertEqual(summary["round_count"], phase2.PHASE2_STAGE1_ROUNDS)
         self.assertEqual(summary["ticks_per_round"], phase2.PHASE2_STAGE1_TICKS_PER_ROUND)
         self.assertEqual(
@@ -68,6 +72,10 @@ class TestSimulationPhase2PolicyContract(unittest.TestCase):
         self.assertEqual(replay_summary["fixture_class"], phase2.PHASE2_STAGE1_FIXTURE_CLASS)
         self.assertEqual(replay_summary["assessment_prematch_map"], phase2.PHASE2_STAGE2_PREMATCH_MAP)
         self.assertEqual(replay_summary["replay_path"], f"synthetic://phase2/balanced_v1/seed/{SEED}")
+        self.assertEqual(
+            replay_summary["canonical_source_contract"],
+            phase2.phase2_source_contract(phase2.PHASE2_STAGE1_POLICY_PROFILE),
+        )
         self.assertIs(replay_summary["replay_path_exists"], False)
         self.assertEqual(replay_summary["total_points_captured"], replay_summary["raw_contract_points"])
         self.assertEqual(replay_summary["unknown_replay_mode_points"], 0)
@@ -89,7 +97,53 @@ class TestSimulationPhase2PolicyContract(unittest.TestCase):
         self.assertEqual(replay_summary["invariant_violations_total"], 0)
         self.assertGreater(replay_summary["p_hat_count"], 0)
 
+    def test_eco_bias_second_source_preserves_truthful_contract_floor(self) -> None:
+        summary = phase2.generate_phase2_summary(
+            SEED,
+            policy_profile=phase2.PHASE2_SECOND_SOURCE_POLICY_PROFILE,
+        )
+        replay = summary["replay_comparable_summary"]
+        trace = summary["trace_export"]
+
+        self.assertEqual(summary["policy_profile"], phase2.PHASE2_SECOND_SOURCE_POLICY_PROFILE)
+        self.assertEqual(
+            summary["canonical_source_contract"],
+            phase2.phase2_source_contract(phase2.PHASE2_SECOND_SOURCE_POLICY_PROFILE),
+        )
+        self.assertEqual(
+            replay["canonical_source_contract"],
+            phase2.phase2_source_contract(phase2.PHASE2_SECOND_SOURCE_POLICY_PROFILE),
+        )
+        self.assertEqual(
+            replay["fixture_class"],
+            phase2.phase2_fixture_class(phase2.PHASE2_SECOND_SOURCE_POLICY_PROFILE),
+        )
+        self.assertEqual(
+            replay["replay_path"],
+            phase2.phase2_replay_path(
+                policy_profile=phase2.PHASE2_SECOND_SOURCE_POLICY_PROFILE,
+                seed=SEED,
+            ),
+        )
+        self.assertEqual(replay["structural_violations_total"], 0)
+        self.assertEqual(replay["behavioral_violations_total"], 0)
+        self.assertEqual(replay["invariant_violations_total"], 0)
+        self.assertGreater(replay["rail_input_v2_activated_points"], 0)
+        self.assertEqual(replay["rail_input_v1_fallback_points"], 0)
+        carryover = replay["carryover_evidence_by_source_class"]["REPLAY_raw"]
+        self.assertEqual(carryover["required_complete_points"], replay["total_points_captured"])
+        self.assertEqual(carryover["required_incomplete_points"], 0)
+        self.assertEqual(
+            trace["canonical_source_contract"],
+            phase2.phase2_trace_source_contract(phase2.PHASE2_SECOND_SOURCE_POLICY_PROFILE),
+        )
+        self.assertEqual(trace["policy_profile"], phase2.PHASE2_SECOND_SOURCE_POLICY_PROFILE)
+        self.assertEqual(
+            trace["labeled_prediction_record_count"],
+            (phase2.PHASE2_STAGE1_ROUNDS - 1) * phase2.PHASE2_STAGE1_TICKS_PER_ROUND,
+        )
+        self.assertEqual(trace["unlabeled_prediction_points_excluded"], phase2.PHASE2_STAGE1_TICKS_PER_ROUND)
+
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -3,33 +3,33 @@
 Last updated: 2026-03-10
 
 ## Snapshot
-- **Active initiative:** Bounded true simulation calibration evidence from canonical Phase 2 trace export is now landed on `master` as one bounded truthful simulation evidence path sourced only from explicit canonical `balanced_v1` trace inputs.
-- **Branch-state assessment:** `master` remains green and now includes a gate/schema-compatible simulation evidence lane for one fixed-seed canonical trace source, without broadening into calibration redesign or general simulation calibration completion.
+- **Promoted `master` initiative:** Bounded true simulation calibration evidence from canonical Phase 2 trace export remains the current landed `master` state.
+- **Local stage branch note:** `codex/stage1-eco-bias-second-source` now adds one bounded second canonical source, `eco_bias_v1`, plus one explicit source-vs-source comparison artifact against `balanced_v1`; this is local Stage 1 work pending review, not promoted `master` state.
+- **Branch-state assessment:** `master` remains green but decision-weak on simulation-source representativeness; the local stage broadens only enough to create comparison pressure without redesigning calibration, replay assessment, or source framework semantics.
 
 ## Main red flags
-1. **This is still one bounded evidence source only.** The path is limited to `balanced_v1`, one fixed seed flow (`20260310`), and explicit baseline/current canonical trace inputs only.
-2. **This is not calibration redesign or broad simulation calibration completion.** The work enables one bounded simulation evidence path that conforms to the existing exporter/gate/schema contract.
-3. **Baseline/current are explicit but not comparative.** The current bounded fixtures are separate baseline/current trace files but identical canonical traces, so the lane is truthful about source identity without claiming improvement.
-4. **Not every prediction point is labelable under current semantics.** Final-round prediction points still lack a truthful `round_result` event and remain explicitly excluded from metrics and recorded in manifest provenance.
+1. **`master` is still not broadly representative.** The last promoted lane remains one fixed-seed `balanced_v1` source with explicit baseline/current inputs that are truthful but identical.
+2. **The local second-source work is intentionally narrow.** It adds exactly one additional bounded source, `eco_bias_v1`, on the same seed/shape contract; it is not a profile matrix, seed sweep, or general multi-source system.
+3. **The new comparison surface is source-vs-source only.** It is intentionally separate from baseline/current gate semantics and must not be interpreted as a calibration-improvement lane.
+4. **Final-round prediction points remain unlabeled under current truthful semantics.** Both bounded sources still exclude those points explicitly rather than inventing labels.
 
 ## Most recent completed checks
-- `tests/unit/test_export_calibration_reliability_evidence.py` passed.
-- `tests/unit/test_run_calibration_reliability_evidence_gate.py` passed.
-- `tests/unit/test_calibration_reliability_evidence_schema.py` passed.
-- `tests/simulation/test_phase2_trace_export.py` passed.
-- Repeated `tools/simulate_phase2.py --seed 20260310` runs remained deterministic.
-- The bounded calibration evidence export path now emits simulation evidence records instead of a hard-disabled empty simulation side.
-- The exporter manifest now records truthful canonical trace provenance and explicit unlabeled-point exclusion counts for both baseline and current inputs.
+- `tests/simulation/test_phase2_policy_contract.py` passed on the local stage branch.
+- `tests/simulation/test_phase2_trace_export.py` passed on the local stage branch.
+- The approved `balanced_v1` CLI simulation run completed deterministically with seed `20260310`.
+- The direct `.venv311` `eco_bias_v1` CLI simulation validation also completed successfully with seed `20260310`; the earlier launcher issue was an environment/sandbox execution quirk, not a product failure.
+- The direct `.venv311` source-vs-source comparison CLI validation also completed successfully and emitted `automation/reports/phase2_source_comparison_balanced_v1_vs_eco_bias_v1_seed20260310.json`; the earlier launcher issue was an environment/sandbox execution quirk, not a product failure.
 
 ## Current initiative status
-- **Implementation state:** Promoted on `master`.
-- **Implementation shape:** One bounded simulation evidence path derived only from promoted canonical Phase 2 trace export.
-- **Simulation evidence contract now emitted:** one `baseline` and one `current` simulation record with `evidence_source = "simulation"`, `dataset_id = "canonical_phase2_balanced_v1_trace_v1"`, fixed seed `20260310`, `segment = "global"`, and labeled-point-only `brier_score`, `log_loss`, and `reliability_curve_bins`.
-- **Truthfulness note:** The earlier simulation export status `disabled_no_true_simulation_source` is now replaced only for this bounded canonical trace source.
+- **Promoted `master` state:** one bounded truthful simulation evidence path derived from canonical `balanced_v1` trace export.
+- **Local stage state:** one bounded second canonical source, `eco_bias_v1`, added to the same Phase 2 canonical engine and replay-comparable path.
+- **Second-source contract:** `policy_profile = "eco_bias_v1"`, `canonical_source_contract = "canonical_phase2_eco_bias_v1"`, seed `20260310`, `round_count = 32`, `ticks_per_round = 4`, same labeled-point-only trace export semantics, explicit unlabeled-point exclusion counts, and zero structural / behavioral / invariant violations.
+- **Comparison artifact contract:** one machine-readable source-vs-source artifact, not baseline/current, comparing `balanced_v1` versus `eco_bias_v1` on the same fixed seed/shape and reporting explicit source identity, policy-family-count deltas, replay metric deltas, and decision-pressure flags.
 
 ## Next likely step
-- Re-rank the next meaningful project from current `master` reality without overstating this bounded evidence-path step as broad simulation calibration completion.
+- Review whether the local stage comparison creates enough pressure to justify a promotion decision or whether the broader program is still better served by pause.
 
 ## Process note for future pushes
 - Append one new entry to `docs/branch_history_master.md` per final push.
 - Update this status note to the new `master` branch state each time.
+- Keep local-stage notes explicit when a branch has newer work than promoted `master`.

@@ -8,6 +8,7 @@
     "schema_version",
     "seed",
     "policy_profile",
+    "canonical_source_contract",
     "canonical_engine_path",
     "round_count",
     "ticks_per_round",
@@ -34,7 +35,11 @@
     },
     "policy_profile": {
       "type": "string",
-      "const": "balanced_v1"
+      "enum": ["balanced_v1", "eco_bias_v1"]
+    },
+    "canonical_source_contract": {
+      "type": "string",
+      "enum": ["canonical_phase2_balanced_v1", "canonical_phase2_eco_bias_v1"]
     },
     "canonical_engine_path": {
       "type": "string",
