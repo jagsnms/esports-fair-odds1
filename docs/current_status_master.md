@@ -5,6 +5,8 @@ Last updated: 2026-03-10
 ## Snapshot
 - **Promoted `master` initiative:** Backend-native BO3 live-capture/source contract for replay-anchored parity work is now the current promoted `master` state.
 - **Branch-state assessment:** promoted `master` now carries one real-runtime BO3 capture contract on the FastAPI/backend path centered on `backend/services/runner.py`, with one append-only JSONL artifact at `logs/bo3_backend_live_capture_contract.jsonl`. The earlier legacy Streamlit parquet step remains in history, but it is not the current runtime contract.
+- **Current local-stage branch note:** `stage/backend-bo3-full-live-capture` at commit `34ec589` is ahead of promoted `master` and commits one full real local backend BO3 capture artifact at `logs/bo3_backend_live_capture_contract.jsonl`. That committed artifact contains `463` rows, and local validation on the committed file was `total=463`, `valid=463`, `pct=100%`. This removes the blocker that the agent could not inspect full collected live capture data in git, but it still does not prove broad representativeness, replay/live parity, or downstream decision-surface correctness.
+- **Current diagnostic-stage branch note:** this branch now also carries `automation/reports/backend_bo3_live_parity_diagnostic_report.json`, which consumes the committed backend capture artifact, selects dominant match `113437` (`459/463` rows), excludes `409` rows explicitly, keeps the per-tick compared count visible at `54`, and derives its final decision from `17` distinct truthfully comparable raw events rather than treating duplicate ticks as independent evidence. The current bounded result is `decision = inconclusive`. This is still one bounded diagnostic only. It is not live parity implementation, replay/live linkage, or broad representativeness proof.
 
 ## Main red flags
 1. **This work is still not live parity implementation.** It does not compare live against replay, does not claim parity, and does not open broad live/replay decision logic.
@@ -38,5 +40,6 @@ Last updated: 2026-03-10
 - Append one new entry to `docs/branch_history_master.md` per final push.
 - Update this status note to the new `master` branch state each time.
 - Keep local-stage notes explicit when a branch has newer work than promoted `master`.
+
 
 

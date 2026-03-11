@@ -1,5 +1,22 @@
 # Branch History - `master`
 
+## 2026-03-10 - [LOCAL STAGE] Bounded real-runtime BO3 live parity diagnostic on the committed backend capture artifact
+- **Branch:** `stage/backend-bo3-full-live-capture` (local stage; not promoted)
+- **Initiative / phase:** Local-stage bounded live comparison-surface diagnostic on top of the promoted backend-native BO3 capture contract
+- **Summary of local stage work:** Added one thin consumer for `logs/bo3_backend_live_capture_contract.jsonl` that reconstructs bounded comparison inputs from committed backend capture rows, excludes unfit rows explicitly, compares truthfully eligible `IN_PROGRESS` rows from the dominant captured match against the bounded V2 reference target, and emits one machine-readable report at `automation/reports/backend_bo3_live_parity_diagnostic_report.json`.
+- **Diagnostic result:** the committed artifact spans match ids `111953` (`4` rows) and `113437` (`459` rows); the diagnostic selected dominant match `113437`, excluded `409` rows explicitly, kept `54` per-tick eligible rows visible, counted only `17` distinct truthfully comparable raw events as independent evidence, and returned `decision = inconclusive`.
+- **Why this local stage matters:** The branch can now do more than store real runtime capture data. It can ask whether the current live lane looks wrong, close, or inconclusive on the committed artifact.
+- **Risks / red flags:** This is still one bounded diagnostic on one committed artifact. It is not live parity implementation, not replay/live linkage, not broad representativeness, and not universal proof of truth.
+
+
+## 2026-03-10 - [LOCAL STAGE] Full backend BO3 live capture artifact from one real local run
+- **Branch:** `stage/backend-bo3-full-live-capture` (local stage; not promoted)
+- **Initiative / phase:** Local-stage full artifact availability step on top of the promoted backend-native BO3 capture contract
+- **Summary of local stage work:** Commit `34ec589` adds the full backend-native BO3 capture artifact file `logs/bo3_backend_live_capture_contract.jsonl` to the branch so the collected live data is directly visible in git rather than only on disk.
+- **Committed artifact truth:** the committed artifact contains `463` rows; local validation on that committed file was `total=463`, `valid=463`, `pct=100%`.
+- **Why this local stage matters:** It removes the blocker that the agent could not see or use the full collected live capture data in git.
+- **Risks / red flags:** This artifact still does not prove broad representativeness, replay/live parity, or downstream decision-surface correctness.
+
 ## 2026-03-10 - Backend-native BO3 live-capture/source contract for replay-anchored parity work
 - **Branch:** `master`
 - **Initiative / phase:** Backend-native BO3 live-capture/source-contract step on the real FastAPI/backend runtime
@@ -269,8 +286,5 @@
 - **Risks / red flags:** This is still only one extra bounded source and one fixed seed. It creates decision pressure, but it does not answer broader representativeness by itself and must not be misread as broad simulation/calibration completion.
 - **Why this push matters:** The canonical simulation lane is no longer stuck with a single truthful source and no comparison pressure; `master` can now test whether a materially different bounded source changes the observed lane enough to justify further work.
 - **Next likely step (at this time):** Re-rank the next meaningful project from current `master` reality rather than assuming more Phase 2 expansion automatically.
-
-
-
 
 
