@@ -170,3 +170,8 @@ async def test_backend_bo3_capture_contract_appends_jsonl_rows(tmp_path: Path) -
 def test_backend_bo3_capture_contract_appends_jsonl_rows_sync(tmp_path: Path) -> None:
     asyncio.run(test_backend_bo3_capture_contract_appends_jsonl_rows(tmp_path))
 
+
+def test_backend_bo3_capture_contract_default_path_is_runtime_only() -> None:
+    from backend.services import bo3_capture_contract
+
+    assert bo3_capture_contract._BO3_BACKEND_CAPTURE_PATH == "logs/runtime/bo3_backend_live_capture_contract.jsonl"

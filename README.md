@@ -43,3 +43,8 @@ When ports or artifacts are stuck, reset listeners and optional runtime cleanup.
 - Or from PowerShell: `.\scripts\reset_dev.ps1`
 
 Kills listeners on ports 8000, 5173, 3000, 4173; optionally deletes `out/`, `logs/runtime/*`, `logs/debug/*`, `logs/*.log`, `logs/*.json`, `logs/*.jsonl`, `pytest_fit_auc_data/`, `pytest_fit_midround_data/`. Does not delete `data/raw`, `data/processed`, or `artifacts/reports`. Optionally calls POST `/api/v1/debug/reset` if the backend is running.
+
+Backend BO3 runtime capture is now a disposable runtime log at `logs/runtime/bo3_backend_live_capture_contract.jsonl`. Deliberate evidence snapshots are separate non-runtime artifacts under `automation/reports/`; reset does not treat those snapshots as runtime state.
+
+
+

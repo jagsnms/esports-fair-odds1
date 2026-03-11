@@ -25,7 +25,7 @@ ALLOWED_DECISIONS = {
     DECISION_INCONCLUSIVE,
 }
 
-DEFAULT_CAPTURE_PATH = Path("logs/bo3_backend_live_capture_contract.jsonl")
+DEFAULT_CAPTURE_PATH = Path("automation/reports/backend_bo3_live_capture_contract_snapshot_v1.jsonl")
 DEFAULT_REPORT_PATH = Path("automation/reports/backend_bo3_live_parity_diagnostic_report.json")
 
 
@@ -439,11 +439,11 @@ def write_report(report: dict[str, Any], output_path: Path) -> Path:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run a bounded BO3 live parity diagnostic on the committed backend capture artifact.")
+    parser = argparse.ArgumentParser(description="Run a bounded BO3 live parity diagnostic on the versioned backend capture evidence snapshot.")
     parser.add_argument(
         "--capture-path",
         default=str(DEFAULT_CAPTURE_PATH),
-        help="Path to the backend BO3 capture contract JSONL artifact.",
+        help="Path to the backend BO3 capture contract JSONL evidence snapshot.",
     )
     parser.add_argument(
         "--output",
@@ -472,3 +472,6 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+

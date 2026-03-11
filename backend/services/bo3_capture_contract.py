@@ -13,8 +13,8 @@ _BO3_BACKEND_CAPTURE_ENABLED = os.environ.get("BO3_BACKEND_CAPTURE_ENABLED", "tr
     "yes",
 )
 _BO3_BACKEND_CAPTURE_PATH = (
-    os.environ.get("BO3_BACKEND_CAPTURE_PATH") or "logs/bo3_backend_live_capture_contract.jsonl"
-).strip() or "logs/bo3_backend_live_capture_contract.jsonl"
+    os.environ.get("BO3_BACKEND_CAPTURE_PATH") or "logs/runtime/bo3_backend_live_capture_contract.jsonl"
+).strip() or "logs/runtime/bo3_backend_live_capture_contract.jsonl"
 
 
 def _isoformat_utc(epoch_s: float | None) -> str:
@@ -131,4 +131,5 @@ def append_bo3_live_capture_record(record: dict[str, Any]) -> str | None:
     with open(path, "a", encoding="utf-8") as f:
         f.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
     return path
+
 

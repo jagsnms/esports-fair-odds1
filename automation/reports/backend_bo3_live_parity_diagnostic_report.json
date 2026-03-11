@@ -19,7 +19,7 @@
       "111953": 4,
       "113437": 459
     },
-    "path": "logs\\bo3_backend_live_capture_contract.jsonl",
+    "path": "automation\\reports\\backend_bo3_live_capture_contract_snapshot_v1.jsonl",
     "primary_match_id": 113437,
     "primary_match_row_count": 459,
     "schema_version_expected": "backend_bo3_live_capture_contract.v1",

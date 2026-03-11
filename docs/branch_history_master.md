@@ -1,5 +1,13 @@
 # Branch History - `master`
 
+## 2026-03-11 - [LOCAL STAGE] Backend BO3 capture artifact lifecycle contract clarification
+- **Branch:** `codex/backend-bo3-lifecycle-contract` (local stage; not promoted)
+- **Initiative / phase:** Local-stage lifecycle-clarification step on top of the promoted backend-native BO3 capture contract
+- **Summary of local stage work:** Split the old ambiguous single-path role so the real backend runtime capture log now writes to `logs/runtime/bo3_backend_live_capture_contract.jsonl`, the deliberate versioned evidence snapshot is `automation/reports/backend_bo3_live_capture_contract_snapshot_v1.jsonl`, and the bounded diagnostic consumer now points at that snapshot role instead of the disposable runtime path.
+- **Why this local stage matters:** The repo stops pretending the same filesystem path is both a disposable runtime log and a durable committed evidence artifact.
+- **Reset / git truth:** normal reset flow continues to treat the runtime log as disposable, while the versioned evidence snapshot is non-runtime and no longer silently shares the runtime path.
+- **Risks / red flags:** This is lifecycle-contract clarification only. It does not change live parity, replay/live linkage, or broader logging architecture.
+
 ## 2026-03-10 - [LOCAL STAGE] Bounded real-runtime BO3 live parity diagnostic on the committed backend capture artifact
 - **Branch:** `stage/backend-bo3-full-live-capture` (local stage; not promoted)
 - **Initiative / phase:** Local-stage bounded live comparison-surface diagnostic on top of the promoted backend-native BO3 capture contract
@@ -286,5 +294,9 @@
 - **Risks / red flags:** This is still only one extra bounded source and one fixed seed. It creates decision pressure, but it does not answer broader representativeness by itself and must not be misread as broad simulation/calibration completion.
 - **Why this push matters:** The canonical simulation lane is no longer stuck with a single truthful source and no comparison pressure; `master` can now test whether a materially different bounded source changes the observed lane enough to justify further work.
 - **Next likely step (at this time):** Re-rank the next meaningful project from current `master` reality rather than assuming more Phase 2 expansion automatically.
+
+
+
+
 
 
