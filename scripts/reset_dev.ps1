@@ -1,11 +1,12 @@
 # Full dev reset: kill listeners on common ports, optionally clean runtime artifacts, optionally call backend reset.
-# Run from anywhere; script cds to repo root. Safe: does not delete data/raw, data/processed, artifacts/reports.
+# Run from anywhere; script cds to repo root. Safe: does not delete data/raw, data/processed, artifacts/reports, or the persistent BO3 capture corpus.
 
 $ErrorActionPreference = "Continue"
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 Set-Location $RepoRoot
 
 $Ports = @(8000, 5173, 3000, 4173)
+$PreserveBo3CorpusPath = Join-Path $RepoRoot "logs\bo3_backend_live_capture_contract.jsonl"
 
 # ---- A) Kill listeners on ports ----
 function Get-PidsListeningOnPort($port) {
@@ -57,6 +58,9 @@ foreach ($item in $ToRemove) {
         $parent = Split-Path $item -Parent
         if (Test-Path $parent) {
             Get-ChildItem $item -ErrorAction SilentlyContinue | ForEach-Object {
+                if ($_.FullName -eq $PreserveBo3CorpusPath) {
+                    return
+                }
                 Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
                 $Deleted += $_.FullName
             }
@@ -67,7 +71,7 @@ foreach ($item in $ToRemove) {
     }
 }
 if ($Deleted.Count -gt 0) {
-    Write-Host "Deleted: $($Deleted.Count) path(s) (out/, logs/runtime/*, logs/debug/*, logs/*.log|*.json|*.jsonl, pytest_fit_*)" -ForegroundColor Yellow
+    Write-Host "Deleted: $($Deleted.Count) path(s) (out/, logs/runtime/*, logs/debug/*, logs/*.log|*.json|*.jsonl except the persistent BO3 corpus, pytest_fit_*)" -ForegroundColor Yellow
 } else {
     Write-Host "No runtime artifacts to delete." -ForegroundColor Gray
 }

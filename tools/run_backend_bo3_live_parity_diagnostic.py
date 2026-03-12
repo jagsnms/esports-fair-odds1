@@ -439,11 +439,11 @@ def write_report(report: dict[str, Any], output_path: Path) -> Path:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run a bounded BO3 live parity diagnostic on the versioned backend capture evidence snapshot.")
+    parser = argparse.ArgumentParser(description="Run a bounded BO3 live parity diagnostic on a frozen backend capture snapshot cut from the persistent BO3 corpus.")
     parser.add_argument(
         "--capture-path",
         default=str(DEFAULT_CAPTURE_PATH),
-        help="Path to the backend BO3 capture contract JSONL evidence snapshot.",
+        help="Path to the backend BO3 capture contract JSONL frozen snapshot.",
     )
     parser.add_argument(
         "--output",
@@ -472,6 +472,7 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
 
 
 

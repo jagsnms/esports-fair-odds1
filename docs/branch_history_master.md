@@ -1,5 +1,13 @@
 # Branch History - `master`
 
+
+## 2026-03-12 - [LOCAL STAGE] Backend BO3 capture corpus contract correction
+- **Branch:** `codex/backend-bo3-corpus-contract-correction` (local stage; not promoted)
+- **Initiative / phase:** Local-stage correction step after the promoted lifecycle split over-weighted snapshot neatness relative to the actual corpus-growth mission
+- **Summary of local stage work:** Restored `logs/bo3_backend_live_capture_contract.jsonl` as the canonical persistent accumulating BO3 corpus, kept `automation/reports/backend_bo3_live_capture_contract_snapshot_v1.jsonl` only as an optional frozen cut of that corpus, and changed reset/docs/diagnostic framing so snapshots support the corpus instead of replacing it.
+- **Why this local stage matters:** The lane now protects accumulation first. Normal collection workflow no longer treats the main BO3 capture corpus like disposable runtime state.
+- **Reset / git truth:** reset preserves the corpus path; frozen snapshots stay separate; the bounded diagnostic still reads a snapshot cut, but that snapshot is secondary to the corpus.
+- **Risks / red flags:** This is corpus-contract correction only. It does not redesign broader logging, parity, or replay/live linkage.
 ## 2026-03-11 - [LOCAL STAGE] Backend BO3 capture artifact lifecycle contract clarification
 - **Branch:** `codex/backend-bo3-lifecycle-contract` (local stage; not promoted)
 - **Initiative / phase:** Local-stage lifecycle-clarification step on top of the promoted backend-native BO3 capture contract
@@ -294,6 +302,9 @@
 - **Risks / red flags:** This is still only one extra bounded source and one fixed seed. It creates decision pressure, but it does not answer broader representativeness by itself and must not be misread as broad simulation/calibration completion.
 - **Why this push matters:** The canonical simulation lane is no longer stuck with a single truthful source and no comparison pressure; `master` can now test whether a materially different bounded source changes the observed lane enough to justify further work.
 - **Next likely step (at this time):** Re-rank the next meaningful project from current `master` reality rather than assuming more Phase 2 expansion automatically.
+
+
+
 
 
 
