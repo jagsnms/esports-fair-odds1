@@ -5,6 +5,7 @@ Last updated: 2026-03-12
 ## Snapshot
 - **Promoted `master` initiative:** Backend BO3 corpus continuity protection against git/worktree hazards is the current promoted `master` state.
 - **Active corpus continuity contract:** the default active BO3 corpus path now lives outside ordinary repo worktree hazard at `%LOCALAPPDATA%\EsportsFairOdds\corpus\bo3_backend_live_capture_contract.jsonl` (or `BO3_BACKEND_CAPTURE_PATH` when deliberately overridden). The old in-worktree `logs/bo3_backend_live_capture_contract.jsonl` path is no longer the trusted continuity-protected active store.
+- **One-time alignment note:** if older rows still live only in `logs/bo3_backend_live_capture_contract.jsonl`, run `.\.venv311\Scripts\python.exe .\tools\align_backend_bo3_active_corpus.py` once before resuming normal collection. After that one-time alignment, the external path is the sole active corpus authority for normal writer/analyzer flow.
 - **Frozen artifact boundary remains separate:** repo-visible frozen cuts still live under `automation/reports/`, including `automation/reports/backend_bo3_live_capture_contract_snapshot_v1.jsonl` and the point-in-time readiness report artifact. Those are review/analysis surfaces, not the continuity-protected active corpus.
 - **Current readiness-tool boundary remains intact:** `tools/run_backend_bo3_corpus_readiness_analyzer.py` still exists as a separate corpus-level analyzer, and `tools/run_backend_bo3_live_parity_diagnostic.py` still exists as the separate bounded one-match diagnostic reading the frozen snapshot path.
 
@@ -31,3 +32,5 @@ Last updated: 2026-03-12
 - Append one new entry to `docs/branch_history_master.md` per final push.
 - Update this status note to the new `master` branch state each time.
 - Keep local-stage notes explicit only when a branch actually has newer work than promoted `master`.
+
+

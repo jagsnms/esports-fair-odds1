@@ -47,3 +47,12 @@ Kills listeners on ports 8000, 5173, 3000, 4173; optionally deletes `out/`, `log
 Backend BO3 capture now accumulates first in a continuity-protected local store outside ordinary repo worktree hazards by default: `%LOCALAPPDATA%\EsportsFairOdds\corpus\bo3_backend_live_capture_contract.jsonl` (or `BO3_BACKEND_CAPTURE_PATH` if you explicitly override it). That active corpus is the thing being grown over time and normal git/worktree operations must not silently replace it with an older repo baseline.
 
 Frozen evidence snapshots remain separate optional cuts under `automation/reports/`; they support bounded review or diagnostics, but they do not replace the active corpus. The old in-worktree `logs/bo3_backend_live_capture_contract.jsonl` path is no longer the continuity-protected active store.
+
+If you collected rows before the external-path continuity fix landed, run this one-time alignment step before resuming normal collection:
+
+```powershell
+.\.venv311\Scripts\python.exe .\tools\align_backend_bo3_active_corpus.py
+```
+
+That command aligns any existing `logs/bo3_backend_live_capture_contract.jsonl` rows into the external active corpus path without blind overwrite or blind duplicate append. After one successful alignment, steady-state normal collection and the corpus-readiness analyzer should both use the external active corpus path.
+
