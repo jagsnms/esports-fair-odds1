@@ -1,0 +1,124 @@
+{
+  "corpus_summary": {
+    "distinct_match_count": 2,
+    "distinct_raw_event_count": 93,
+    "distinct_signal_active_raw_event_count": 90,
+    "eligible_compared_row_count": 298,
+    "excluded_row_count": 428,
+    "exclusion_reasons": {
+      "health_not_good": 28,
+      "missing_a_side": 60,
+      "non_ok_clamp_reason": 10,
+      "not_in_progress_phase": 330
+    },
+    "rows_per_match": {
+      "113084": 318,
+      "113086": 408
+    },
+    "signal_active_row_count": 285,
+    "total_rows": 726
+  },
+  "input_artifact": {
+    "distinct_match_count": 2,
+    "path": "logs\\bo3_backend_live_capture_contract.jsonl",
+    "rows_per_match": {
+      "113084": 318,
+      "113086": 408
+    },
+    "schema_version_expected": "backend_bo3_live_capture_contract.v1",
+    "total_rows": 726
+  },
+  "match_summaries": [
+    {
+      "distinct_raw_event_count": 41,
+      "distinct_signal_active_raw_event_count": 39,
+      "eligible_compared_row_count": 130,
+      "excluded_row_count": 278,
+      "exclusion_reasons": {
+        "health_not_good": 14,
+        "missing_a_side": 43,
+        "non_ok_clamp_reason": 7,
+        "not_in_progress_phase": 214
+      },
+      "match_id": 113086,
+      "readiness_contribution_class": "materially_usable_evidence",
+      "row_count": 408,
+      "signal_active_row_count": 121
+    },
+    {
+      "distinct_raw_event_count": 52,
+      "distinct_signal_active_raw_event_count": 51,
+      "eligible_compared_row_count": 168,
+      "excluded_row_count": 150,
+      "exclusion_reasons": {
+        "health_not_good": 14,
+        "missing_a_side": 17,
+        "non_ok_clamp_reason": 3,
+        "not_in_progress_phase": 116
+      },
+      "match_id": 113084,
+      "readiness_contribution_class": "materially_usable_evidence",
+      "row_count": 318,
+      "signal_active_row_count": 164
+    }
+  ],
+  "readiness_summary": {
+    "blockage_assessment": "easing_multi_match",
+    "materially_usable_match_count": 2,
+    "no_usable_match_count": 0,
+    "reasons": [
+      "2/2 matches currently contribute materially usable evidence",
+      "match 113084 carries 51/90 distinct signal-active raw events",
+      "top remaining blocker is not_in_progress_phase (330 rows)"
+    ],
+    "top_signal_match_id": 113084,
+    "top_signal_match_share": 0.5667,
+    "weak_usable_match_count": 0
+  },
+  "schema_version": "backend_bo3_corpus_readiness_report.v1",
+  "top_blockers": [
+    {
+      "affected_match_count": 2,
+      "count": 330,
+      "match_counts": {
+        "113084": 116,
+        "113086": 214
+      },
+      "reason": "not_in_progress_phase"
+    },
+    {
+      "affected_match_count": 2,
+      "count": 60,
+      "match_counts": {
+        "113084": 17,
+        "113086": 43
+      },
+      "reason": "missing_a_side"
+    },
+    {
+      "affected_match_count": 2,
+      "count": 28,
+      "match_counts": {
+        "113084": 14,
+        "113086": 14
+      },
+      "reason": "health_not_good"
+    },
+    {
+      "affected_match_count": 2,
+      "count": 10,
+      "match_counts": {
+        "113084": 3,
+        "113086": 7
+      },
+      "reason": "non_ok_clamp_reason"
+    }
+  ],
+  "truth_boundary": {
+    "not_calibration_implementation": true,
+    "not_dashboard_surface": true,
+    "not_live_parity_implementation": true,
+    "preserves_bounded_single_match_tool": true,
+    "separate_from_bounded_single_match_diagnostic": true
+  }
+}
