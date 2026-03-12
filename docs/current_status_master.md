@@ -8,6 +8,7 @@ Last updated: 2026-03-12
 - **One-time alignment note:** if older rows still live only in `logs/bo3_backend_live_capture_contract.jsonl`, run `.\.venv311\Scripts\python.exe .\tools\align_backend_bo3_active_corpus.py` once before resuming normal collection. After that one-time alignment, the external path is the sole active corpus authority for normal writer/analyzer flow.
 - **Frozen artifact boundary remains separate:** repo-visible frozen cuts still live under `automation/reports/`, including `automation/reports/backend_bo3_live_capture_contract_snapshot_v1.jsonl` and the point-in-time readiness report artifact. Those are review/analysis surfaces, not the continuity-protected active corpus.
 - **Current readiness-tool boundary remains intact:** `tools/run_backend_bo3_corpus_readiness_analyzer.py` still exists as a separate corpus-level analyzer, and `tools/run_backend_bo3_live_parity_diagnostic.py` still exists as the separate bounded one-match diagnostic reading the frozen snapshot path.
+- **Current branch-local recovery note (not promoted `master` truth):** this branch adds `tools/recover_backend_bo3_divergent_corpus.py` as a one-off recovery tool for stash-held divergent BO3 corpus branches. It unions unique rows, dedupes identical duplicates, and refuses unresolved same-identity conflicts instead of guessing. Steady-state writer/analyzer flow on promoted `master` does not change unless this branch lands.
 
 ## Main red flags
 1. **This continuity correction is not calibration implementation.** It only protects the active corpus from silent rollback hazards.
@@ -32,5 +33,8 @@ Last updated: 2026-03-12
 - Append one new entry to `docs/branch_history_master.md` per final push.
 - Update this status note to the new `master` branch state each time.
 - Keep local-stage notes explicit only when a branch actually has newer work than promoted `master`.
+
+
+
 
 

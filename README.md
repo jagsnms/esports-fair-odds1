@@ -56,3 +56,13 @@ If you collected rows before the external-path continuity fix landed, run this o
 
 That command aligns any existing `logs/bo3_backend_live_capture_contract.jsonl` rows into the external active corpus path without blind overwrite or blind duplicate append. After one successful alignment, steady-state normal collection and the corpus-readiness analyzer should both use the external active corpus path.
 
+If you need to recover a stronger divergent BO3 corpus branch, use the special recovery workflow instead of the continuity aligner:
+
+```powershell
+.\.venv311\Scripts\python.exe .\tools\recover_backend_bo3_divergent_corpus.py --source-b-stash-ref "stash@{N}" --dry-run
+```
+
+Only rerun that command with `--write-output` if the report says `safe_union_dry_run_only`, shows `conflict_row_count = 0`, and the output path is the active external corpus. This workflow unions unique rows, dedupes identical duplicate rows, and refuses same-identity content conflicts. It is a one-off recovery path only. It is not normal steady-state collection.
+
+
+
