@@ -1,12 +1,13 @@
 # Full dev reset: kill listeners on common ports, optionally clean runtime artifacts, optionally call backend reset.
-# Run from anywhere; script cds to repo root. Safe: does not delete data/raw, data/processed, artifacts/reports, or the persistent BO3 capture corpus.
+# Run from anywhere; script cds to repo root. Safe: does not delete data/raw, data/processed, artifacts/reports, or the active BO3 corpus because that corpus now defaults outside the repo worktree.
+# It also leaves any legacy in-worktree logs\bo3_backend_live_capture_contract.jsonl copy alone so older local copies are not silently destroyed.
 
 $ErrorActionPreference = "Continue"
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 Set-Location $RepoRoot
 
 $Ports = @(8000, 5173, 3000, 4173)
-$PreserveBo3CorpusPath = Join-Path $RepoRoot "logs\bo3_backend_live_capture_contract.jsonl"
+$LegacyBo3WorktreePath = Join-Path $RepoRoot "logs\bo3_backend_live_capture_contract.jsonl"
 
 # ---- A) Kill listeners on ports ----
 function Get-PidsListeningOnPort($port) {
@@ -58,7 +59,7 @@ foreach ($item in $ToRemove) {
         $parent = Split-Path $item -Parent
         if (Test-Path $parent) {
             Get-ChildItem $item -ErrorAction SilentlyContinue | ForEach-Object {
-                if ($_.FullName -eq $PreserveBo3CorpusPath) {
+                if ($_.FullName -eq $LegacyBo3WorktreePath) {
                     return
                 }
                 Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
@@ -71,7 +72,7 @@ foreach ($item in $ToRemove) {
     }
 }
 if ($Deleted.Count -gt 0) {
-    Write-Host "Deleted: $($Deleted.Count) path(s) (out/, logs/runtime/*, logs/debug/*, logs/*.log|*.json|*.jsonl except the persistent BO3 corpus, pytest_fit_*)" -ForegroundColor Yellow
+    Write-Host "Deleted: $($Deleted.Count) path(s) (out/, logs/runtime/*, logs/debug/*, logs/*.log|*.json|*.jsonl except any legacy in-worktree BO3 corpus copy, pytest_fit_*)" -ForegroundColor Yellow
 } else {
     Write-Host "No runtime artifacts to delete." -ForegroundColor Gray
 }

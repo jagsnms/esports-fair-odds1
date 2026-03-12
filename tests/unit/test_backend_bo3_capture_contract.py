@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -171,8 +172,18 @@ def test_backend_bo3_capture_contract_appends_jsonl_rows_sync(tmp_path: Path) ->
     asyncio.run(test_backend_bo3_capture_contract_appends_jsonl_rows(tmp_path))
 
 
-def test_backend_bo3_capture_contract_default_path_is_persistent_corpus() -> None:
+def test_backend_bo3_capture_contract_default_path_uses_continuity_protected_local_store() -> None:
     from backend.services import bo3_capture_contract
 
-    assert bo3_capture_contract._BO3_BACKEND_CAPTURE_PATH == "logs/bo3_backend_live_capture_contract.jsonl"
-
+    expected_path = os.path.normpath(
+        os.path.join(
+            os.environ["LOCALAPPDATA"],
+            "EsportsFairOdds",
+            "corpus",
+            "bo3_backend_live_capture_contract.jsonl",
+        )
+    )
+    repo_root = Path(__file__).resolve().parents[2]
+    assert bo3_capture_contract._BO3_BACKEND_CAPTURE_PATH == expected_path
+    assert bo3_capture_contract.default_bo3_backend_capture_path() == expected_path
+    assert os.path.commonpath([expected_path, str(repo_root)]) != str(repo_root)

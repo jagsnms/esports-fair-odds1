@@ -12,9 +12,29 @@ _BO3_BACKEND_CAPTURE_ENABLED = os.environ.get("BO3_BACKEND_CAPTURE_ENABLED", "tr
     "true",
     "yes",
 )
-_BO3_BACKEND_CAPTURE_PATH = (
-    os.environ.get("BO3_BACKEND_CAPTURE_PATH") or "logs/bo3_backend_live_capture_contract.jsonl"
-).strip() or "logs/bo3_backend_live_capture_contract.jsonl"
+
+
+def default_bo3_backend_capture_path() -> str:
+    configured_path = os.environ.get("BO3_BACKEND_CAPTURE_PATH")
+    if configured_path and configured_path.strip():
+        return os.path.normpath(configured_path.strip())
+    local_appdata = os.environ.get("LOCALAPPDATA")
+    if local_appdata and local_appdata.strip():
+        return os.path.join(
+            local_appdata.strip(),
+            "EsportsFairOdds",
+            "corpus",
+            "bo3_backend_live_capture_contract.jsonl",
+        )
+    return os.path.join(
+        os.path.expanduser("~"),
+        ".esports-fair-odds",
+        "corpus",
+        "bo3_backend_live_capture_contract.jsonl",
+    )
+
+
+_BO3_BACKEND_CAPTURE_PATH = default_bo3_backend_capture_path()
 
 
 def _isoformat_utc(epoch_s: float | None) -> str:
@@ -131,6 +151,3 @@ def append_bo3_live_capture_record(record: dict[str, Any]) -> str | None:
     with open(path, "a", encoding="utf-8") as f:
         f.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
     return path
-
-
-

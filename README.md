@@ -42,6 +42,8 @@ When ports or artifacts are stuck, reset listeners and optional runtime cleanup.
 - **Double-click `reset_dev.cmd`** at repo root to hard reset (no PowerShell needed).
 - Or from PowerShell: `.\scripts\reset_dev.ps1`
 
-Kills listeners on ports 8000, 5173, 3000, 4173; optionally deletes `out/`, `logs/runtime/*`, `logs/debug/*`, `logs/*.log`, `logs/*.json`, `logs/*.jsonl` except the persistent BO3 corpus at `logs/bo3_backend_live_capture_contract.jsonl`, `pytest_fit_auc_data/`, `pytest_fit_midround_data/`. Does not delete `data/raw`, `data/processed`, or `artifacts/reports`. Optionally calls POST `/api/v1/debug/reset` if the backend is running.
+Kills listeners on ports 8000, 5173, 3000, 4173; optionally deletes `out/`, `logs/runtime/*`, `logs/debug/*`, `logs/*.log`, `logs/*.json`, `logs/*.jsonl` except any legacy in-worktree `logs/bo3_backend_live_capture_contract.jsonl` copy, `pytest_fit_auc_data/`, `pytest_fit_midround_data/`. Does not delete `data/raw`, `data/processed`, or `artifacts/reports`. Optionally calls POST `/api/v1/debug/reset` if the backend is running.
 
-Backend BO3 capture now accumulates first at `logs/bo3_backend_live_capture_contract.jsonl`. That file is the persistent corpus and normal reset preserves it. Frozen evidence snapshots remain separate optional cuts under `automation/reports/`; they support bounded review or diagnostics, but they do not replace the corpus.
+Backend BO3 capture now accumulates first in a continuity-protected local store outside ordinary repo worktree hazards by default: `%LOCALAPPDATA%\EsportsFairOdds\corpus\bo3_backend_live_capture_contract.jsonl` (or `BO3_BACKEND_CAPTURE_PATH` if you explicitly override it). That active corpus is the thing being grown over time and normal git/worktree operations must not silently replace it with an older repo baseline.
+
+Frozen evidence snapshots remain separate optional cuts under `automation/reports/`; they support bounded review or diagnostics, but they do not replace the active corpus. The old in-worktree `logs/bo3_backend_live_capture_contract.jsonl` path is no longer the continuity-protected active store.

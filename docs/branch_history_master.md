@@ -1,5 +1,13 @@
 # Branch History - `master`
 
+## 2026-03-12 - [LOCAL STAGE] Backend BO3 corpus continuity protection against git/worktree hazards
+- **Branch:** `codex/backend-bo3-corpus-continuity-protection` (local stage; not promoted)
+- **Initiative / phase:** Local-stage continuity-protection step after confirming that stash/worktree state could silently roll the active BO3 corpus back to an older baseline.
+- **Summary of local stage work:** Moved the default active BO3 corpus path out of ordinary repo worktree hazard to `%LOCALAPPDATA%\EsportsFairOdds\corpus\bo3_backend_live_capture_contract.jsonl` (or `BO3_BACKEND_CAPTURE_PATH` if deliberately overridden), repointed the corpus-readiness analyzer to that same active path, and updated reset/docs wording so the old in-worktree `logs/bo3_backend_live_capture_contract.jsonl` path is no longer treated as the continuity-protected active store.
+- **Why this local stage matters:** Previously collected rows should no longer silently disappear from the active corpus just because git/worktree state puts an older in-repo file back on disk.
+- **Continuity truth:** the active corpus now lives outside ordinary repo-state hazard by default; repo-visible frozen snapshots remain separate under `automation/reports/`; the bounded one-match diagnostic remains separate and still reads the frozen snapshot path.
+- **Risks / red flags:** This is continuity protection only. It is not broader storage redesign, not calibration work, not live parity, and not replay/live linkage.
+
 ## 2026-03-12 - [LOCAL STAGE] Backend BO3 corpus-level evidence readiness analyzer
 - **Branch:** `codex/backend-bo3-corpus-readiness-analyzer` (local stage; not promoted)
 - **Initiative / phase:** Local-stage corpus-readiness step on top of the promoted BO3 corpus-contract correction
@@ -24,18 +32,3 @@
 - **Why this local stage matters:** The repo stops pretending the same filesystem path is both a disposable runtime log and a durable committed evidence artifact.
 - **Reset / git truth:** normal reset flow continues to treat the runtime log as disposable, while the versioned evidence snapshot is non-runtime and no longer silently shares the runtime path.
 - **Risks / red flags:** This is lifecycle-contract clarification only. It does not change live parity, replay/live linkage, or broader logging architecture.
-
-## 2026-03-10 - [LOCAL STAGE] Bounded real-runtime BO3 live parity diagnostic on the committed backend capture artifact
-- **Branch:** `stage/backend-bo3-full-live-capture` (local stage; not promoted)
-- **Initiative / phase:** Local-stage bounded live comparison-surface diagnostic on top of the promoted backend-native BO3 capture contract
-- **Summary of local stage work:** Added one thin consumer for `logs/bo3_backend_live_capture_contract.jsonl` that reconstructs bounded comparison inputs from committed backend capture rows, excludes unfit rows explicitly, compares truthfully eligible `IN_PROGRESS` rows from the dominant captured match against the bounded V2 reference target, and emits one machine-readable report at `automation/reports/backend_bo3_live_parity_diagnostic_report.json`.
-- **Diagnostic result:** the committed artifact spans match ids `111953` (`4` rows) and `113437` (`459` rows); the diagnostic selected dominant match `113437`, excluded `409` rows explicitly, kept `54` per-tick eligible rows visible, counted only `17` distinct truthfully comparable raw events as independent evidence, and returned `decision = inconclusive`.
-- **Why this local stage matters:** The branch can now do more than store real runtime capture data. It can ask whether the current live lane looks wrong, close, or inconclusive on the committed artifact.
-- **Risks / red flags:** This is still one bounded diagnostic on one committed artifact. It is not live parity implementation, not replay/live linkage, not broad representativeness, and not universal proof of truth.
-
-
-## 2026-03-10 - [LOCAL STAGE] Full backend BO3 live capture artifact from one real local run
-- **Branch:** `stage/backend-bo3-full-live-capture` (local stage; not promoted)
-- **Initiative / phase:** Local-stage full artifact availability step on top of the promoted backend-native BO3 capture contract
-- **Summary of local stage work:** Commit `34ec589` adds the full backend-native BO3 capture artifact file `logs/bo3_backend_live_capture_contract.jsonl` to the branch so the collected live data is directly visible in git rather than only on disk.
-- **Committed artifact truth:** the committed artifact contains `463` rows; local validation on that committed file was `total=463`, `valid=463`, `pct=100%`.

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
+from backend.services.bo3_capture_contract import default_bo3_backend_capture_path
 import tools.run_backend_bo3_corpus_readiness_analyzer as readiness
 import tools.run_backend_bo3_live_parity_diagnostic as bounded_diagnostic
 
@@ -196,9 +198,12 @@ def test_corpus_readiness_can_show_multi_match_easing_when_two_matches_contribut
     assert report["corpus_summary"]["excluded_row_count"] == 0
 
 
-def test_corpus_readiness_default_path_uses_persistent_corpus_and_preserves_bounded_tool_separation() -> None:
-    assert readiness.DEFAULT_CAPTURE_PATH == Path("logs/bo3_backend_live_capture_contract.jsonl")
+def test_corpus_readiness_default_path_uses_continuity_protected_corpus_and_preserves_bounded_tool_separation() -> None:
+    expected_path = Path(default_bo3_backend_capture_path())
+    repo_root = Path(__file__).resolve().parents[2]
+    assert readiness.DEFAULT_CAPTURE_PATH == expected_path
     assert readiness.DEFAULT_REPORT_PATH == Path("automation/reports/backend_bo3_corpus_readiness_report.json")
     assert bounded_diagnostic.DEFAULT_CAPTURE_PATH == Path(
         "automation/reports/backend_bo3_live_capture_contract_snapshot_v1.jsonl"
     )
+    assert os.path.commonpath([str(expected_path), str(repo_root)]) != str(repo_root)

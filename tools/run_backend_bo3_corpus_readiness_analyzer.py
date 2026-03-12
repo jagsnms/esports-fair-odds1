@@ -11,6 +11,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from backend.services.bo3_capture_contract import default_bo3_backend_capture_path
 from tools.backend_bo3_capture_analysis_common import (
     CAPTURE_SCHEMA_VERSION,
     collapse_distinct_raw_events,
@@ -21,7 +22,7 @@ from tools.backend_bo3_capture_analysis_common import (
 )
 
 SCHEMA_VERSION = "backend_bo3_corpus_readiness_report.v1"
-DEFAULT_CAPTURE_PATH = Path("logs/bo3_backend_live_capture_contract.jsonl")
+DEFAULT_CAPTURE_PATH = Path(default_bo3_backend_capture_path())
 DEFAULT_REPORT_PATH = Path("automation/reports/backend_bo3_corpus_readiness_report.json")
 MATERIALLY_USABLE_DISTINCT_RAW_EVENT_THRESHOLD = 30
 MATERIALLY_USABLE_SIGNAL_ACTIVE_THRESHOLD = 20
@@ -214,12 +215,12 @@ def write_report(report: dict[str, Any], output_path: Path) -> Path:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Run a corpus-level BO3 evidence readiness analyzer on the persistent backend capture corpus."
+        description="Run a corpus-level BO3 evidence readiness analyzer on the active continuity-protected backend capture corpus."
     )
     parser.add_argument(
         "--capture-path",
         default=str(DEFAULT_CAPTURE_PATH),
-        help="Path to the persistent backend BO3 capture corpus JSONL.",
+        help="Path to the active continuity-protected backend BO3 capture corpus JSONL.",
     )
     parser.add_argument(
         "--output",
@@ -250,4 +251,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
