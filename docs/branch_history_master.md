@@ -1,5 +1,13 @@
 # Branch History - `master`
 
+
+## 2026-03-13 - [LOCAL STAGE] BO3 live freshness-gate clock-rewind diagnosis/fix
+- **Branch:** `codex/backend-bo3-clock-rewind-freshness-fix` (local stage; not promoted)
+- **Initiative / phase:** Local-stage BO3 ingestion behavior correction after promoted pipeline instrumentation showed live snapshots were fetched on time but dying at `freshness_gate_reject: clock_rewind` during an active round.
+- **Summary of local stage work:** Tightened `engine/ingest/bo3_freshness.py`, added focused deterministic coverage in `tests/unit/test_runner_bo3_monotonic_gate.py`, and now accept a `clock_rewind` snapshot only when it also shows explicit meaningful live advancement such as score progression, alive-count drop, bomb-planted transition, or known round-phase progression.
+- **Why this local stage matters:** The app should not stay stuck on older accepted state solely because one clock surface rewinds if the same BO3 snapshot clearly advances the live round in other meaningful ways.
+- **Truth boundary:** This stage is a narrow BO3 freshness-gate behavior correction only. It does not redesign the live path, does not change exporter logic, and does not claim that all BO3 lag classes are solved.
+- **Risks / red flags:** Raw snapshot logs still dedupe unchanged payloads, and this stage remains conservative by preserving rejection for truly stale/regressing snapshots and for clock rewinds with no explicit advancement signal.
 ## 2026-03-13 - BO3.gg poller and live ingestion pipeline audit instrumentation
 - **Promoted from:** `codex/backend-bo3-poller-ingestion-audit`
 - **Initiative / phase:** Narrow BO3 live audit/instrumentation step after confirming that live lag concerns needed fetch -> suppression -> propagation evidence instead of guesswork.
@@ -31,3 +39,8 @@
 - **Why this local stage matters:** The repo can now attempt a same-match, leakage-aware BO3 live labeled evidence export instead of guessing label identity from round/team shape alone.
 - **Current local artifact note:** The branch-local exporter wrote point-in-time local artifacts at `automation/reports/backend_bo3_live_round_calibration_evidence_v1.json` and `automation/reports/backend_bo3_live_round_calibration_evidence_report_v1.json`. The current local run labeled `0` records because many persisted `round_result` rows in the local `history_points.jsonl` still predate the promoted `match_id` emission bridge; those local counts are not promoted repo truth.
 - **Truth boundary:** This stage only adds a narrow exporter for round-level `q_intra_total` vs `round_result`, with strict later-than timing, conservative duplicate collapse, same-match `match_id` join, and explicit malformed-row accounting. It does not prove calibration quality, add `p_hat` / `segment_result`, or change runtime BO3 behavior.
+
+
+
+
+

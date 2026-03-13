@@ -28,12 +28,14 @@ Last updated: 2026-03-12
 - **Actual current runtime BO3 ingestion path:** `backend/services/runner.py`.
 - **Promoted `master` upstream/downstream label truth:** persisted BO3 `round_result` history rows carry `match_id`, and the promoted exporter can build a same-match, leakage-aware BO3 live labeled round-level evidence surface.
 - **Promoted `master` BO3 audit truth:** `master` now exposes narrow per-session BO3 pipeline diagnostics that show fetch attempt/success timing, source snapshot identifiers, suppression decisions, and emit/store/broadcast timing through `/debug/telemetry/sessions`.
-- **Truth boundary:** this promoted instrumentation proves that the repo now exposes where a BO3 update was fetched, suppressed, accepted, and propagated. It does not prove the poller is healthy, the source is timely, or that a fix has already been made for any specific lag class.
+- **Current branch-local BO3 freshness note (not promoted `master` truth):** this branch narrows BO3 freshness-gate behavior so `clock_rewind` is no longer a hard no-emit blocker when the same snapshot also shows explicit meaningful live advancement such as score progression, alive-count drop, bomb-planted transition, or known round-phase progression.
+- **Truth boundary:** the promoted instrumentation still only proves where a BO3 update was fetched, suppressed, accepted, and propagated. This branch-local stage only corrects one BO3 freshness-gate over-rejection path; it does not prove the poller is healthy, the source is timely, or that the whole live path is cured.
 
 ## Next likely step
-- Use `/debug/telemetry/sessions` during a live BO3 match to determine whether updates are dying at fetch, suppression, or propagation before proposing any BO3 poller or ingestion fix.
+- Re-run `/debug/telemetry/sessions` during a live BO3 match and confirm that `clock_rewind` no longer blocks meaningfully advancing round-state updates while truly stale/regressing snapshots still reject.
 
 ## Process note for future pushes
 - Append one new entry to `docs/branch_history_master.md` per final push.
 - Update this status note to the new `master` branch state each time.
 - Keep local-stage notes explicit only when a branch actually has newer work than promoted `master`.
+

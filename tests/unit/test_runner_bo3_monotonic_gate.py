@@ -65,24 +65,26 @@ def test_accept_new_then_old_rejects_old_ts_backwards() -> None:
 
 
 def test_accept_new_then_old_rejects_old_clock_rewind() -> None:
-    """Same (game,map,round): accept ts 3000 with clock 15s; then ts 3500 with clock 40s is clock rewind (same round, clock went up)."""
+    """Same (game,map,round): accept ts 3000 with clock 15s; then ts 3500 with clock 40s is clock rewind."""
     gate = Bo3FreshnessGate()
     raw_new = {"game_number": 1, "round_number": 3, "updated_at": 3000}
     raw_late_rewind = {"game_number": 1, "round_number": 3, "updated_at": 3500}  # later ts but higher clock = rewind
 
-    # New: ts 3000, clock 15s remaining
     frame_new = SimpleNamespace(
         map_index=0,
         timestamp=3.0,
         round_time_remaining_s=15.0,
         alive_counts=(2, 2),
+        scores=(8, 7),
+        bomb_phase_time_remaining={"round_phase": "live", "is_bomb_planted": False},
     )
-    # Late-arriving frame with same round but clock 40s (rewind: clock increased)
     frame_late_rewind = SimpleNamespace(
         map_index=0,
         timestamp=3.5,
         round_time_remaining_s=40.0,
         alive_counts=(2, 2),
+        scores=(8, 7),
+        bomb_phase_time_remaining={"round_phase": "live", "is_bomb_planted": False},
     )
 
     accept_new, _, _ = gate.accept_frame(frame_new, raw_new)
@@ -94,6 +96,70 @@ def test_accept_new_then_old_rejects_old_clock_rewind() -> None:
     assert diag_late.get("reason") == "clock_rewind"
     assert diag_late.get("round_time_remaining_s") == 40.0
     assert diag_late.get("last_round_time_remaining_s") == 15.0
+    assert diag_late.get("clock_rewind_meaningful_advancement") == []
+
+
+def test_clock_rewind_with_alive_count_drop_is_accepted() -> None:
+    gate = Bo3FreshnessGate()
+    raw_first = {"game_number": 1, "round_number": 7, "updated_at": 3000}
+    raw_second = {"game_number": 1, "round_number": 7, "updated_at": 3500}
+
+    frame_first = SimpleNamespace(
+        map_index=0,
+        timestamp=3.0,
+        round_time_remaining_s=15.0,
+        alive_counts=(5, 5),
+        scores=(6, 6),
+        bomb_phase_time_remaining={"round_phase": "live", "is_bomb_planted": False},
+    )
+    frame_second = SimpleNamespace(
+        map_index=0,
+        timestamp=3.5,
+        round_time_remaining_s=40.0,
+        alive_counts=(4, 5),
+        scores=(6, 6),
+        bomb_phase_time_remaining={"round_phase": "live", "is_bomb_planted": False},
+    )
+
+    accept_first, _, _ = gate.accept_frame(frame_first, raw_first)
+    assert accept_first is True
+
+    accept_second, reason_second, diag_second = gate.accept_frame(frame_second, raw_second)
+    assert accept_second is True
+    assert reason_second is None
+    assert diag_second.get("reason") is None
+    assert diag_second.get("clock_rewind_meaningful_advancement") == ["alive_count_drop"]
+
+
+def test_clock_rewind_with_score_progression_is_accepted() -> None:
+    gate = Bo3FreshnessGate()
+    raw_first = {"game_number": 1, "round_number": 16, "updated_at": 10000}
+    raw_second = {"game_number": 1, "round_number": 16, "updated_at": 10500}
+
+    frame_first = SimpleNamespace(
+        map_index=0,
+        timestamp=10.0,
+        round_time_remaining_s=5.0,
+        alive_counts=(1, 1),
+        scores=(8, 7),
+        bomb_phase_time_remaining={"round_phase": "round_end", "is_bomb_planted": False},
+    )
+    frame_second = SimpleNamespace(
+        map_index=0,
+        timestamp=10.5,
+        round_time_remaining_s=20.0,
+        alive_counts=(5, 5),
+        scores=(9, 7),
+        bomb_phase_time_remaining={"round_phase": "freeze", "is_bomb_planted": False},
+    )
+
+    accept_first, _, _ = gate.accept_frame(frame_first, raw_first)
+    assert accept_first is True
+
+    accept_second, reason_second, diag_second = gate.accept_frame(frame_second, raw_second)
+    assert accept_second is True
+    assert reason_second is None
+    assert diag_second.get("clock_rewind_meaningful_advancement") == ["score_progression"]
 
 
 def test_accept_old_then_new_accepts_both() -> None:
@@ -107,12 +173,16 @@ def test_accept_old_then_new_accepts_both() -> None:
         timestamp=1.0,
         round_time_remaining_s=80.0,
         alive_counts=(5, 5),
+        scores=(0, 0),
+        bomb_phase_time_remaining={"round_phase": "freeze", "is_bomb_planted": False},
     )
     frame_new = SimpleNamespace(
         map_index=0,
         timestamp=2.0,
         round_time_remaining_s=20.0,
         alive_counts=(2, 3),
+        scores=(0, 0),
+        bomb_phase_time_remaining={"round_phase": "live", "is_bomb_planted": False},
     )
 
     accept_old, _, _ = gate.accept_frame(frame_old, raw_old)
@@ -138,12 +208,16 @@ def test_alive_sig_rewind_rejected() -> None:
         timestamp=2.0,
         round_time_remaining_s=30.0,
         alive_counts=(2, 3),
+        scores=(0, 0),
+        bomb_phase_time_remaining={"round_phase": "live", "is_bomb_planted": False},
     )
     frame_repeat_older = SimpleNamespace(
         map_index=0,
         timestamp=1.5,
         round_time_remaining_s=60.0,
         alive_counts=(2, 3),
+        scores=(0, 0),
+        bomb_phase_time_remaining={"round_phase": "live", "is_bomb_planted": False},
     )
 
     accept_first, _, _ = gate.accept_frame(frame_first, raw_first)
@@ -151,7 +225,6 @@ def test_alive_sig_rewind_rejected() -> None:
 
     accept_repeat, reason, diag = gate.accept_frame(frame_repeat_older, raw_repeat_older)
     assert accept_repeat is False
-    # Could be ts_backwards first or alive_sig_rewind; both are valid rejections
     assert reason in ("ts_backwards", "alive_sig_rewind")
     assert diag.get("reason") in ("ts_backwards", "alive_sig_rewind")
 
@@ -164,12 +237,13 @@ def test_clear_cache_resets_state() -> None:
         timestamp=1.0,
         round_time_remaining_s=90.0,
         alive_counts=(5, 5),
+        scores=(0, 0),
+        bomb_phase_time_remaining={"round_phase": "freeze", "is_bomb_planted": False},
     )
     gate.accept_frame(frame, raw)
     assert len(gate._cache) == 1
     gate.clear_cache()
     assert len(gate._cache) == 0
-    # After clear, same frame is accepted again (no cache entry)
     accept, _, _ = gate.accept_frame(frame, raw)
     assert accept is True
 
@@ -177,19 +251,37 @@ def test_clear_cache_resets_state() -> None:
 def test_different_keys_independent() -> None:
     """Different (game, map, round) keys do not interfere."""
     gate = Bo3FreshnessGate()
-    # Map 0 round 1: ts 1000
     gate.accept_frame(
-        SimpleNamespace(map_index=0, timestamp=1.0, round_time_remaining_s=80.0, alive_counts=(5, 5)),
+        SimpleNamespace(
+            map_index=0,
+            timestamp=1.0,
+            round_time_remaining_s=80.0,
+            alive_counts=(5, 5),
+            scores=(0, 0),
+            bomb_phase_time_remaining={"round_phase": "freeze", "is_bomb_planted": False},
+        ),
         {"game_number": 1, "round_number": 1, "updated_at": 1000},
     )
-    # Map 0 round 2: ts 2000
     gate.accept_frame(
-        SimpleNamespace(map_index=0, timestamp=2.0, round_time_remaining_s=70.0, alive_counts=(4, 5)),
+        SimpleNamespace(
+            map_index=0,
+            timestamp=2.0,
+            round_time_remaining_s=70.0,
+            alive_counts=(4, 5),
+            scores=(0, 0),
+            bomb_phase_time_remaining={"round_phase": "live", "is_bomb_planted": False},
+        ),
         {"game_number": 1, "round_number": 2, "updated_at": 2000},
     )
-    # Map 1 round 1: ts 3000 (new map, new round)
     accept, _, _ = gate.accept_frame(
-        SimpleNamespace(map_index=1, timestamp=3.0, round_time_remaining_s=90.0, alive_counts=(5, 5)),
+        SimpleNamespace(
+            map_index=1,
+            timestamp=3.0,
+            round_time_remaining_s=90.0,
+            alive_counts=(5, 5),
+            scores=(0, 0),
+            bomb_phase_time_remaining={"round_phase": "freeze", "is_bomb_planted": False},
+        ),
         {"game_number": 2, "round_number": 1, "updated_at": 3000},
     )
     assert accept is True
