@@ -1,10 +1,10 @@
 # Branch History - `master`
 
-## 2026-03-13 - [LOCAL STAGE] BO3.gg poller and live ingestion pipeline audit instrumentation
-- **Branch:** `codex/backend-bo3-poller-ingestion-audit` (local stage; not promoted)
-- **Initiative / phase:** Local-stage audit/instrumentation step after confirming that BO3 live lag concerns now need fetch -> suppression -> propagation evidence instead of guesswork.
-- **Summary of local stage work:** Added narrow per-session BO3 pipeline diagnostics in `backend/services/runner.py`, added focused coverage in `tests/unit/test_telemetry_session.py`, and now expose fetch attempt/success timing, source snapshot identifiers, suppression decisions, and emit/store/broadcast timing through `/debug/telemetry/sessions` as `bo3_pipeline`.
-- **Why this local stage matters:** The repo can now localize whether a BO3 update was fetched, suppressed, accepted, or propagated instead of inferring lag from raw capture files alone.
+## 2026-03-13 - BO3.gg poller and live ingestion pipeline audit instrumentation
+- **Promoted from:** `codex/backend-bo3-poller-ingestion-audit`
+- **Initiative / phase:** Narrow BO3 live audit/instrumentation step after confirming that live lag concerns needed fetch -> suppression -> propagation evidence instead of guesswork.
+- **Summary of promoted work:** Added narrow per-session BO3 pipeline diagnostics in `backend/services/runner.py`, added focused coverage in `tests/unit/test_telemetry_session.py`, and now expose fetch attempt/success timing, source snapshot identifiers, suppression decisions, and emit/store/broadcast timing through `/debug/telemetry/sessions` as `bo3_pipeline`.
+- **Why this promoted stage matters:** The repo can now localize whether a BO3 update was fetched, suppressed, accepted, or propagated instead of inferring lag from raw capture files alone.
 - **Truth boundary:** This stage is instrumentation only. It does not prove the poller is healthy, does not fix any BO3 ingestion defect, and does not redesign the live pipeline.
 - **Risks / red flags:** Current raw snapshot logs still dedupe unchanged payloads, so they remain an incomplete fetch-cadence surface even after this instrumentation stage.
 
