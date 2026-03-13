@@ -3,41 +3,36 @@
 Last updated: 2026-03-12
 
 ## Snapshot
-- **Promoted `master` initiative:** Backend BO3 corpus continuity protection against git/worktree hazards is the current promoted `master` state.
-- **Active corpus continuity contract:** the default active BO3 corpus path now lives outside ordinary repo worktree hazard at `%LOCALAPPDATA%\EsportsFairOdds\corpus\bo3_backend_live_capture_contract.jsonl` (or `BO3_BACKEND_CAPTURE_PATH` when deliberately overridden). The old in-worktree `logs/bo3_backend_live_capture_contract.jsonl` path is no longer the trusted continuity-protected active store.
-- **One-time alignment note:** if older rows still live only in `logs/bo3_backend_live_capture_contract.jsonl`, run `.\.venv311\Scripts\python.exe .\tools\align_backend_bo3_active_corpus.py` once before resuming normal collection. After that one-time alignment, the external path is the sole active corpus authority for normal writer/analyzer flow.
-- **Frozen artifact boundary remains separate:** repo-visible frozen cuts still live under `automation/reports/`, including `automation/reports/backend_bo3_live_capture_contract_snapshot_v1.jsonl` and the point-in-time readiness report artifact. Those are review/analysis surfaces, not the continuity-protected active corpus.
-- **Current readiness-tool boundary remains intact:** `tools/run_backend_bo3_corpus_readiness_analyzer.py` still exists as a separate corpus-level analyzer, and `tools/run_backend_bo3_live_parity_diagnostic.py` still exists as the separate bounded one-match diagnostic reading the frozen snapshot path.
-- **Current branch-local recovery note (not promoted `master` truth):** this branch adds `tools/recover_backend_bo3_divergent_corpus.py` as a one-off recovery tool for stash-held divergent BO3 corpus branches. It unions unique rows, dedupes identical duplicates, and refuses unresolved same-identity conflicts instead of guessing. Steady-state writer/analyzer flow on promoted `master` does not change unless this branch lands.
-- **Current branch-local round_result match-identity bridge note (not promoted `master` truth):** this branch adds `match_id` to persisted BO3 `round_result` history rows so downstream evidence exporters can join by true per-match identity instead of round/team identity alone. It proves the upstream label surface can carry BO3 match identity; it does not itself prove the blocked live calibration evidence exporter is promotion-ready.
+- **Promoted `master` BO3 lane state:** the active BO3 corpus now defaults outside ordinary repo worktree hazard, one-time alignment and divergent recovery tools exist as special repair workflows, the bounded one-match diagnostic remains separate, the corpus-readiness analyzer remains separate, and persisted BO3 `round_result` history rows now carry top-level `match_id`.
+- **Active corpus continuity contract:** the default active BO3 corpus path lives at `%LOCALAPPDATA%\EsportsFairOdds\corpus\bo3_backend_live_capture_contract.jsonl` (or `BO3_BACKEND_CAPTURE_PATH` when deliberately overridden). The old in-worktree `logs/bo3_backend_live_capture_contract.jsonl` path is legacy only and no longer the trusted continuity-protected active store.
+- **One-time repair tools remain special workflows:** `tools/align_backend_bo3_active_corpus.py` is only for prefix/superset continuity alignment, and `tools/recover_backend_bo3_divergent_corpus.py` is only for one-off divergent corpus recovery with refusal on unresolved conflicts. Steady-state writer/analyzer flow does not depend on rerunning them.
+- **Frozen artifact boundary remains separate:** repo-visible frozen cuts still live under `automation/reports/`, including the BO3 snapshot artifact and point-in-time analyzer/export reports. Those remain review/analysis surfaces, not the active growing corpus.
+- **Current branch-local live labeled calibration evidence bridge note (not promoted `master` truth):** this branch adds `tools/export_backend_bo3_live_round_calibration_evidence.py` and a focused deterministic test surface for round-level `q_intra_total` vs `round_result` only. It joins on `match_id + game_number + map_index + round_number`, requires label time to be strictly later than capture time, collapses duplicate ticks conservatively, and accounts for malformed JSONL rows explicitly while continuing safely.
+- **Current local exporter artifact note (not promoted `master` truth):** the branch-local exporter wrote point-in-time local artifacts at `automation/reports/backend_bo3_live_round_calibration_evidence_v1.json` and `automation/reports/backend_bo3_live_round_calibration_evidence_report_v1.json`. The current local run labeled `0` records because the live `history_points.jsonl` still contains many older `round_result` rows that predate label-side `match_id` emission; those local counts are not frozen repo truth.
 
 ## Main red flags
-1. **This continuity correction is not calibration implementation.** It only protects the active corpus from silent rollback hazards.
-2. **This continuity correction is not live parity implementation.** It does not change parity math, replay/live linkage, or decision logic.
-3. **The bounded one-match diagnostic remains separate on purpose.** This stage does not turn it into a corpus tool.
-4. **Repo-visible artifacts are still secondary to active corpus continuity.** Snapshots and reports may stay in the repo, but they must not be confused with the active growing store.
+1. **This branch-local exporter is not calibration tuning.** It only creates a labeled evidence surface.
+2. **This branch-local exporter is not a calibration-quality verdict.** It does not prove the model is well calibrated.
+3. **This branch-local exporter is round-level `q_intra_total` vs `round_result` only.** It does not add `p_hat` / `segment_result` coverage.
+4. **Current local export counts are point-in-time only.** They depend on the current local corpus and current local persisted history contents.
 
 ## Most recent completed checks
-- `tests/unit/test_backend_bo3_capture_contract.py` is the focused continuity-contract test surface for the backend writer path and confirms the default active corpus path resolves outside the repo worktree.
-- `tests/unit/test_run_backend_bo3_corpus_readiness_analyzer.py` confirms the corpus analyzer follows the same continuity-protected active corpus default while preserving separation from the bounded diagnostic.
-- `tests/unit/test_run_backend_bo3_live_parity_diagnostic.py` continues to confirm that the bounded diagnostic remains a one-match tool on the frozen snapshot path.
-- `tests/unit/test_runner_bo3_hold.py`, `tests/unit/test_state_corridor_labels.py`, and `tests/unit/test_memory_store_score_diag.py` are the focused local-stage checks confirming BO3 `round_result` emission and persisted history wire output preserve `match_id` without dropping existing round_result fields.
+- `tests/unit/test_backend_bo3_capture_contract.py` remains the focused continuity-contract test surface confirming the default active corpus path resolves outside the repo worktree.
+- `tests/unit/test_run_backend_bo3_corpus_readiness_analyzer.py` still confirms the corpus analyzer follows the same continuity-protected active corpus default while preserving separation from the bounded diagnostic.
+- `tests/unit/test_run_backend_bo3_live_parity_diagnostic.py` still confirms that the bounded diagnostic remains a one-match tool on the frozen snapshot path.
+- `tests/unit/test_runner_bo3_hold.py`, `tests/unit/test_state_corridor_labels.py`, and `tests/unit/test_memory_store_score_diag.py` are the focused checks confirming BO3 `round_result` emission and persisted history wire output preserve `match_id` without dropping existing round_result fields.
+- `tests/unit/test_export_backend_bo3_live_round_calibration_evidence.py` is the focused branch-local test surface covering same-match join, wrong-match refusal via `match_id`, duplicate collapse, strict-later leakage refusal, conflicting round_result refusal, malformed-row accounting, and artifact/report shape.
 
 ## Current initiative status
 - **Actual current runtime BO3 ingestion path:** `backend/services/runner.py`.
-- **Promoted `master` continuity/recovery contract:** active corpus now defaults outside ordinary repo worktree hazard; one-time alignment and divergent recovery tools exist as special repair workflows; frozen snapshots remain repo-visible and separate.
-- **Current branch-local identity-bridge truth:** this branch adds `match_id` to persisted BO3 `round_result` history rows so downstream evidence exporters can join on true per-match identity instead of round/team identity alone.
-- **Truth boundary:** this branch-local stage proves the upstream BO3 `round_result` label surface can carry `match_id`. It does not itself prove downstream exporter promotion readiness, calibration quality, parity correctness, replay/live redesign, or any broader storage/reporting change.
+- **Promoted `master` upstream label truth:** persisted BO3 `round_result` history rows now carry `match_id`, so downstream evidence exporters no longer need to guess series identity from round/team shape alone.
+- **Current branch-local exporter truth:** this branch adds a narrow BO3 live labeled calibration evidence exporter for round-level `q_intra_total` vs `round_result` only.
+- **Truth boundary:** this branch-local stage would prove the repo can export a same-match, leakage-aware, auditable BO3 live labeled round-level evidence surface. It would not itself prove calibration quality, parity correctness, replay/live redesign, or any tuning decision.
 
 ## Next likely step
-- Use the new external-path default consistently and avoid pointing `BO3_BACKEND_CAPTURE_PATH` back into the repo unless you deliberately want to accept the old worktree hazard.
+- Review this branch strictly for join truth, malformed-row honesty, artifact clarity, and whether the current zero-label local run is being framed honestly rather than overclaimed.
 
 ## Process note for future pushes
 - Append one new entry to `docs/branch_history_master.md` per final push.
 - Update this status note to the new `master` branch state each time.
 - Keep local-stage notes explicit only when a branch actually has newer work than promoted `master`.
-
-
-
-
-

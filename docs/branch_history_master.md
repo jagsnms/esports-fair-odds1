@@ -1,5 +1,14 @@
 # Branch History - `master`
 
+## 2026-03-12 - [LOCAL STAGE] Backend BO3 live labeled calibration evidence bridge
+- **Branch:** `codex/backend-bo3-live-labeled-calibration-evidence-bridge-v2` (local stage; not promoted)
+- **Initiative / phase:** Local-stage downstream evidence/export step resumed only after promoted `master` gained BO3 `round_result.match_id` emission.
+- **Summary of local stage work:** Added `tools/export_backend_bo3_live_round_calibration_evidence.py`, added focused deterministic coverage in `tests/unit/test_export_backend_bo3_live_round_calibration_evidence.py`, and exported one narrow round-level BO3 live labeled calibration evidence surface for `q_intra_total` vs `round_result` only.
+- **Why this local stage matters:** The repo can now attempt a same-match, leakage-aware BO3 live labeled evidence export instead of guessing label identity from round/team shape alone.
+- **Current local artifact note:** The branch-local exporter wrote point-in-time local artifacts at `automation/reports/backend_bo3_live_round_calibration_evidence_v1.json` and `automation/reports/backend_bo3_live_round_calibration_evidence_report_v1.json`. The current local run labeled `0` records because many persisted `round_result` rows in the local `history_points.jsonl` still predate the promoted `match_id` emission bridge; those local counts are not promoted repo truth.
+- **Truth boundary:** This stage only adds a narrow exporter for round-level `q_intra_total` vs `round_result`, with strict later-than timing, conservative duplicate collapse, same-match `match_id` join, and explicit malformed-row accounting. It does not prove calibration quality, add `p_hat` / `segment_result`, or change runtime BO3 behavior.
+- **Risks / red flags:** Current local export volume still depends on how much persisted history was recorded before label-side `match_id` existed. A truthful exporter can still produce very little labeled evidence if the local history surface is mostly pre-bridge data.
+
 ## 2026-03-12 - [LOCAL STAGE] Backend BO3 round_result match-identity emission bridge
 - **Branch:** `codex/backend-bo3-round-result-match-identity-bridge` (local stage; not promoted)
 - **Initiative / phase:** Local-stage upstream identity-surface step created specifically to unblock the previously blocked BO3 live labeled calibration evidence exporter.
@@ -33,6 +42,7 @@
 - **Why this local stage matters:** The lane now protects accumulation first. Normal collection workflow no longer treats the main BO3 capture corpus like disposable runtime state.
 - **Reset / git truth:** reset preserves the corpus path; frozen snapshots stay separate; the bounded diagnostic still reads a snapshot cut, but that snapshot is secondary to the corpus.
 - **Risks / red flags:** This is corpus-contract correction only. It does not redesign broader logging, parity, or replay/live linkage.
+
 ## 2026-03-11 - [LOCAL STAGE] Backend BO3 capture artifact lifecycle contract clarification
 - **Branch:** `codex/backend-bo3-lifecycle-contract` (local stage; not promoted)
 - **Initiative / phase:** Local-stage lifecycle-clarification step on top of the promoted backend-native BO3 capture contract
