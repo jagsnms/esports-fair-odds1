@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from datetime import datetime, timezone
 from typing import Any
@@ -12,6 +13,10 @@ _BO3_BACKEND_CAPTURE_ENABLED = os.environ.get("BO3_BACKEND_CAPTURE_ENABLED", "tr
     "true",
     "yes",
 )
+_BO3_BACKEND_CAPTURE_PATH = os.environ.get("BO3_BACKEND_CAPTURE_PATH", "logs/bo3_backend_live_capture_contract.jsonl")
+_BO3_CAPTURE_IDENTITY_CONFLICT_SCHEMA_VERSION = "backend_bo3_live_capture_identity_conflict.v1"
+_BO3_MATCH_IDENTITY_LOCKS: dict[int, tuple[int, int, bool]] = {}
+logger = logging.getLogger(__name__)
 
 
 def default_bo3_backend_capture_path() -> str:
@@ -40,6 +45,83 @@ _BO3_BACKEND_CAPTURE_PATH = default_bo3_backend_capture_path()
 def _isoformat_utc(epoch_s: float | None) -> str:
     ts = float(epoch_s) if isinstance(epoch_s, (int, float)) else datetime.now(timezone.utc).timestamp()
     return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def _identity_lock_tuple(record: dict[str, Any]) -> tuple[int, int, bool] | None:
+    try:
+        team_one_id = int(record["team_one_id"])
+        team_two_id = int(record["team_two_id"])
+        team_a_is_team_one = bool(record["team_a_is_team_one"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    return (team_one_id, team_two_id, team_a_is_team_one)
+
+
+def _seed_match_identity_lock_from_file(path: str, match_id: int) -> tuple[int, int, bool] | None:
+    if not path or not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            for raw in handle:
+                raw = raw.strip()
+                if not raw:
+                    continue
+                try:
+                    row = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(row, dict):
+                    continue
+                try:
+                    row_match_id = int(row.get("match_id"))
+                except (TypeError, ValueError):
+                    continue
+                if row_match_id != int(match_id):
+                    continue
+                identity = _identity_lock_tuple(row)
+                if identity is not None:
+                    return identity
+    except OSError:
+        return None
+    return None
+
+
+def _identity_conflict_path(path: str) -> str:
+    stem, ext = os.path.splitext(path)
+    ext = ext or ".jsonl"
+    return stem + "_identity_conflicts" + ext
+
+
+def _append_identity_conflict(
+    *,
+    path: str,
+    match_id: int,
+    canonical_identity: tuple[int, int, bool],
+    conflicting_record: dict[str, Any],
+) -> str:
+    conflict_record = {
+        "schema_version": _BO3_CAPTURE_IDENTITY_CONFLICT_SCHEMA_VERSION,
+        "capture_ts_iso": conflicting_record.get("capture_ts_iso"),
+        "match_id": int(match_id),
+        "canonical_team_one_id": int(canonical_identity[0]),
+        "canonical_team_two_id": int(canonical_identity[1]),
+        "canonical_team_a_is_team_one": bool(canonical_identity[2]),
+        "conflicting_team_one_id": conflicting_record.get("team_one_id"),
+        "conflicting_team_two_id": conflicting_record.get("team_two_id"),
+        "conflicting_team_a_is_team_one": conflicting_record.get("team_a_is_team_one"),
+        "game_number": conflicting_record.get("game_number"),
+        "map_index": conflicting_record.get("map_index"),
+        "round_number": conflicting_record.get("round_number"),
+        "raw_provider_event_id": conflicting_record.get("raw_provider_event_id"),
+        "reason": "team_identity_conflict_same_match_id",
+    }
+    conflict_path = _identity_conflict_path(path)
+    conflict_dir = os.path.dirname(conflict_path)
+    if conflict_dir:
+        os.makedirs(conflict_dir, exist_ok=True)
+    with open(conflict_path, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(conflict_record, ensure_ascii=False, default=str) + "\n")
+    return conflict_path
 
 
 def _team_identity(point: HistoryPoint, frame: Frame) -> tuple[int | None, int | None, str | None, str | None]:
@@ -145,6 +227,36 @@ def append_bo3_live_capture_record(record: dict[str, Any]) -> str | None:
     if not _BO3_BACKEND_CAPTURE_ENABLED:
         return None
     path = _BO3_BACKEND_CAPTURE_PATH
+    match_id = record.get("match_id")
+    identity = _identity_lock_tuple(record)
+    if identity is not None and match_id is not None:
+        try:
+            match_id_int = int(match_id)
+        except (TypeError, ValueError):
+            match_id_int = None
+        if match_id_int is not None:
+            canonical_identity = _BO3_MATCH_IDENTITY_LOCKS.get(match_id_int)
+            if canonical_identity is None:
+                canonical_identity = _seed_match_identity_lock_from_file(path, match_id_int)
+                if canonical_identity is not None:
+                    _BO3_MATCH_IDENTITY_LOCKS[match_id_int] = canonical_identity
+            if canonical_identity is None:
+                _BO3_MATCH_IDENTITY_LOCKS[match_id_int] = identity
+            elif canonical_identity != identity:
+                conflict_path = _append_identity_conflict(
+                    path=path,
+                    match_id=match_id_int,
+                    canonical_identity=canonical_identity,
+                    conflicting_record=record,
+                )
+                logger.warning(
+                    "BO3 capture identity conflict match_id=%s canonical=%s conflicting=%s conflict_path=%s",
+                    match_id_int,
+                    canonical_identity,
+                    identity,
+                    conflict_path,
+                )
+                return None
     dirpath = os.path.dirname(path)
     if dirpath:
         os.makedirs(dirpath, exist_ok=True)

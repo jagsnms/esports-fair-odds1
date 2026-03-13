@@ -1,5 +1,13 @@
 # Branch History - `master`
 
+## 2026-03-12 - [LOCAL STAGE] BO3 live capture team-identity continuity integrity fix
+- **Branch:** `codex/backend-bo3-team-identity-continuity-fix` (local stage; not promoted)
+- **Initiative / phase:** Local-stage runtime/capture integrity step after confirming that fresh BO3 capture rows could flip `team_one_id`, `team_two_id`, and `team_a_is_team_one` under the same `match_id`.
+- **Summary of local stage work:** Added a same-match identity continuity guard in `backend/services/bo3_capture_contract.py`, added focused deterministic coverage in `tests/unit/test_backend_bo3_capture_contract.py`, and now refuse conflicting later BO3 capture rows by keeping them out of the normal corpus and writing a visible `_identity_conflicts.jsonl` sidecar record instead.
+- **Why this local stage matters:** Fresh BO3 accumulation should not continue silently appending contradictory team identity slices under one match id. This stage narrows the defect to a visible refusal/quarantine path rather than letting corrupted rows look normal.
+- **Truth boundary:** This stage only protects fresh BO3 capture accumulation from mid-session identity drift at the write boundary. It does not repair historical contaminated rows, does not change exporter logic, and does not redesign BO3 runtime identity handling broadly.
+- **Risks / red flags:** This stage assumes the first accepted identity for a `match_id` is the canonical one for subsequent writes, including after restart by seeding from the existing corpus file. If upstream runtime identity selection is still wrong, the guard will preserve continuity by refusing later drift, not by retroactively correcting earlier bad rows.
+
 ## 2026-03-12 - [LOCAL STAGE] Backend BO3 live labeled calibration evidence bridge
 - **Branch:** `codex/backend-bo3-live-labeled-calibration-evidence-bridge-v2` (local stage; not promoted)
 - **Initiative / phase:** Local-stage downstream evidence/export step resumed only after promoted `master` gained BO3 `round_result.match_id` emission.
@@ -38,15 +46,3 @@
 ## 2026-03-12 - [LOCAL STAGE] Backend BO3 capture corpus contract correction
 - **Branch:** `codex/backend-bo3-corpus-contract-correction` (local stage; not promoted)
 - **Initiative / phase:** Local-stage correction step after the promoted lifecycle split over-weighted snapshot neatness relative to the actual corpus-growth mission
-- **Summary of local stage work:** Restored `logs/bo3_backend_live_capture_contract.jsonl` as the canonical persistent accumulating BO3 corpus, kept `automation/reports/backend_bo3_live_capture_contract_snapshot_v1.jsonl` only as an optional frozen cut of that corpus, and changed reset/docs/diagnostic framing so snapshots support the corpus instead of replacing it.
-- **Why this local stage matters:** The lane now protects accumulation first. Normal collection workflow no longer treats the main BO3 capture corpus like disposable runtime state.
-- **Reset / git truth:** reset preserves the corpus path; frozen snapshots stay separate; the bounded diagnostic still reads a snapshot cut, but that snapshot is secondary to the corpus.
-- **Risks / red flags:** This is corpus-contract correction only. It does not redesign broader logging, parity, or replay/live linkage.
-
-## 2026-03-11 - [LOCAL STAGE] Backend BO3 capture artifact lifecycle contract clarification
-- **Branch:** `codex/backend-bo3-lifecycle-contract` (local stage; not promoted)
-- **Initiative / phase:** Local-stage lifecycle-clarification step on top of the promoted backend-native BO3 capture contract
-- **Summary of local stage work:** Split the old ambiguous single-path role so the real backend runtime capture log now writes to `logs/runtime/bo3_backend_live_capture_contract.jsonl`, the deliberate versioned evidence snapshot is `automation/reports/backend_bo3_live_capture_contract_snapshot_v1.jsonl`, and the bounded diagnostic consumer now points at that snapshot role instead of the disposable runtime path.
-- **Why this local stage matters:** The repo stops pretending the same filesystem path is both a disposable runtime log and a durable committed evidence artifact.
-- **Reset / git truth:** normal reset flow continues to treat the runtime log as disposable, while the versioned evidence snapshot is non-runtime and no longer silently shares the runtime path.
-- **Risks / red flags:** This is lifecycle-contract clarification only. It does not change live parity, replay/live linkage, or broader logging architecture.
