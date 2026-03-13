@@ -1,4 +1,4 @@
-"""
+﻿"""
 Async Runner: loop at poll_interval_s; BO3 live, REPLAY from JSONL, or GRID.
 Market: poll Kalshi when enabled, push to delay buffer, attach market_mid to points.
 """
@@ -342,6 +342,78 @@ def _match_context_diag(ctx: Any, selector_decision: dict[str, Any] | None = Non
     }
     if selector_decision is not None:
         out["selector_decision"] = selector_decision
+    return out
+
+
+def _bo3_snapshot_diag(snap: dict[str, Any] | None) -> dict[str, Any]:
+    """Extract compact source identifiers for BO3 pipeline diagnostics."""
+    if not isinstance(snap, dict):
+        return {}
+    out: dict[str, Any] = {}
+    snapshot_ts = _bo3_extract_snapshot_ts(snap)
+    if snapshot_ts is not None:
+        out["last_source_snapshot_ts"] = snapshot_ts
+    for src_key, out_key in (
+        ("updated_at", "last_source_updated_at"),
+        ("created_at", "last_source_created_at"),
+        ("sent_time", "last_source_sent_time"),
+        ("provider_event_id", "last_source_provider_event_id"),
+        ("seq_index", "last_source_seq_index"),
+        ("game_number", "last_source_game_number"),
+        ("round_number", "last_source_round_number"),
+    ):
+        val = snap.get(src_key)
+        if val is not None:
+            out[out_key] = val
+    return out
+
+
+def _set_bo3_pipeline_diag(
+    session_runtime: Any,
+    stage: str,
+    *,
+    reason: str | None = None,
+    at_ts: float | None = None,
+    **fields: Any,
+) -> None:
+    """Update compact per-session BO3 pipeline diagnostics for debug/telemetry output."""
+    if session_runtime is None:
+        return
+    diag = getattr(session_runtime, "bo3_pipeline_diag", None)
+    if not isinstance(diag, dict):
+        diag = {}
+    ts = float(at_ts) if at_ts is not None else time.time()
+    diag["last_stage"] = stage
+    diag["last_stage_reason"] = reason
+    diag["last_stage_ts"] = ts
+    for key, value in fields.items():
+        diag[key] = value
+    setattr(session_runtime, "bo3_pipeline_diag", diag)
+
+
+def _bo3_pipeline_diag_view(session_runtime: Any, now: float) -> dict[str, Any]:
+    """Return operator-facing BO3 fetch->ingest->propagation diagnostics for one session."""
+    diag = getattr(session_runtime, "bo3_pipeline_diag", None)
+    if not isinstance(diag, dict):
+        diag = {}
+    out = dict(diag)
+    out["buffer_has_snapshot"] = session_runtime.bo3_buf_raw is not None
+    out["buffer_snapshot_ts"] = session_runtime.bo3_buf_snapshot_ts
+    out["buffer_last_error"] = session_runtime.bo3_last_err
+    out["buffer_consecutive_failures"] = session_runtime.bo3_buf_consecutive_failures
+    if session_runtime.bo3_buf_last_success_epoch is not None:
+        out["buffer_last_success_age_s"] = round(now - session_runtime.bo3_buf_last_success_epoch, 1)
+    for ts_key, age_key in (
+        ("last_fetch_attempt_ts", "last_fetch_attempt_age_s"),
+        ("last_fetch_success_ts", "last_fetch_success_age_s"),
+        ("last_stage_ts", "last_stage_age_s"),
+        ("last_emit_ts", "last_emit_age_s"),
+        ("last_store_append_ts", "last_store_append_age_s"),
+        ("last_broadcast_ts", "last_broadcast_age_s"),
+    ):
+        ts = out.get(ts_key)
+        if isinstance(ts, (int, float)):
+            out[age_key] = round(now - float(ts), 1)
     return out
 
 
@@ -1123,6 +1195,8 @@ class Runner:
                 "telemetry_reason": telemetry_reason,
                 "ctx": ctx_diag,
             }
+            if source_name == "BO3":
+                row["bo3_pipeline"] = _bo3_pipeline_diag_view(runtime, now)
             if source_name == "GRID" and id_str:
                 next_ts = getattr(self, "_grid_next_fetch_ts", {}).get(id_str, 0.0)
                 row["grid_schedule"] = {
@@ -1451,11 +1525,31 @@ class Runner:
         mid = int(match_id)
         now = time.time()
         session_runtime.bo3_buf_last_attempt_epoch = now
+        diag = getattr(session_runtime, "bo3_pipeline_diag", None)
+        prev_attempt_ts = diag.get("last_fetch_attempt_ts") if isinstance(diag, dict) else None
+        prev_success_ts = diag.get("last_fetch_success_ts") if isinstance(diag, dict) else None
+        _set_bo3_pipeline_diag(
+            session_runtime,
+            "fetch_attempt",
+            at_ts=now,
+            fetch_attempt_count=int(diag.get("fetch_attempt_count", 0) if isinstance(diag, dict) else 0) + 1,
+            last_fetch_attempt_ts=now,
+            last_fetch_attempt_gap_s=(round(now - float(prev_attempt_ts), 3) if isinstance(prev_attempt_ts, (int, float)) else None),
+        )
+        t0 = time.perf_counter()
         try:
             from engine.ingest.bo3_client import get_snapshot
         except ImportError:
             session_runtime.bo3_last_err = "bo3_client not available"
             session_runtime.bo3_buf_consecutive_failures += 1
+            _set_bo3_pipeline_diag(
+                session_runtime,
+                "fetch_failure",
+                reason="bo3_client not available",
+                at_ts=time.time(),
+                last_fetch_duration_ms=round((time.perf_counter() - t0) * 1000, 1),
+                buffer_consecutive_failures=session_runtime.bo3_buf_consecutive_failures,
+            )
             return
         last_err: str | None = None
         backoff_so_far = 0.0
@@ -1474,12 +1568,24 @@ class Runner:
                         raise
                     snap = await get_snapshot(mid)
                 if snap and isinstance(snap, dict) and (snap.get("team_one") or snap.get("team_two")):
+                    success_ts = time.time()
                     session_runtime.bo3_buf_raw = snap
                     session_runtime.bo3_buf_snapshot_ts = _bo3_extract_snapshot_ts(snap)
-                    session_runtime.bo3_buf_ts = time.time()
-                    session_runtime.bo3_buf_last_success_epoch = time.time()
+                    session_runtime.bo3_buf_ts = success_ts
+                    session_runtime.bo3_buf_last_success_epoch = success_ts
                     session_runtime.bo3_last_err = None
                     session_runtime.bo3_buf_consecutive_failures = 0
+                    _set_bo3_pipeline_diag(
+                        session_runtime,
+                        "fetch_success",
+                        at_ts=success_ts,
+                        fetch_success_count=int(diag.get("fetch_success_count", 0) if isinstance(diag, dict) else 0) + 1,
+                        last_fetch_success_ts=success_ts,
+                        last_fetch_success_gap_s=(round(success_ts - float(prev_success_ts), 3) if isinstance(prev_success_ts, (int, float)) else None),
+                        last_fetch_duration_ms=round((time.perf_counter() - t0) * 1000, 1),
+                        buffer_consecutive_failures=session_runtime.bo3_buf_consecutive_failures,
+                        **_bo3_snapshot_diag(snap),
+                    )
                     return
                 last_err = "snapshot empty or missing team keys"
             except Exception as e:
@@ -1490,6 +1596,14 @@ class Runner:
                 backoff_so_far += delay
         session_runtime.bo3_last_err = last_err
         session_runtime.bo3_buf_consecutive_failures += 1
+        _set_bo3_pipeline_diag(
+            session_runtime,
+            "fetch_failure",
+            reason=last_err,
+            at_ts=time.time(),
+            last_fetch_duration_ms=round((time.perf_counter() - t0) * 1000, 1),
+            buffer_consecutive_failures=session_runtime.bo3_buf_consecutive_failures,
+        )
 
     async def _maybe_emit_outcome_events_from_bo3_payload(
         self,
@@ -1933,6 +2047,15 @@ class Runner:
                 debug=new_debug,
             )
             await self._store.set_current(state, fail_derived)
+            _set_bo3_pipeline_diag(
+                session_runtime,
+                "fetch_empty",
+                reason=session_runtime.bo3_last_err or "snapshot empty or missing team keys",
+                at_ts=now,
+                last_snapshot_status="empty",
+                last_emit_decision="no_emit",
+                last_emit_reason="fetch_empty",
+            )
             self._bo3_buf_consecutive_failures = session_runtime.bo3_buf_consecutive_failures
             return True
         session_runtime.last_fetch_ts = now
@@ -2009,10 +2132,28 @@ class Runner:
                 segment_id=getattr(state, "segment_id", 0),
                 explain=hold_explain,
             )
+            store_append_ts = time.time()
             await self._store.append_point(hold_point, state, fail_derived)
+            broadcast_ts = time.time()
             await self._broadcast_point(hold_point)
             if status == "stale":
                 session_runtime.bo3_same_snapshot_polls += 1
+            emit_ts = time.time()
+            _set_bo3_pipeline_diag(
+                session_runtime,
+                "hold_point_emitted",
+                reason=status,
+                at_ts=emit_ts,
+                last_snapshot_status=status,
+                last_snapshot_fresh=is_fresh,
+                same_snapshot_polls=session_runtime.bo3_same_snapshot_polls,
+                last_emit_decision="hold_point",
+                last_emit_reason=status,
+                last_emit_ts=emit_ts,
+                last_store_append_ts=store_append_ts,
+                last_broadcast_ts=broadcast_ts,
+                **_bo3_snapshot_diag(snap if isinstance(snap, dict) else None),
+            )
             self._bo3_buf_consecutive_failures = session_runtime.bo3_buf_consecutive_failures
             return True
 
@@ -2037,6 +2178,19 @@ class Runner:
                     gate_reason,
                     extra={"diag": gate_diag, "rejected_total": self._bo3_monotonic_rejected_count},
                 )
+            _set_bo3_pipeline_diag(
+                session_runtime,
+                "freshness_gate_reject",
+                reason=gate_reason,
+                at_ts=t,
+                last_snapshot_status="live",
+                last_snapshot_fresh=is_fresh,
+                same_snapshot_polls=session_runtime.bo3_same_snapshot_polls,
+                last_freshness_gate_reason=gate_reason,
+                last_emit_decision="no_emit",
+                last_emit_reason="freshness_gate",
+                **_bo3_snapshot_diag(snap if isinstance(snap, dict) else None),
+            )
             self._bo3_buf_consecutive_failures = session_runtime.bo3_buf_consecutive_failures
             return True
         # Canonical envelope path: BO3 as first-class SourceKind
@@ -2062,6 +2216,20 @@ class Runner:
         if isinstance(snap, dict):
             snap_meta["round_phase"] = snap.get("round_phase") or snap.get("phase")
         if not self._ingest_canonical_envelope(ctx, env, snap_meta):
+            reject_reason = getattr(ctx, "last_reject_reason", None)
+            _set_bo3_pipeline_diag(
+                session_runtime,
+                "canonical_envelope_reject",
+                reason=reject_reason,
+                at_ts=t,
+                last_snapshot_status="live",
+                last_snapshot_fresh=is_fresh,
+                same_snapshot_polls=session_runtime.bo3_same_snapshot_polls,
+                last_envelope_reject_reason=reject_reason,
+                last_emit_decision="no_emit",
+                last_emit_reason="canonical_envelope",
+                **_bo3_snapshot_diag(snap if isinstance(snap, dict) else None),
+            )
             self._bo3_buf_consecutive_failures = session_runtime.bo3_buf_consecutive_failures
             return True
         round_phase_drive = snap_meta.get("round_phase") if snap_meta else None
@@ -2069,6 +2237,19 @@ class Runner:
         allow_drive, drive_reason = allowed_to_drive(ctx, env.source, t, round_phase_drive, default_source_selector_policy())
         if not allow_drive:
             ctx.last_drive_deny_reason = drive_reason
+            _set_bo3_pipeline_diag(
+                session_runtime,
+                "selector_denied",
+                reason=drive_reason,
+                at_ts=t,
+                last_snapshot_status="live",
+                last_snapshot_fresh=is_fresh,
+                same_snapshot_polls=session_runtime.bo3_same_snapshot_polls,
+                last_selector_reason=drive_reason,
+                last_emit_decision="no_emit",
+                last_emit_reason="selector_denied",
+                **_bo3_snapshot_diag(snap if isinstance(snap, dict) else None),
+            )
             self._bo3_buf_consecutive_failures = session_runtime.bo3_buf_consecutive_failures
             return True
         # Identity cache stub: per-match team_a_is_team_one and provider ids from map identity
@@ -2223,6 +2404,18 @@ class Runner:
                 emit_allowed=False,
                 emit_reason="drv_invalid",
             )
+            _set_bo3_pipeline_diag(
+                session_runtime,
+                "driver_emit_denied",
+                reason=session_runtime.telemetry_reason,
+                at_ts=t,
+                last_snapshot_status="live",
+                last_snapshot_fresh=is_fresh,
+                same_snapshot_polls=session_runtime.bo3_same_snapshot_polls,
+                last_emit_decision="no_emit",
+                last_emit_reason="drv_invalid",
+                **_bo3_snapshot_diag(snap if isinstance(snap, dict) else None),
+            )
             return True
         if breach_type is not None and (self._last_breach_type is None or self._last_breach_type != breach_type):
             scores = (0, 0)
@@ -2249,7 +2442,7 @@ class Runner:
             self._last_breach_type = breach_type
         if breach_type is None:
             self._last_breach_type = None
-        # Outcome label events (round_result, segment_result) from raw snapshot â€” emit before main point, no duplicate spam
+        # Outcome label events (round_result, segment_result) from raw snapshot Ã¢â‚¬â€ emit before main point, no duplicate spam
         if isinstance(snap, dict):
             await self._maybe_emit_outcome_events_from_bo3_payload(
                 raw=snap,
@@ -2445,9 +2638,45 @@ class Runner:
             emit_reason="ok",
         )
         if write_to_store:
+            store_append_ts = time.time()
             await self._store.append_point(point, new_state, derived)
+            broadcast_ts = time.time()
             await self._broadcast_point(point)
+            emit_ts = time.time()
             self._bo3_last_raw_snapshot = session_runtime.bo3_last_raw_snapshot
+            _set_bo3_pipeline_diag(
+                session_runtime,
+                "point_emitted",
+                reason="ok",
+                at_ts=emit_ts,
+                last_snapshot_status="live",
+                last_snapshot_fresh=is_fresh,
+                same_snapshot_polls=session_runtime.bo3_same_snapshot_polls,
+                last_emit_decision="point_emitted",
+                last_emit_reason="ok",
+                last_emit_ts=emit_ts,
+                last_store_append_ts=store_append_ts,
+                last_broadcast_ts=broadcast_ts,
+                last_capture_skip_reason=dbg.get("bo3_backend_capture_skipped_reason"),
+                last_capture_path=dbg.get("bo3_backend_capture_path"),
+                **_bo3_snapshot_diag(snap if isinstance(snap, dict) else None),
+            )
+        else:
+            _set_bo3_pipeline_diag(
+                session_runtime,
+                "accepted_not_propagated",
+                reason="write_to_store_false",
+                at_ts=t,
+                last_snapshot_status="live",
+                last_snapshot_fresh=is_fresh,
+                same_snapshot_polls=session_runtime.bo3_same_snapshot_polls,
+                last_emit_decision="accepted_not_propagated",
+                last_emit_reason="write_to_store_false",
+                last_emit_ts=t,
+                last_capture_skip_reason=dbg.get("bo3_backend_capture_skipped_reason"),
+                last_capture_path=dbg.get("bo3_backend_capture_path"),
+                **_bo3_snapshot_diag(snap if isinstance(snap, dict) else None),
+            )
         self._bo3_buf_consecutive_failures = session_runtime.bo3_buf_consecutive_failures
         return True
 
@@ -3045,7 +3274,7 @@ class Runner:
             self._last_breach_type = breach_type
         if breach_type is None:
             self._last_breach_type = None
-        # Outcome label events (round_result, segment_result) from replay payload â€” same logic as live
+        # Outcome label events (round_result, segment_result) from replay payload Ã¢â‚¬â€ same logic as live
         if isinstance(payload, dict):
             await self._maybe_emit_outcome_events_from_bo3_payload(
                 raw=payload,
@@ -3259,6 +3488,7 @@ class Runner:
             except asyncio.CancelledError:
                 break
         self._task = None
+
 
 
 
