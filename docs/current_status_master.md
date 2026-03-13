@@ -9,6 +9,7 @@ Last updated: 2026-03-12
 - **Frozen artifact boundary remains separate:** repo-visible frozen cuts still live under `automation/reports/`, including `automation/reports/backend_bo3_live_capture_contract_snapshot_v1.jsonl` and the point-in-time readiness report artifact. Those are review/analysis surfaces, not the continuity-protected active corpus.
 - **Current readiness-tool boundary remains intact:** `tools/run_backend_bo3_corpus_readiness_analyzer.py` still exists as a separate corpus-level analyzer, and `tools/run_backend_bo3_live_parity_diagnostic.py` still exists as the separate bounded one-match diagnostic reading the frozen snapshot path.
 - **Current branch-local recovery note (not promoted `master` truth):** this branch adds `tools/recover_backend_bo3_divergent_corpus.py` as a one-off recovery tool for stash-held divergent BO3 corpus branches. It unions unique rows, dedupes identical duplicates, and refuses unresolved same-identity conflicts instead of guessing. Steady-state writer/analyzer flow on promoted `master` does not change unless this branch lands.
+- **Current branch-local round_result match-identity bridge note (not promoted `master` truth):** this branch adds `match_id` to persisted BO3 `round_result` history rows so downstream evidence exporters can join by true per-match identity instead of round/team identity alone. It proves the upstream label surface can carry BO3 match identity; it does not itself prove the blocked live calibration evidence exporter is promotion-ready.
 
 ## Main red flags
 1. **This continuity correction is not calibration implementation.** It only protects the active corpus from silent rollback hazards.
@@ -20,11 +21,13 @@ Last updated: 2026-03-12
 - `tests/unit/test_backend_bo3_capture_contract.py` is the focused continuity-contract test surface for the backend writer path and confirms the default active corpus path resolves outside the repo worktree.
 - `tests/unit/test_run_backend_bo3_corpus_readiness_analyzer.py` confirms the corpus analyzer follows the same continuity-protected active corpus default while preserving separation from the bounded diagnostic.
 - `tests/unit/test_run_backend_bo3_live_parity_diagnostic.py` continues to confirm that the bounded diagnostic remains a one-match tool on the frozen snapshot path.
+- `tests/unit/test_runner_bo3_hold.py`, `tests/unit/test_state_corridor_labels.py`, and `tests/unit/test_memory_store_score_diag.py` are the focused local-stage checks confirming BO3 `round_result` emission and persisted history wire output preserve `match_id` without dropping existing round_result fields.
 
 ## Current initiative status
 - **Actual current runtime BO3 ingestion path:** `backend/services/runner.py`.
-- **Promoted `master` continuity contract:** active corpus now defaults outside ordinary repo worktree hazard; frozen snapshots remain repo-visible and separate; the old in-worktree `logs/bo3_backend_live_capture_contract.jsonl` path is no longer the continuity-protected active store.
-- **Truth boundary:** `master` now carries one narrow continuity protection only. It does not redesign broader storage, calibration, parity, replay/live logic, or reporting platforms.
+- **Promoted `master` continuity/recovery contract:** active corpus now defaults outside ordinary repo worktree hazard; one-time alignment and divergent recovery tools exist as special repair workflows; frozen snapshots remain repo-visible and separate.
+- **Current branch-local identity-bridge truth:** this branch adds `match_id` to persisted BO3 `round_result` history rows so downstream evidence exporters can join on true per-match identity instead of round/team identity alone.
+- **Truth boundary:** this branch-local stage proves the upstream BO3 `round_result` label surface can carry `match_id`. It does not itself prove downstream exporter promotion readiness, calibration quality, parity correctness, replay/live redesign, or any broader storage/reporting change.
 
 ## Next likely step
 - Use the new external-path default consistently and avoid pointing `BO3_BACKEND_CAPTURE_PATH` back into the repo unless you deliberately want to accept the old worktree hazard.

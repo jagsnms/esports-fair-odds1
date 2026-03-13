@@ -1591,6 +1591,7 @@ class Runner:
                 rail_high=rail_high,
                 market_mid=market_mid,
                 segment_id=new_state.segment_id,
+                match_id=match_id_used,
                 map_index=map_index,
                 round_number=round_to_label,
                 game_number=game_number,
@@ -2226,7 +2227,7 @@ class Runner:
             self._last_breach_type = breach_type
         if breach_type is None:
             self._last_breach_type = None
-        # Outcome label events (round_result, segment_result) from raw snapshot — emit before main point, no duplicate spam
+        # Outcome label events (round_result, segment_result) from raw snapshot â€” emit before main point, no duplicate spam
         if isinstance(snap, dict):
             await self._maybe_emit_outcome_events_from_bo3_payload(
                 raw=snap,
@@ -3013,7 +3014,7 @@ class Runner:
             self._last_breach_type = breach_type
         if breach_type is None:
             self._last_breach_type = None
-        # Outcome label events (round_result, segment_result) from replay payload — same logic as live
+        # Outcome label events (round_result, segment_result) from replay payload â€” same logic as live
         if isinstance(payload, dict):
             await self._maybe_emit_outcome_events_from_bo3_payload(
                 raw=payload,

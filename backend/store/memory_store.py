@@ -85,7 +85,7 @@ def _history_point_to_wire(p: HistoryPoint) -> dict[str, Any]:
     ev = getattr(p, "event", None)
     if ev is not None:
         out["event"] = ev
-    for key in ("team_one_id", "team_two_id", "team_one_provider_id", "team_two_provider_id", "team_a_is_team_one", "a_side"):
+    for key in ("match_id", "team_one_id", "team_two_id", "team_one_provider_id", "team_two_provider_id", "team_a_is_team_one", "a_side"):
         val = getattr(p, key, None)
         if val is not None:
             out[key] = val

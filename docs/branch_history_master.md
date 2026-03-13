@@ -1,5 +1,13 @@
 # Branch History - `master`
 
+## 2026-03-12 - [LOCAL STAGE] Backend BO3 round_result match-identity emission bridge
+- **Branch:** `codex/backend-bo3-round-result-match-identity-bridge` (local stage; not promoted)
+- **Initiative / phase:** Local-stage upstream identity-surface step created specifically to unblock the previously blocked BO3 live labeled calibration evidence exporter.
+- **Summary of local stage work:** Added `match_id` to persisted BO3 `round_result` history rows, preserved the field through history wire/persistence output, and added focused unit coverage proving BO3 round_result emission still carries the existing round/map/team fields while now also carrying per-match identity.
+- **Why this local stage matters:** Downstream BO3 calibration evidence cannot be promotion-safe while `round_result` labels lack a true per-match discriminator. This stage closes that upstream blocker narrowly.
+- **Truth boundary:** This stage only adds BO3 `round_result.match_id` emission/persistence. It does not change steady-state collection semantics, calibration math, replay/live architecture, or exporter promotion readiness by itself.
+- **Risks / red flags:** The blocked downstream exporter still needs its own small truth-fix pass after this lands; this stage only supplies the missing upstream identity surface.
+
 ## 2026-03-12 - [LOCAL STAGE] Backend BO3 corpus continuity protection against git/worktree hazards
 - **Branch:** `codex/backend-bo3-corpus-continuity-protection` (local stage; not promoted)
 - **Initiative / phase:** Local-stage continuity-protection step after confirming that stash/worktree state could silently roll the active BO3 corpus back to an older baseline.

@@ -204,6 +204,7 @@ class HistoryPoint:
     rail_high: float = 1.0
     market_mid: float | None = None
     segment_id: int = 0
+    match_id: int | None = None  # BO3 match identity when known; required for truthful round_result joins
     map_index: int | None = None  # 0-based map; for calibration join
     round_number: int | None = None  # round within map; for calibration join
     game_number: int | None = None  # 1-based game number if present

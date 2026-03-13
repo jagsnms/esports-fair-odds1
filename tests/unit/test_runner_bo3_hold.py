@@ -452,7 +452,9 @@ async def test_tick_replay_emits_round_result_event_when_present() -> None:
     assert did_replay is True
     hist = await store.get_history(limit=10)
     # We should have at least one event point (and the main point) in history now.
-    assert any((p.get("event") or {}).get("event_type") == "round_result" for p in hist), "round_result event should be emitted in replay"
+    round_points = [p for p in hist if (p.get("event") or {}).get("event_type") == "round_result"]
+    assert round_points, "round_result event should be emitted in replay"
+    assert round_points[0].get("match_id") == 999
 
 
 def test_tick_replay_emits_round_result_event_when_present_sync() -> None:
@@ -506,6 +508,7 @@ async def test_round_result_fallback_map_index_from_last_seen_game_number() -> N
     round_points = [p for p in hist if (p.get("event") or {}).get("event_type") == "round_result"]
     assert len(round_points) == 1, "exactly one round_result emitted"
     point = round_points[0]
+    assert point.get("match_id") == 999
     assert point.get("map_index") == 1, "map_index = game_number - 1 from fallback (game_number=2)"
     assert point.get("round_number") == 5
     assert point.get("game_number") == 2

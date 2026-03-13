@@ -1,7 +1,7 @@
 """
 Unit tests for score-space diagnostics (history_score_points.jsonl).
 Verifies: new file created when HISTORY_SCORE_RECORD_ENABLED=true; schema has score_raw and term_contribs;
-reconstruction score_raw ≈ base_intercept + sum(term_contribs); history_points.jsonl behavior unchanged.
+reconstruction score_raw Ã¢â€°Ë† base_intercept + sum(term_contribs); history_points.jsonl behavior unchanged.
 """
 from __future__ import annotations
 
@@ -104,8 +104,9 @@ def test_make_score_diag_record_v2_residual_makes_reconstruction_exact() -> None
         bound_low=0.0,
         bound_high=1.0,
         rail_low=0.3,
-        rail_high=0.7,
-        explain={
+            rail_high=0.7,
+            match_id=444,
+            explain={
             "phase": "IN_PROGRESS",
             "final": {"p_hat_final": 0.5, "clamp_reason": None},
             "score_raw": score_raw,
@@ -129,7 +130,7 @@ def test_make_score_diag_record_v2_residual_makes_reconstruction_exact() -> None
 
 
 def test_make_score_diag_record_includes_term_raw_term_coef() -> None:
-    """When explain has term_raw and term_coef, record includes them; contrib ≈ raw * coef for linear terms."""
+    """When explain has term_raw and term_coef, record includes them; contrib Ã¢â€°Ë† raw * coef for linear terms."""
     # Synthetic: alive_raw=1.0, coef=0.035 -> term_alive=0.035
     term_raw = {"alive": 1.0, "hp": 0.1, "loadout": 0.5, "bomb": 0.0, "cash": 0.0}
     term_coef = {"alive": 0.035, "hp": 0.04, "loadout": 0.012, "bomb": 0.06, "cash": 0.0}
@@ -145,8 +146,9 @@ def test_make_score_diag_record_includes_term_raw_term_coef() -> None:
         bound_low=0.0,
         bound_high=1.0,
         rail_low=0.3,
-        rail_high=0.7,
-        explain={
+            rail_high=0.7,
+            match_id=444,
+            explain={
             "phase": "IN_PROGRESS",
             "final": {"p_hat_final": 0.5, "clamp_reason": None},
             "score_raw": score_raw,
@@ -169,7 +171,7 @@ def test_make_score_diag_record_includes_term_raw_term_coef() -> None:
     assert "term_coef" in rec
     assert rec["term_raw"]["alive"] == 1.0
     assert rec["term_coef"]["alive"] == 0.035
-    # Linear check: contrib ≈ raw * coef
+    # Linear check: contrib Ã¢â€°Ë† raw * coef
     assert abs(rec["term_contribs"]["term_alive"] - rec["term_raw"]["alive"] * rec["term_coef"]["alive"]) < 1e-6
     assert abs(rec["term_contribs"]["term_hp"] - rec["term_raw"]["hp"] * rec["term_coef"]["hp"]) < 1e-6
     assert abs(rec["term_contribs"]["term_loadout"] - rec["term_raw"]["loadout"] * rec["term_coef"]["loadout"]) < 1e-6
@@ -296,6 +298,7 @@ async def test_history_points_schema_unchanged(tmp_path: object) -> None:
             bound_high=1.0,
             rail_low=0.3,
             rail_high=0.7,
+            match_id=444,
             explain={
                 "phase": "IN_PROGRESS",
                 "final": {"p_hat_final": 0.5, "clamp_reason": None},
@@ -319,6 +322,7 @@ async def test_history_points_schema_unchanged(tmp_path: object) -> None:
     assert "lo" in wire
     assert "hi" in wire
     assert "explain" in wire
+    assert wire["match_id"] == 444
     assert wire["explain"]["final"]["p_hat_final"] == 0.5
     # Score diag file is separate
     assert os.path.isfile(score_path)

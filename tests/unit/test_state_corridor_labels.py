@@ -43,6 +43,7 @@ def test_history_point_wire_includes_series_and_map_aliases() -> None:
     rail_high=0.75,
     market_mid=None,
     segment_id=1,
+    match_id=321,
   )
   out = _history_point_to_wire(p)
   # Legacy keys
@@ -55,5 +56,6 @@ def test_history_point_wire_includes_series_and_map_aliases() -> None:
   assert out["series_high"] == 0.8
   assert out["map_low"] == 0.25
   assert out["map_high"] == 0.75
+  assert out["match_id"] == 321
 
 
