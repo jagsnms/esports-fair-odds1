@@ -256,6 +256,25 @@ def _team_identity_from_cache(entry: dict[str, Any] | None) -> dict[str, Any]:
     return out
 
 
+def _cached_map_identity_entry(
+    session_runtime: Any,
+    game_number: int | None,
+    map_index: int | None,
+) -> dict[str, Any] | None:
+    """Return canonical per-session BO3 map identity once raw payload has established it."""
+    if session_runtime is None or game_number is None or map_index is None:
+        return None
+    try:
+        key = (int(game_number), int(map_index))
+    except (TypeError, ValueError):
+        return None
+    cache = getattr(session_runtime, "map_identity_cache", None)
+    if not isinstance(cache, dict):
+        return None
+    entry = cache.get(key)
+    return entry if isinstance(entry, dict) else None
+
+
 def _normalize_side_raw(side: Any) -> str | None:
     """Normalize side to T or CT for cache."""
     if side is None:
@@ -834,6 +853,9 @@ class Runner:
             team_two_id = int(t2.get("id", 0) or 0)
         except (TypeError, ValueError):
             team_two_id = 0
+        # Require distinct non-zero raw team ids before a fresh BO3 map identity is trusted.
+        if team_one_id <= 0 or team_two_id <= 0 or team_one_id == team_two_id:
+            return None
         pid1 = t1.get("provider_id")
         team_one_provider_id = (str(pid1).strip() or None) if pid1 is not None else None
         pid2 = t2.get("provider_id")
@@ -2058,7 +2080,7 @@ class Runner:
             except (TypeError, ValueError):
                 pass
         _mi = getattr(frame, "map_index", 0)
-        map_id_entry = self._ensure_map_identity_from_frame(frame, config, _gn, _mi, session_runtime=session_runtime)
+        map_id_entry = self._ensure_map_identity_from_raw(snap if isinstance(snap, dict) else {}, config, _gn, _mi, session_runtime=session_runtime)
         if map_id_entry:
             ta_one = map_id_entry.get("team_a_is_team_one", True)
             ctx.identity = IdentityEntry(
@@ -2334,7 +2356,7 @@ class Runner:
                 clamp_reason="no_explain_from_resolve",
             )
         map_index_bo3 = (game_number_ep - 1) if game_number_ep is not None else None
-        map_identity_bo3 = self._ensure_map_identity_from_frame(frame, config, game_number_ep, map_index_bo3)
+        map_identity_bo3 = _cached_map_identity_entry(session_runtime, game_number_ep, map_index_bo3)
         bo3_identity_kw = (
             _team_identity_from_cache(map_identity_bo3)
             if map_identity_bo3
@@ -2366,18 +2388,27 @@ class Runner:
         )
         if write_to_store and isinstance(snap, dict):
             try:
-                capture_record = build_bo3_live_capture_record(
-                    match_id=mid,
-                    team_a_is_team_one=team_a_is_team_one,
-                    raw_snapshot=snap,
-                    raw_record_path=raw_record_path,
-                    frame=frame,
-                    point=point,
-                    derived=derived,
-                )
-                capture_path = append_bo3_live_capture_record(capture_record)
-                if capture_path:
-                    dbg["bo3_backend_capture_path"] = capture_path
+                if map_identity_bo3 is None:
+                    dbg["bo3_backend_capture_skipped_reason"] = "identity_not_yet_trustworthy"
+                    logger.warning(
+                        "BO3 backend capture skipped: identity_not_yet_trustworthy match_id=%s game_number=%s map_index=%s",
+                        mid,
+                        game_number_ep,
+                        map_index_bo3,
+                    )
+                else:
+                    capture_record = build_bo3_live_capture_record(
+                        match_id=mid,
+                        team_a_is_team_one=team_a_is_team_one,
+                        raw_snapshot=snap,
+                        raw_record_path=raw_record_path,
+                        frame=frame,
+                        point=point,
+                        derived=derived,
+                    )
+                    capture_path = append_bo3_live_capture_record(capture_record)
+                    if capture_path:
+                        dbg["bo3_backend_capture_path"] = capture_path
             except OSError as e:
                 logger.warning("BO3 backend capture contract write failed: %s", e)
         if session_runtime is not None:
@@ -3228,3 +3259,6 @@ class Runner:
             except asyncio.CancelledError:
                 break
         self._task = None
+
+
+

@@ -1,5 +1,12 @@
-# Branch History - `master`
+﻿# Branch History - `master`
 
+## 2026-03-13 - [LOCAL STAGE] BO3 live capture canonical team identity establishment fix
+- **Branch:** `codex/backend-bo3-canonical-identity-establishment` (local stage; not promoted)
+- **Initiative / phase:** Local-stage runtime/capture integrity step after confirming that the promoted continuity guard stops later drift but fresh BO3 matches can still start with the wrong team identity established from the outset.
+- **Summary of local stage work:** Hardened the BO3 capture start condition in `backend/services/runner.py`, added focused deterministic coverage in `tests/unit/test_backend_bo3_capture_contract.py`, and now skip normal BO3 capture rows until per-session raw match identity is established for that `(match_id, game_number, map_index)`.
+- **Why this local stage matters:** Fresh BO3 accumulation should not begin from a weak first frame or another match's cached team identity. This stage narrows the fix to trustworthy identity establishment before normal capture starts.
+- **Truth boundary:** This stage only protects fresh BO3 capture rows from entering the normal corpus with wrongly established canonical team identity. It does not repair historical contaminated rows, does not change exporter logic, and does not redesign BO3 runtime identity handling broadly.
+- **Risks / red flags:** This stage still depends on the raw BO3 identity surface being the trustworthy source for initial per-session identity establishment. If raw identity is itself wrong, this stage will correctly refuse weak starts but will not retroactively repair already-written history.
 ## 2026-03-12 - [LOCAL STAGE] BO3 live capture team-identity continuity integrity fix
 - **Branch:** `codex/backend-bo3-team-identity-continuity-fix` (local stage; not promoted)
 - **Initiative / phase:** Local-stage runtime/capture integrity step after confirming that fresh BO3 capture rows could flip `team_one_id`, `team_two_id`, and `team_a_is_team_one` under the same `match_id`.
@@ -46,3 +53,4 @@
 ## 2026-03-12 - [LOCAL STAGE] Backend BO3 capture corpus contract correction
 - **Branch:** `codex/backend-bo3-corpus-contract-correction` (local stage; not promoted)
 - **Initiative / phase:** Local-stage correction step after the promoted lifecycle split over-weighted snapshot neatness relative to the actual corpus-growth mission
+

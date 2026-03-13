@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from engine.models import Config, Derived, State
+from engine.models import Config, Derived, Frame, State
 
 from backend.services.runner import Runner
 from backend.store.memory_store import MemoryStore
@@ -355,3 +355,297 @@ def test_backend_bo3_capture_contract_restart_seeding_refuses_conflict_from_exis
     assert conflict["canonical_team_two_id"] == 4175
     assert conflict["conflicting_team_one_id"] == 11042
     assert conflict["conflicting_team_two_id"] == 22733
+
+
+def _frame_with_team_ids(
+    *,
+    team_one_id: int,
+    team_two_id: int,
+    team_one_provider_id: str,
+    team_two_provider_id: str,
+    a_side: str = "CT",
+) -> Frame:
+    return Frame(
+        timestamp=0.0,
+        teams=("Alpha", "Bravo"),
+        scores=(7, 6),
+        alive_counts=(2, 2),
+        hp_totals=(183.0, 167.0),
+        cash_loadout_totals=(13700.0, 12500.0),
+        cash_totals=(7700.0, 7000.0),
+        loadout_totals=(6000.0, 5500.0),
+        armor_totals=(175.0, 140.0),
+        round_time_remaining_s=92.0,
+        map_index=0,
+        series_score=(1, 1),
+        map_name="Ancient",
+        series_fmt="bo3",
+        a_side=a_side,
+        team_one_id=team_one_id,
+        team_two_id=team_two_id,
+        team_one_provider_id=team_one_provider_id,
+        team_two_provider_id=team_two_provider_id,
+    )
+
+
+async def test_backend_bo3_capture_contract_fresh_match_uses_session_raw_identity_not_global_cache(tmp_path: Path) -> None:
+    from backend.services import bo3_capture_contract
+
+    logs_dir = tmp_path / "logs"
+    capture_path = logs_dir / "bo3_backend_live_capture_contract.jsonl"
+    raw_path = logs_dir / "bo3_raw_match_112535.jsonl"
+
+    store = MemoryStore(max_history=50)
+    config = Config(source="BO3", match_id=112535, poll_interval_s=5.0, team_a_is_team_one=True)
+    await store.set_current(
+        State(config=config, segment_id=1),
+        Derived(p_hat=0.5, bound_low=0.2, bound_high=0.8, rail_low=0.4, rail_high=0.6, kappa=0.0, debug={}),
+    )
+
+    broadcaster = MagicMock()
+    broadcaster.broadcast = AsyncMock(return_value=None)
+    runner = Runner(store=store, broadcaster=broadcaster)
+    runner._map_identity_cache[(1, 0)] = {
+        "team_one_id": 11042,
+        "team_two_id": 22733,
+        "team_one_provider_id": "stale_team_11042",
+        "team_two_provider_id": "stale_team_22733",
+        "team_a_is_team_one": True,
+        "a_side": "CT",
+    }
+    bo3_capture_contract._BO3_MATCH_IDENTITY_LOCKS.clear()
+
+    snap = _live_snapshot(
+        provider_event_id="evt-112535-1",
+        seq_index=1,
+        updated_at="2026-03-13T09:04:21.608Z",
+        round_number=5,
+        score_a=7,
+        score_b=6,
+    )
+    snap["team_one"]["id"] = 736
+    snap["team_one"]["provider_id"] = "bo3_team_736"
+    snap["team_one"]["name"] = "GamerLegion"
+    snap["team_two"]["id"] = 787
+    snap["team_two"]["provider_id"] = "bo3_team_787"
+    snap["team_two"]["name"] = "Sashi"
+
+    wrong_frame = _frame_with_team_ids(
+        team_one_id=11042,
+        team_two_id=22733,
+        team_one_provider_id="stale_team_11042",
+        team_two_provider_id="stale_team_22733",
+    )
+
+    with (
+        patch("engine.ingest.bo3_client.get_snapshot", AsyncMock(return_value=snap)),
+        patch("engine.normalize.bo3_normalize.bo3_snapshot_to_frame", return_value=wrong_frame),
+        patch(
+            "backend.services.runner._bo3_snapshot_status",
+            return_value=("live", None, snap["updated_at"], True),
+        ),
+        patch("backend.services.runner._BO3_RAW_RECORD_DIR", str(logs_dir)),
+        patch("backend.services.runner._BO3_RAW_RECORD_PER_MATCH", True),
+        patch("backend.services.runner._BO3_RAW_RECORD_ENABLED", True),
+        patch("backend.services.bo3_capture_contract._BO3_BACKEND_CAPTURE_ENABLED", True),
+        patch("backend.services.bo3_capture_contract._BO3_BACKEND_CAPTURE_PATH", str(capture_path)),
+    ):
+        did_tick = await runner._tick_bo3(config)
+
+    assert did_tick is True
+    assert raw_path.exists()
+    rows = [json.loads(line) for line in capture_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert len(rows) == 1
+    assert rows[0]["match_id"] == 112535
+    assert rows[0]["team_one_id"] == 736
+    assert rows[0]["team_two_id"] == 787
+    assert rows[0]["team_one_provider_id"] == "bo3_team_736"
+    assert rows[0]["team_two_provider_id"] == "bo3_team_787"
+
+
+async def test_backend_bo3_capture_contract_skips_fresh_match_until_identity_is_trustworthy(tmp_path: Path) -> None:
+    from backend.services import bo3_capture_contract
+
+    logs_dir = tmp_path / "logs"
+    capture_path = logs_dir / "bo3_backend_live_capture_contract.jsonl"
+
+    store = MemoryStore(max_history=50)
+    config = Config(source="BO3", match_id=113501, poll_interval_s=5.0, team_a_is_team_one=True)
+    await store.set_current(
+        State(config=config, segment_id=1),
+        Derived(p_hat=0.5, bound_low=0.2, bound_high=0.8, rail_low=0.4, rail_high=0.6, kappa=0.0, debug={}),
+    )
+
+    broadcaster = MagicMock()
+    broadcaster.broadcast = AsyncMock(return_value=None)
+    runner = Runner(store=store, broadcaster=broadcaster)
+    bo3_capture_contract._BO3_MATCH_IDENTITY_LOCKS.clear()
+
+    snap_untrusted = _live_snapshot(
+        provider_event_id="evt-113501-1",
+        seq_index=1,
+        updated_at="2026-03-13T11:00:00.000Z",
+        round_number=5,
+        score_a=7,
+        score_b=6,
+    )
+    snap_untrusted.pop("game_number", None)
+    snap_untrusted["team_one"]["id"] = 736
+    snap_untrusted["team_one"]["provider_id"] = "bo3_team_736"
+    snap_untrusted["team_two"]["id"] = 787
+    snap_untrusted["team_two"]["provider_id"] = "bo3_team_787"
+
+    snap_trustworthy = _live_snapshot(
+        provider_event_id="evt-113501-2",
+        seq_index=2,
+        updated_at="2026-03-13T11:00:05.000Z",
+        round_number=6,
+        score_a=8,
+        score_b=6,
+    )
+    snap_trustworthy["team_one"]["id"] = 736
+    snap_trustworthy["team_one"]["provider_id"] = "bo3_team_736"
+    snap_trustworthy["team_two"]["id"] = 787
+    snap_trustworthy["team_two"]["provider_id"] = "bo3_team_787"
+
+    stable_frame = _frame_with_team_ids(
+        team_one_id=736,
+        team_two_id=787,
+        team_one_provider_id="bo3_team_736",
+        team_two_provider_id="bo3_team_787",
+    )
+
+    with (
+        patch("engine.ingest.bo3_client.get_snapshot", AsyncMock(side_effect=[snap_untrusted, snap_trustworthy])),
+        patch("engine.normalize.bo3_normalize.bo3_snapshot_to_frame", side_effect=[stable_frame, stable_frame]),
+        patch(
+            "backend.services.runner._bo3_snapshot_status",
+            side_effect=[("live", None, "2026-03-13T11:00:00.000Z", True), ("live", None, "2026-03-13T11:00:05.000Z", True)],
+        ),
+        patch("backend.services.runner._BO3_RAW_RECORD_DIR", str(logs_dir)),
+        patch("backend.services.runner._BO3_RAW_RECORD_PER_MATCH", True),
+        patch("backend.services.runner._BO3_RAW_RECORD_ENABLED", True),
+        patch("backend.services.bo3_capture_contract._BO3_BACKEND_CAPTURE_ENABLED", True),
+        patch("backend.services.bo3_capture_contract._BO3_BACKEND_CAPTURE_PATH", str(capture_path)),
+    ):
+        did_first = await runner._tick_bo3(config)
+        current_after_first = await store.get_current()
+        assert not capture_path.exists(), "first untrustworthy tick should not write normal capture rows prematurely"
+        did_second = await runner._tick_bo3(config)
+
+    assert did_first is True
+    assert did_second is True
+
+    first_debug = ((current_after_first or {}).get("derived") or {}).get("debug") or {}
+    assert first_debug.get("bo3_backend_capture_skipped_reason") == "identity_not_yet_trustworthy"
+
+    # second tick should establish raw identity and begin normal capture writing
+    rows = []
+    if capture_path.exists():
+        rows = [json.loads(line) for line in capture_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert len(rows) == 1
+    assert rows[0]["match_id"] == 113501
+    assert rows[0]["round_number"] == 6
+    assert rows[0]["team_one_id"] == 736
+    assert rows[0]["team_two_id"] == 787
+
+
+async def test_backend_bo3_capture_contract_skips_fresh_match_when_raw_identity_is_weak_even_with_game_number(tmp_path: Path) -> None:
+    from backend.services import bo3_capture_contract
+
+    logs_dir = tmp_path / "logs"
+    capture_path = logs_dir / "bo3_backend_live_capture_contract.jsonl"
+
+    store = MemoryStore(max_history=50)
+    config = Config(source="BO3", match_id=113502, poll_interval_s=5.0, team_a_is_team_one=True)
+    await store.set_current(
+        State(config=config, segment_id=1),
+        Derived(p_hat=0.5, bound_low=0.2, bound_high=0.8, rail_low=0.4, rail_high=0.6, kappa=0.0, debug={}),
+    )
+
+    broadcaster = MagicMock()
+    broadcaster.broadcast = AsyncMock(return_value=None)
+    runner = Runner(store=store, broadcaster=broadcaster)
+    bo3_capture_contract._BO3_MATCH_IDENTITY_LOCKS.clear()
+
+    snap_weak_raw = _live_snapshot(
+        provider_event_id="evt-113502-1",
+        seq_index=1,
+        updated_at="2026-03-13T11:05:00.000Z",
+        round_number=5,
+        score_a=7,
+        score_b=6,
+    )
+    snap_weak_raw["game_number"] = 1
+    snap_weak_raw["team_one"]["id"] = 0
+    snap_weak_raw["team_one"]["provider_id"] = None
+    snap_weak_raw["team_two"]["id"] = 0
+    snap_weak_raw["team_two"]["provider_id"] = None
+
+    snap_trustworthy = _live_snapshot(
+        provider_event_id="evt-113502-2",
+        seq_index=2,
+        updated_at="2026-03-13T11:05:05.000Z",
+        round_number=6,
+        score_a=8,
+        score_b=6,
+    )
+    snap_trustworthy["team_one"]["id"] = 736
+    snap_trustworthy["team_one"]["provider_id"] = "bo3_team_736"
+    snap_trustworthy["team_two"]["id"] = 787
+    snap_trustworthy["team_two"]["provider_id"] = "bo3_team_787"
+
+    plausible_frame = _frame_with_team_ids(
+        team_one_id=736,
+        team_two_id=787,
+        team_one_provider_id="bo3_team_736",
+        team_two_provider_id="bo3_team_787",
+    )
+
+    with (
+        patch("engine.ingest.bo3_client.get_snapshot", AsyncMock(side_effect=[snap_weak_raw, snap_trustworthy])),
+        patch("engine.normalize.bo3_normalize.bo3_snapshot_to_frame", side_effect=[plausible_frame, plausible_frame]),
+        patch(
+            "backend.services.runner._bo3_snapshot_status",
+            side_effect=[("live", None, "2026-03-13T11:05:00.000Z", True), ("live", None, "2026-03-13T11:05:05.000Z", True)],
+        ),
+        patch("backend.services.runner._BO3_RAW_RECORD_DIR", str(logs_dir)),
+        patch("backend.services.runner._BO3_RAW_RECORD_PER_MATCH", True),
+        patch("backend.services.runner._BO3_RAW_RECORD_ENABLED", True),
+        patch("backend.services.bo3_capture_contract._BO3_BACKEND_CAPTURE_ENABLED", True),
+        patch("backend.services.bo3_capture_contract._BO3_BACKEND_CAPTURE_PATH", str(capture_path)),
+    ):
+        did_first = await runner._tick_bo3(config)
+        current_after_first = await store.get_current()
+        assert not capture_path.exists(), "weak raw identity should not start normal capture even when frame identity looks plausible"
+        did_second = await runner._tick_bo3(config)
+
+    assert did_first is True
+    assert did_second is True
+
+    first_debug = ((current_after_first or {}).get("derived") or {}).get("debug") or {}
+    assert first_debug.get("bo3_backend_capture_skipped_reason") == "identity_not_yet_trustworthy"
+
+    rows = []
+    if capture_path.exists():
+        rows = [json.loads(line) for line in capture_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert len(rows) == 1
+    assert rows[0]["match_id"] == 113502
+    assert rows[0]["round_number"] == 6
+    assert rows[0]["team_one_id"] == 736
+    assert rows[0]["team_two_id"] == 787
+
+
+def test_backend_bo3_capture_contract_fresh_match_uses_session_raw_identity_not_global_cache_sync(tmp_path: Path) -> None:
+    asyncio.run(test_backend_bo3_capture_contract_fresh_match_uses_session_raw_identity_not_global_cache(tmp_path))
+
+
+def test_backend_bo3_capture_contract_skips_fresh_match_until_identity_is_trustworthy_sync(tmp_path: Path) -> None:
+    asyncio.run(test_backend_bo3_capture_contract_skips_fresh_match_until_identity_is_trustworthy(tmp_path))
+
+
+def test_backend_bo3_capture_contract_skips_fresh_match_when_raw_identity_is_weak_even_with_game_number_sync(tmp_path: Path) -> None:
+    asyncio.run(test_backend_bo3_capture_contract_skips_fresh_match_when_raw_identity_is_weak_even_with_game_number(tmp_path))
+
+
+
