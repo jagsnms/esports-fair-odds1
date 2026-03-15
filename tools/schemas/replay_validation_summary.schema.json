@@ -203,6 +203,54 @@
     "carryover_completeness_required_fields": {
       "type": "array",
       "items": { "type": "string", "minLength": 1 }
+    },
+    "replay_point_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "records"
+      ],
+      "properties": {
+        "records": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "p_hat",
+              "rail_low",
+              "rail_high",
+              "game_number",
+              "map_index",
+              "round_number",
+              "time"
+            ],
+            "properties": {
+              "p_hat": {
+                "type": ["number", "null"]
+              },
+              "rail_low": {
+                "type": ["number", "null"]
+              },
+              "rail_high": {
+                "type": ["number", "null"]
+              },
+              "game_number": {
+                "type": ["integer", "null"]
+              },
+              "map_index": {
+                "type": ["integer", "null"]
+              },
+              "round_number": {
+                "type": ["integer", "null"]
+              },
+              "time": {
+                "type": ["number", "null"]
+              }
+            }
+          }
+        }
+      }
     }
   }
 }

@@ -127,6 +127,36 @@ def _median(values: list[float]) -> float | None:
     return float((ordered[mid - 1] + ordered[mid]) / 2.0)
 
 
+def _number_or_none(value: Any) -> float | None:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    return None
+
+
+def _int_or_none(value: Any) -> int | None:
+    if isinstance(value, int) and not isinstance(value, bool):
+        return int(value)
+    return None
+
+
+def _build_replay_point_source(captured: list[dict[str, Any]]) -> dict[str, Any]:
+    records: list[dict[str, Any]] = []
+    for item in captured:
+        point = item.get("point") or {}
+        records.append(
+            {
+                "p_hat": _number_or_none(point.get("p_hat")),
+                "rail_low": _number_or_none(point.get("rail_low")),
+                "rail_high": _number_or_none(point.get("rail_high")),
+                "game_number": _int_or_none(point.get("game_number")),
+                "map_index": _int_or_none(point.get("map_index")),
+                "round_number": _int_or_none(point.get("round_number")),
+                # Current promoted replay fixtures do not expose a stable source-like point time.
+                "time": None,
+            }
+        )
+    return {"records": records}
+
 async def run_assessment(
     replay_path: str,
     *,
@@ -386,6 +416,7 @@ async def run_assessment(
         "p_hat_median": _median(p_hats),
         "rail_low_min": min(rail_lows) if rail_lows else None,
         "rail_high_max": max(rail_highs) if rail_highs else None,
+        **({"replay_point_source": _build_replay_point_source(captured)} if include_captured_points else {}),
         **({"captured_points": captured} if include_captured_points else {}),
     }
 

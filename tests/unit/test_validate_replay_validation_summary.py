@@ -70,6 +70,21 @@ def _valid_replay_summary_payload() -> dict:
     }
 
 
+def _valid_replay_point_source_payload() -> dict:
+    return {
+        "records": [
+            {
+                "p_hat": 0.5,
+                "rail_low": 0.4,
+                "rail_high": 0.6,
+                "game_number": None,
+                "map_index": 0,
+                "round_number": None,
+                "time": None,
+            }
+        ]
+    }
+
 def _assert_common_shape(payload: dict) -> None:
     required_keys = {
         "schema_version",
@@ -106,6 +121,41 @@ def test_pass_with_valid_artifact(tmp_path: Path) -> None:
     assert payload["errors"] == []
     assert payload["violations"] == []
     _assert_common_shape(payload)
+
+
+def test_pass_with_valid_artifact_including_replay_point_source(tmp_path: Path) -> None:
+    artifact = tmp_path / "valid_summary_with_point_source.json"
+    payload = _valid_replay_summary_payload()
+    payload["replay_point_source"] = _valid_replay_point_source_payload()
+    _write_json(artifact, payload)
+    exit_code, result = validate_replay_validation_summary(
+        artifact_path=artifact,
+        schema_path=DEFAULT_SCHEMA,
+        validated_at="2026-03-09T20:00:00Z",
+    )
+    assert exit_code == 0
+    assert result["status"] == "pass"
+    assert result["errors"] == []
+    assert result["violations"] == []
+    _assert_common_shape(result)
+
+
+def test_fail_with_out_of_scope_field_in_replay_point_source_record(tmp_path: Path) -> None:
+    artifact = tmp_path / "invalid_summary_with_point_source.json"
+    payload = _valid_replay_summary_payload()
+    payload["replay_point_source"] = _valid_replay_point_source_payload()
+    payload["replay_point_source"]["records"][0]["event"] = None
+    _write_json(artifact, payload)
+    exit_code, result = validate_replay_validation_summary(
+        artifact_path=artifact,
+        schema_path=DEFAULT_SCHEMA,
+        validated_at="2026-03-09T20:00:00Z",
+    )
+    assert exit_code == 2
+    assert result["status"] == "fail"
+    assert result["errors"] == []
+    assert any("$.replay_point_source.records[0]" in violation for violation in result["violations"])
+    _assert_common_shape(result)
 
 
 def test_fail_with_schema_violating_artifact(tmp_path: Path) -> None:

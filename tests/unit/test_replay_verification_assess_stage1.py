@@ -97,6 +97,47 @@ def _run_deterministic(summary_path: Path, *, prematch_map: float | None = None)
     return first, second
 
 
+def _run_deterministic_with_point_source(
+    summary_path: Path,
+    *,
+    prematch_map: float | None = None,
+) -> tuple[dict, dict]:
+    first = asyncio.run(
+        run_assessment(
+            str(summary_path),
+            prematch_map=prematch_map,
+            include_captured_points=True,
+        )
+    )
+    second = asyncio.run(
+        run_assessment(
+            str(summary_path),
+            prematch_map=prematch_map,
+            include_captured_points=True,
+        )
+    )
+    return first, second
+
+
+def _assert_replay_point_source_contract(summary: dict) -> None:
+    point_source = summary["replay_point_source"]
+    assert set(point_source.keys()) == {"records"}
+    assert isinstance(point_source["records"], list)
+    for record in point_source["records"]:
+        assert set(record.keys()) == {
+            "p_hat",
+            "rail_low",
+            "rail_high",
+            "game_number",
+            "map_index",
+            "round_number",
+            "time",
+        }
+        assert "event" not in record
+        assert "derived" not in record
+        assert "debug" not in record
+        assert record["time"] is None
+
 def test_sparse_fallback_classes_remain_deterministic_and_fallback_only() -> None:
     schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
 
@@ -153,6 +194,35 @@ def test_carryover_complete_fixture_activates_v2_with_valid_prematch_map() -> No
     assert first["structural_violations_total"] == 0
     assert first["invariant_violations_total"] == 0
     assert first["behavioral_violations_total"] == 0
+
+
+def test_replay_point_source_contract_is_optional_for_summary_only_runs() -> None:
+    first, second = _run_deterministic(SPARSE_RAW_FIXTURE_PATH)
+    assert "replay_point_source" not in first
+    assert "replay_point_source" not in second
+    assert "captured_points" not in first
+    assert "captured_points" not in second
+
+
+def test_replay_point_source_contract_is_deterministic_and_bounded_for_promoted_replay_fixtures() -> None:
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+
+    for fixture_path, prematch_map in [
+        (SPARSE_RAW_FIXTURE_PATH, None),
+        (SPARSE_MULTIMATCH_FIXTURE_PATH, None),
+        (CARRYOVER_COMPLETE_FIXTURE_PATH, 0.55),
+    ]:
+        first, second = _run_deterministic_with_point_source(
+            fixture_path,
+            prematch_map=prematch_map,
+        )
+        _assert_schema_conformance(first, schema)
+        _assert_schema_conformance(second, schema)
+        assert first["replay_point_source"] == second["replay_point_source"]
+        assert len(first["replay_point_source"]["records"]) == first["total_points_captured"]
+        assert "captured_points" in first
+        _assert_replay_point_source_contract(first)
+        _assert_replay_point_source_contract(second)
 
 
 def test_point_like_replay_is_rejected_and_excluded_from_activation_denominator() -> None:
