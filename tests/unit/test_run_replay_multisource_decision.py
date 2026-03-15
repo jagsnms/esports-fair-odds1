@@ -226,8 +226,54 @@ def test_build_replay_multisource_decision_artifact_surfaces_specific_refusal_cl
         pilot.REFUSAL_CLASS_ALIGNMENT_NO_CANDIDATE_REPLAY_BELOW_CANDIDATE_FAMILY
     )
     assert artifact["decision"]["reasons"] == [
-        "balanced_v1 source block is not replay-comparable enough for a two-source decision (alignment_no_candidate_replay_below_candidate_family)",
-        "eco_bias_v1 source block is not replay-comparable enough for a two-source decision (alignment_no_candidate_replay_below_candidate_family)",
+        "balanced_v1 source block has no lawful replay-comparable slice under the current bounded canonical family (alignment_no_candidate_replay_below_candidate_family)",
+        "eco_bias_v1 source block has no lawful replay-comparable slice under the current bounded canonical family (alignment_no_candidate_replay_below_candidate_family)",
+    ]
+
+
+def test_build_replay_multisource_decision_artifact_keeps_generic_reason_for_above_family_refusal() -> None:
+    replay_summary = _summary(fixture_class="fixture_beta")
+    above_family_alignment = _alignment_payload(
+        target_replay_total_points=200,
+        candidate_totals={32: 159, 31: 154, 33: 164, 30: 149, 34: 169},
+        selected_rounds=None,
+    )
+    balanced_artifact = _pilot_artifact(
+        policy_profile=phase2.PHASE2_STAGE1_POLICY_PROFILE,
+        replay_summary=replay_summary,
+        synthetic_summary=_summary(total_points_captured=159, raw_contract_points=159, p_hat_min=0.30, p_hat_max=0.64),
+        selected_rounds=None,
+        alignment=above_family_alignment,
+        force_inconclusive_reason=pilot.ALIGNMENT_STOP_REASON,
+    )
+    eco_artifact = _pilot_artifact(
+        policy_profile=phase2.PHASE2_SECOND_SOURCE_POLICY_PROFILE,
+        replay_summary=replay_summary,
+        synthetic_summary=_summary(total_points_captured=154, raw_contract_points=154, p_hat_min=0.31, p_hat_max=0.63),
+        selected_rounds=None,
+        alignment=above_family_alignment,
+        force_inconclusive_reason=pilot.ALIGNMENT_STOP_REASON,
+    )
+
+    artifact = decision_tool.build_replay_multisource_decision_artifact(
+        run_id="decision_above_family_generic_reason",
+        replay_input_path="tools/fixtures/replay_carryover_complete_v1.jsonl",
+        generated_at="2026-03-10T00:00:00Z",
+        replay_summary=replay_summary,
+        balanced_artifact=balanced_artifact,
+        eco_artifact=eco_artifact,
+    )
+
+    assert artifact["decision"]["decision"] == "inconclusive"
+    assert artifact["sources"]["balanced_v1"]["refusal_class"] == (
+        pilot.REFUSAL_CLASS_ALIGNMENT_NO_CANDIDATE_REPLAY_ABOVE_CANDIDATE_FAMILY
+    )
+    assert artifact["sources"]["eco_bias_v1"]["refusal_class"] == (
+        pilot.REFUSAL_CLASS_ALIGNMENT_NO_CANDIDATE_REPLAY_ABOVE_CANDIDATE_FAMILY
+    )
+    assert artifact["decision"]["reasons"] == [
+        "balanced_v1 source block is not replay-comparable enough for a two-source decision (alignment_no_candidate_replay_above_candidate_family)",
+        "eco_bias_v1 source block is not replay-comparable enough for a two-source decision (alignment_no_candidate_replay_above_candidate_family)",
     ]
 
 

@@ -234,6 +234,29 @@ def test_build_pilot_decision_artifact_inconclusive_when_synthetic_local_sanity_
     ]
 
 
+def test_build_pilot_decision_artifact_classifies_alignment_refusal_below_candidate_family_and_emits_stronger_reason() -> None:
+    alignment = _alignment_payload(target_replay_total_points=3, candidate_totals={32: 149, 31: 154})
+    artifact = pilot.build_pilot_decision_artifact(
+        run_id="pilot_alignment_below_family",
+        replay_input_path="tools/fixtures/raw_replay_sample.jsonl",
+        synthetic_seed=1337,
+        synthetic_policy_profile=phase2.PHASE2_STAGE1_POLICY_PROFILE,
+        synthetic_rounds=phase2.PHASE2_STAGE1_ROUNDS,
+        synthetic_ticks_per_round=phase2.PHASE2_STAGE1_TICKS_PER_ROUND,
+        generated_at="2026-03-09T00:00:00Z",
+        replay_summary=_summary(total_points_captured=3, raw_contract_points=3),
+        synthetic_summary=_summary(total_points_captured=149, raw_contract_points=149),
+        alignment=alignment,
+        force_inconclusive_reason=pilot.ALIGNMENT_STOP_REASON,
+    )
+
+    assert artifact["decision"] == "inconclusive"
+    assert artifact["decision_reasons"] == [
+        pilot.ALIGNMENT_STOP_REASON,
+        pilot.REPLAY_BELOW_FAMILY_NO_COMPARABLE_SLICE_REASON,
+    ]
+    assert artifact["refusal_class"] == pilot.REFUSAL_CLASS_ALIGNMENT_NO_CANDIDATE_REPLAY_BELOW_CANDIDATE_FAMILY
+
 def test_build_pilot_decision_artifact_classifies_alignment_refusal_above_candidate_family() -> None:
     alignment = _alignment_payload(target_replay_total_points=20, candidate_totals={32: 10, 31: 12})
     artifact = pilot.build_pilot_decision_artifact(
@@ -456,7 +479,10 @@ def test_runner_marks_unaligned_canonical_search_inconclusive(tmp_path: Path, mo
     assert result.decision == "inconclusive"
     assert calls == [(20260310, 32), (20260310, 31), (20260310, 33), (20260310, 30), (20260310, 34)]
     assert payload["decision"] == "inconclusive"
-    assert payload["decision_reasons"] == [pilot.ALIGNMENT_STOP_REASON]
+    assert payload["decision_reasons"] == [
+        pilot.ALIGNMENT_STOP_REASON,
+        pilot.REPLAY_BELOW_FAMILY_NO_COMPARABLE_SLICE_REASON,
+    ]
     assert payload["refusal_class"] == pilot.REFUSAL_CLASS_ALIGNMENT_NO_CANDIDATE_REPLAY_BELOW_CANDIDATE_FAMILY
     assert payload["alignment"]["alignment_achieved"] is False
     assert payload["alignment"]["attempted_synthetic_rounds"] == list(pilot.CANONICAL_PHASE2_ROUND_CANDIDATES)
@@ -507,12 +533,18 @@ def test_runner_uses_canonical_phase2_slice_for_real_fixture_deterministically(t
         assert first_payload["alignment"]["attempted_synthetic_rounds"] == list(pilot.CANONICAL_PHASE2_ROUND_CANDIDATES)
         assert first_payload["alignment"]["selected_synthetic_rounds"] is None
         assert first_payload["decision"] == "inconclusive"
-        assert first_payload["decision_reasons"] == [pilot.ALIGNMENT_STOP_REASON]
         assert first_payload["alignment"]["stop_reason"] == pilot.ALIGNMENT_STOP_REASON
         assert first_payload["refusal_class"] in {
             pilot.REFUSAL_CLASS_ALIGNMENT_NO_CANDIDATE_REPLAY_BELOW_CANDIDATE_FAMILY,
             pilot.REFUSAL_CLASS_ALIGNMENT_NO_CANDIDATE_REPLAY_ABOVE_CANDIDATE_FAMILY,
             pilot.REFUSAL_CLASS_ALIGNMENT_NO_CANDIDATE_WITHIN_CANDIDATE_FAMILY,
         }
+        if first_payload["refusal_class"] == pilot.REFUSAL_CLASS_ALIGNMENT_NO_CANDIDATE_REPLAY_BELOW_CANDIDATE_FAMILY:
+            assert first_payload["decision_reasons"] == [
+                pilot.ALIGNMENT_STOP_REASON,
+                pilot.REPLAY_BELOW_FAMILY_NO_COMPARABLE_SLICE_REASON,
+            ]
+        else:
+            assert first_payload["decision_reasons"] == [pilot.ALIGNMENT_STOP_REASON]
     assert first_payload["synthetic"]["invariant_violations_total"] == 0
     assert first_payload["synthetic"]["behavioral_violations_total"] == 0

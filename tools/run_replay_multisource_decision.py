@@ -126,6 +126,11 @@ def _usable_source_block(source_block: dict[str, Any]) -> bool:
 
 def _source_not_replay_comparable_reason(source_name: str, source_block: dict[str, Any]) -> str:
     refusal_class = source_block.get("refusal_class")
+    if refusal_class == pilot.REFUSAL_CLASS_ALIGNMENT_NO_CANDIDATE_REPLAY_BELOW_CANDIDATE_FAMILY:
+        return (
+            f"{source_name} source block has no lawful replay-comparable slice under the current bounded canonical family "
+            f"({refusal_class})"
+        )
     if isinstance(refusal_class, str) and refusal_class and refusal_class != pilot.REFUSAL_CLASS_NONE:
         return (
             f"{source_name} source block is not replay-comparable enough for a two-source decision "

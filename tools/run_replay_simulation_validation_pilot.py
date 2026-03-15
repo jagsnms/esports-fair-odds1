@@ -92,6 +92,9 @@ CANONICAL_PHASE2_ROUND_CANDIDATES = (32, 31, 33, 30, 34)
 ALIGNMENT_STOP_REASON = (
     "alignment inconclusive: no synthetic round candidate satisfied abs(replay.total_points_captured - synthetic.total_points_captured) <= 1"
 )
+REPLAY_BELOW_FAMILY_NO_COMPARABLE_SLICE_REASON = (
+    "alignment inconclusive: no lawful replay-comparable slice exists under the current bounded canonical family because replay.total_points_captured is below all eligible synthetic candidates"
+)
 TRAJECTORY_FINGERPRINT_INSUFFICIENT_P_HAT_COUNT_REASON = (
     "trajectory fingerprint unavailable: insufficient p_hat_count"
 )
@@ -269,6 +272,12 @@ def _classify_alignment_refusal(alignment: Any) -> str:
     return REFUSAL_CLASS_ALIGNMENT_NO_CANDIDATE_WITHIN_CANDIDATE_FAMILY
 
 
+def _alignment_inconclusive_reasons(*, refusal_class: str, fallback_reason: str) -> list[str]:
+    if refusal_class == REFUSAL_CLASS_ALIGNMENT_NO_CANDIDATE_REPLAY_BELOW_CANDIDATE_FAMILY:
+        return [fallback_reason, REPLAY_BELOW_FAMILY_NO_COMPARABLE_SLICE_REASON]
+    return [fallback_reason]
+
+
 def _build_slice_metadata(
     *,
     replay_input_path: str,
@@ -332,8 +341,11 @@ def build_pilot_decision_artifact(
 
     if force_inconclusive_reason is not None:
         decision = "inconclusive"
-        decision_reasons = [force_inconclusive_reason]
         refusal_class = _classify_alignment_refusal(alignment)
+        decision_reasons = _alignment_inconclusive_reasons(
+            refusal_class=refusal_class,
+            fallback_reason=force_inconclusive_reason,
+        )
     elif decision_reasons:
         decision = "inconclusive"
         refusal_class = (
