@@ -284,6 +284,100 @@
         }
       }
     },
+    "common_point_source_projection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_id",
+        "source_surface",
+        "shared_fields",
+        "projection_limits",
+        "records"
+      ],
+      "properties": {
+        "contract_id": {
+          "type": "string",
+          "const": "common_point_source_projection.v1"
+        },
+        "source_surface": {
+          "type": "string",
+          "const": "replay_point_source"
+        },
+        "shared_fields": {
+          "const": [
+            "p_hat",
+            "rail_low",
+            "rail_high",
+            "game_number",
+            "map_index",
+            "round_number"
+          ]
+        },
+        "projection_limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "side_local_projection_only",
+            "record_matching_implied",
+            "alignment_implied",
+            "scoring_or_selection_implied"
+          ],
+          "properties": {
+            "side_local_projection_only": {
+              "type": "boolean",
+              "const": true
+            },
+            "record_matching_implied": {
+              "type": "boolean",
+              "const": false
+            },
+            "alignment_implied": {
+              "type": "boolean",
+              "const": false
+            },
+            "scoring_or_selection_implied": {
+              "type": "boolean",
+              "const": false
+            }
+          }
+        },
+        "records": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "p_hat",
+              "rail_low",
+              "rail_high",
+              "game_number",
+              "map_index",
+              "round_number"
+            ],
+            "properties": {
+              "p_hat": {
+                "type": ["number", "null"]
+              },
+              "rail_low": {
+                "type": ["number", "null"]
+              },
+              "rail_high": {
+                "type": ["number", "null"]
+              },
+              "game_number": {
+                "type": ["integer", "null"]
+              },
+              "map_index": {
+                "type": ["integer", "null"]
+              },
+              "round_number": {
+                "type": ["integer", "null"]
+              }
+            }
+          }
+        }
+      }
+    },
     "replay_point_source": {
       "type": "object",
       "additionalProperties": false,

@@ -143,6 +143,40 @@ def _assert_replay_point_source_contract(summary: dict) -> None:
         assert record["time"] is None
 
 
+def _assert_common_point_source_projection(summary: dict) -> None:
+    projection = summary["common_point_source_projection"]
+    assert projection["contract_id"] == "common_point_source_projection.v1"
+    assert projection["source_surface"] == "replay_point_source"
+    assert projection["shared_fields"] == [
+        "p_hat",
+        "rail_low",
+        "rail_high",
+        "game_number",
+        "map_index",
+        "round_number",
+    ]
+    assert projection["projection_limits"] == {
+        "side_local_projection_only": True,
+        "record_matching_implied": False,
+        "alignment_implied": False,
+        "scoring_or_selection_implied": False,
+    }
+    assert isinstance(projection["records"], list)
+    for record in projection["records"]:
+        assert set(record.keys()) == {
+            "p_hat",
+            "rail_low",
+            "rail_high",
+            "game_number",
+            "map_index",
+            "round_number",
+        }
+        assert "time" not in record
+        assert "event" not in record
+        assert "derived" not in record
+        assert "debug" not in record
+
+
 def _assert_common_point_source_basis(summary: dict) -> None:
     assert summary["common_point_source_basis"] == common_point_source_basis_descriptor()
     basis = summary["common_point_source_basis"]
@@ -227,6 +261,8 @@ def test_replay_point_source_contract_is_optional_for_summary_only_runs() -> Non
     first, second = _run_deterministic(SPARSE_RAW_FIXTURE_PATH)
     assert "common_point_source_basis" not in first
     assert "common_point_source_basis" not in second
+    assert "common_point_source_projection" not in first
+    assert "common_point_source_projection" not in second
     assert "replay_point_source" not in first
     assert "replay_point_source" not in second
     assert "captured_points" not in first
@@ -248,11 +284,15 @@ def test_replay_point_source_contract_is_deterministic_and_bounded_for_promoted_
         _assert_schema_conformance(first, schema)
         _assert_schema_conformance(second, schema)
         assert first["common_point_source_basis"] == second["common_point_source_basis"]
+        assert first["common_point_source_projection"] == second["common_point_source_projection"]
         assert first["replay_point_source"] == second["replay_point_source"]
         assert len(first["replay_point_source"]["records"]) == first["total_points_captured"]
+        assert len(first["common_point_source_projection"]["records"]) == first["total_points_captured"]
         assert "captured_points" in first
         _assert_common_point_source_basis(first)
         _assert_common_point_source_basis(second)
+        _assert_common_point_source_projection(first)
+        _assert_common_point_source_projection(second)
         _assert_replay_point_source_contract(first)
         _assert_replay_point_source_contract(second)
 

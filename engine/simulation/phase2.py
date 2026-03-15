@@ -81,6 +81,41 @@ def common_point_source_basis_descriptor() -> dict[str, Any]:
     return replay_common_point_source_basis_descriptor()
 
 
+def _build_common_point_source_projection_records(
+    records: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    projected: list[dict[str, Any]] = []
+    for record in records:
+        projected.append(
+            {
+                "p_hat": float(record["p_hat"]),
+                "rail_low": float(record["rail_low"]),
+                "rail_high": float(record["rail_high"]),
+                "game_number": int(record["game_number"]),
+                "map_index": int(record["map_index"]),
+                "round_number": int(record["round_number"]),
+            }
+        )
+    return projected
+
+
+def common_point_source_projection_descriptor(
+    records: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "contract_id": "common_point_source_projection.v1",
+        "source_surface": "canonical_phase2_trace",
+        "shared_fields": list(common_point_source_basis_descriptor()["shared_fields"]),
+        "projection_limits": {
+            "side_local_projection_only": True,
+            "record_matching_implied": False,
+            "alignment_implied": False,
+            "scoring_or_selection_implied": False,
+        },
+        "records": _build_common_point_source_projection_records(records),
+    }
+
+
 
 def _sanitize_replay_summary(
     replay_summary: dict[str, Any],
@@ -177,6 +212,7 @@ def _build_phase2_trace_export(
             "export_condition": PHASE2_TRACE_EXPORT_CONDITION,
         },
         "common_point_source_basis": common_point_source_basis_descriptor(),
+        "common_point_source_projection": common_point_source_projection_descriptor(trace_records),
         "total_prediction_points_seen": int(total_prediction_points_seen),
         "round_result_event_count": int(round_result_event_count),
         "labeled_prediction_record_count": int(len(trace_records)),

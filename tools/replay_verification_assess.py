@@ -51,6 +51,7 @@ CONTRACT_DIAGNOSTIC_REQUIRED_KEYS = [
     "behavioral_violations",
 ]
 COMMON_POINT_SOURCE_BASIS_CONTRACT_ID = "common_point_source_basis.v1"
+COMMON_POINT_SOURCE_PROJECTION_CONTRACT_ID = "common_point_source_projection.v1"
 COMMON_POINT_SOURCE_SHARED_FIELDS = [
     "p_hat",
     "rail_low",
@@ -178,6 +179,44 @@ def _build_replay_point_source(captured: list[dict[str, Any]]) -> dict[str, Any]
             }
         )
     return {"records": records}
+
+
+def _build_common_point_source_projection_records(
+    records: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    projected: list[dict[str, Any]] = []
+    for record in records:
+        projected.append(
+            {
+                "p_hat": _number_or_none(record.get("p_hat")),
+                "rail_low": _number_or_none(record.get("rail_low")),
+                "rail_high": _number_or_none(record.get("rail_high")),
+                "game_number": _int_or_none(record.get("game_number")),
+                "map_index": _int_or_none(record.get("map_index")),
+                "round_number": _int_or_none(record.get("round_number")),
+            }
+        )
+    return projected
+
+
+def _build_replay_common_point_source_projection(
+    replay_point_source: dict[str, Any],
+) -> dict[str, Any]:
+    records = replay_point_source.get("records")
+    if not isinstance(records, list):
+        records = []
+    return {
+        "contract_id": COMMON_POINT_SOURCE_PROJECTION_CONTRACT_ID,
+        "source_surface": "replay_point_source",
+        "shared_fields": list(COMMON_POINT_SOURCE_SHARED_FIELDS),
+        "projection_limits": {
+            "side_local_projection_only": True,
+            "record_matching_implied": False,
+            "alignment_implied": False,
+            "scoring_or_selection_implied": False,
+        },
+        "records": _build_common_point_source_projection_records(records),
+    }
 
 
 def common_point_source_basis_descriptor() -> dict[str, Any]:
@@ -398,6 +437,7 @@ async def run_assessment(
     }
     contract_diagnostics_spec_required_keys = _load_engine_spec_required_keys()
 
+    replay_point_source = _build_replay_point_source(captured) if include_captured_points else None
     return {
         "schema_version": SCHEMA_VERSION,
         "fixture_class": _fixture_class_from_path(replay_path_str),
@@ -452,7 +492,12 @@ async def run_assessment(
         "rail_low_min": min(rail_lows) if rail_lows else None,
         "rail_high_max": max(rail_highs) if rail_highs else None,
         **({"common_point_source_basis": common_point_source_basis_descriptor()} if include_captured_points else {}),
-        **({"replay_point_source": _build_replay_point_source(captured)} if include_captured_points else {}),
+        **({"replay_point_source": replay_point_source} if include_captured_points else {}),
+        **(
+            {"common_point_source_projection": _build_replay_common_point_source_projection(replay_point_source or {})}
+            if include_captured_points
+            else {}
+        ),
         **({"captured_points": captured} if include_captured_points else {}),
     }
 

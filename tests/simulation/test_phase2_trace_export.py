@@ -49,6 +49,22 @@ def test_phase2_trace_export_contract_and_pairing_truthfulness() -> None:
     assert "label_scope" not in trace["common_point_source_basis"]["shared_fields"]
     assert "round_winner_team_id" not in trace["common_point_source_basis"]["shared_fields"]
     assert "round_winner_is_team_a" not in trace["common_point_source_basis"]["shared_fields"]
+    assert trace["common_point_source_projection"]["contract_id"] == "common_point_source_projection.v1"
+    assert trace["common_point_source_projection"]["source_surface"] == "canonical_phase2_trace"
+    assert trace["common_point_source_projection"]["shared_fields"] == [
+        "p_hat",
+        "rail_low",
+        "rail_high",
+        "game_number",
+        "map_index",
+        "round_number",
+    ]
+    assert trace["common_point_source_projection"]["projection_limits"] == {
+        "side_local_projection_only": True,
+        "record_matching_implied": False,
+        "alignment_implied": False,
+        "scoring_or_selection_implied": False,
+    }
 
     assert trace["total_prediction_points_seen"] == (
         phase2.PHASE2_STAGE1_ROUNDS * phase2.PHASE2_STAGE1_TICKS_PER_ROUND
@@ -60,7 +76,9 @@ def test_phase2_trace_export_contract_and_pairing_truthfulness() -> None:
     assert trace["unlabeled_prediction_points_excluded"] == phase2.PHASE2_STAGE1_TICKS_PER_ROUND
 
     records = trace["trace_records"]
+    projected_records = trace["common_point_source_projection"]["records"]
     assert len(records) == trace["labeled_prediction_record_count"]
+    assert len(projected_records) == trace["labeled_prediction_record_count"]
     assert {record["label_scope"] for record in records} == {phase2.PHASE2_TRACE_LABEL_SCOPE}
     assert {record["round_number"] for record in records} == set(range(1, phase2.PHASE2_STAGE1_ROUNDS))
 
@@ -82,6 +100,20 @@ def test_phase2_trace_export_contract_and_pairing_truthfulness() -> None:
 
     for indexes in per_round_indexes.values():
         assert sorted(indexes) == list(range(phase2.PHASE2_STAGE1_TICKS_PER_ROUND))
+
+    for record in projected_records:
+        assert set(record.keys()) == {
+            "p_hat",
+            "rail_low",
+            "rail_high",
+            "game_number",
+            "map_index",
+            "round_number",
+        }
+        assert "point_index_in_round" not in record
+        assert "label_scope" not in record
+        assert "round_winner_team_id" not in record
+        assert "round_winner_is_team_a" not in record
 
 
 def test_eco_bias_trace_export_preserves_same_truthful_rules() -> None:
@@ -105,6 +137,9 @@ def test_eco_bias_trace_export_preserves_same_truthful_rules() -> None:
         "export_condition": phase2.PHASE2_TRACE_EXPORT_CONDITION,
     }
     assert trace["common_point_source_basis"] == phase2.common_point_source_basis_descriptor()
+    assert trace["common_point_source_projection"] == phase2.common_point_source_projection_descriptor(
+        trace["trace_records"]
+    )
     assert trace["total_prediction_points_seen"] == (
         phase2.PHASE2_STAGE1_ROUNDS * phase2.PHASE2_STAGE1_TICKS_PER_ROUND
     )
