@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Body, HTTPException
 
-from backend.deps import get_store
+from backend.deps import get_runner, get_store
 
 router = APIRouter(prefix="/market", tags=["market"])
 
@@ -47,6 +47,15 @@ async def post_market_select(body: dict = Body(...)) -> dict:
         partial["kalshi_url"] = url
     await store.update_config(partial)
     return await store.get_current()
+
+
+@router.get("/status")
+async def get_market_status() -> dict:
+    """Return machine-readable live market selection and polling runtime status."""
+    store = get_store()
+    runner = get_runner()
+    config = await store.get_config()
+    return runner.get_market_status(config)
 
 
 @router.get("/breaches")

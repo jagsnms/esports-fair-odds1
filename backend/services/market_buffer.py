@@ -33,6 +33,10 @@ class MarketDelayBuffer:
         """Append a snapshot: must have ts_epoch, bid, ask, mid, ticker (or compatible)."""
         self._deque.append(dict(snapshot))
 
+    def size(self) -> int:
+        """Return current snapshot count for runtime visibility/debugging."""
+        return len(self._deque)
+
     def get_delayed(self, delay_sec: float) -> dict[str, Any] | None:
         """
         Return the snapshot whose ts_epoch is closest to (now - delay_sec).

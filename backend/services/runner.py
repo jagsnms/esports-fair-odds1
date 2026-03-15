@@ -1354,11 +1354,50 @@ class Runner:
         except Exception as e:
             self._last_market_error = str(e)
 
+    def get_market_status(self, config: Config | None) -> dict[str, Any]:
+        """Return machine-readable runtime status for live market polling/attachment."""
+        cfg = config or Config()
+        market_enabled = bool(getattr(cfg, "market_enabled", True))
+        ticker_raw = getattr(cfg, "kalshi_ticker", None)
+        selected_ticker = str(ticker_raw).strip() if ticker_raw is not None else ""
+        selected_ticker = selected_ticker or None
+        poll_sec = max(1, int(getattr(cfg, "market_poll_sec", 5)))
+        delay_sec = max(0, int(getattr(cfg, "market_delay_sec", 120)))
+        polling_active = market_enabled and selected_ticker is not None
+        inactive_reason: str | None = None
+        if not market_enabled:
+            inactive_reason = "market_disabled"
+        elif selected_ticker is None:
+            inactive_reason = "no_selected_ticker"
+        buffer_size = self._market_buffer.size() if polling_active else 0
+        quote_available = buffer_size > 0
+        last_error = self._last_market_error if polling_active else None
+        if not polling_active:
+            quote_status = "inactive"
+        elif quote_available and last_error:
+            quote_status = "stale_buffer_after_error"
+        elif quote_available:
+            quote_status = "ready"
+        elif last_error:
+            quote_status = "fetch_error"
+        else:
+            quote_status = "awaiting_quote"
+        return {
+            "market_enabled": market_enabled,
+            "market_selected_ticker": selected_ticker,
+            "market_polling_active": polling_active,
+            "market_polling_inactive_reason": inactive_reason,
+            "market_quote_status": quote_status,
+            "market_quote_available": quote_available,
+            "market_last_error": last_error,
+            "market_delay_sec": delay_sec,
+            "market_poll_sec": poll_sec,
+            "market_buffer_size": buffer_size,
+        }
+
     def _get_market_for_point(self, config: Config) -> tuple[float | None, dict[str, Any]]:
-        """Return (market_mid, extra_debug). market_mid from delayed buffer; extra_debug has market_error if set."""
-        out_debug: dict[str, Any] = {}
-        if self._last_market_error:
-            out_debug["market_error"] = self._last_market_error
+        """Return (market_mid, extra_debug) with current market polling/runtime visibility."""
+        out_debug: dict[str, Any] = self.get_market_status(config)
         if not getattr(config, "market_enabled", True) or not getattr(config, "kalshi_ticker", None):
             return (None, out_debug)
         delay_sec = max(0, int(getattr(config, "market_delay_sec", 120)))

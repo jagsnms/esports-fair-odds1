@@ -104,6 +104,19 @@ type TelemetrySessionsResponse = {
   grid_auto_last_refresh_age_s?: number | null
 }
 
+type MarketStatus = {
+  market_enabled: boolean
+  market_selected_ticker: string | null
+  market_polling_active: boolean
+  market_polling_inactive_reason: string | null
+  market_quote_status: 'inactive' | 'awaiting_quote' | 'fetch_error' | 'ready' | 'stale_buffer_after_error'
+  market_quote_available: boolean
+  market_last_error: string | null
+  market_delay_sec: number
+  market_poll_sec: number
+  market_buffer_size: number
+}
+
 const filterHistoryToSeg = (history: Point[] | undefined, seg: number): Point[] => {
   if (!history || history.length === 0) return []
   const segValues = history
@@ -198,6 +211,7 @@ function App() {
   const [marketOptions, setMarketOptions] = useState<Array<{ key: string; label: string; ticker_yes: string }>>([])
   const [selectedMarketKey, setSelectedMarketKey] = useState('')
   const [marketError, setMarketError] = useState<string | null>(null)
+  const [marketStatus, setMarketStatus] = useState<MarketStatus | null>(null)
 
   const [prematchSeriesInput, setPrematchSeriesInput] = useState('')
 
@@ -394,6 +408,27 @@ function App() {
     const id = setInterval(poll, 5000)
     return () => clearInterval(id)
   }, [])
+
+  const refreshMarketStatus = useCallback(async () => {
+    try {
+      const r = await fetch(`${API_BASE}/api/v1/market/status`)
+      if (!r.ok) return
+      const data = await r.json()
+      if (data && typeof data === 'object') {
+        setMarketStatus(data as MarketStatus)
+      }
+    } catch {
+      // Ignore market status fetch failures; they should not disrupt the main UI.
+    }
+  }, [])
+
+  useEffect(() => {
+    void refreshMarketStatus()
+    const id = window.setInterval(() => {
+      void refreshMarketStatus()
+    }, 5000)
+    return () => window.clearInterval(id)
+  }, [refreshMarketStatus, wsReconnectTrigger])
 
   // Telemetry Sessions: poll every 5s when panel is open (render-only; does not trigger provider fetches)
   useEffect(() => {
@@ -1157,6 +1192,7 @@ function App() {
                 const data = await r.json()
                 setCurrent(data)
                 setWsReconnectTrigger((prev) => prev + 1)
+                void refreshMarketStatus()
               } catch (e) {
                 setMarketError(e instanceof Error ? e.message : String(e))
               }
@@ -1172,6 +1208,47 @@ function App() {
           {marketError}
         </p>
       )}
+
+      {(() => {
+        const panelCfg = (current?.state as { config?: Record<string, unknown> } | undefined)?.config ?? {} as Record<string, unknown>
+        const cfgSelectedTicker =
+          typeof panelCfg.kalshi_ticker === 'string' && panelCfg.kalshi_ticker.trim() ? panelCfg.kalshi_ticker.trim() : null
+        const selectedTicker = marketStatus?.market_selected_ticker ?? cfgSelectedTicker
+        const pollingActive = marketStatus?.market_polling_active ?? (!!panelCfg.market_enabled && selectedTicker != null)
+        const inactiveReason =
+          marketStatus?.market_polling_inactive_reason ??
+          (!panelCfg.market_enabled ? 'market_disabled' : selectedTicker == null ? 'no_selected_ticker' : null)
+        return (
+          <div style={{ marginTop: 8, padding: 8, background: '#1f2937', borderRadius: 6, fontSize: 12 }}>
+            <div style={{ marginBottom: 4 }}>
+              Selected ticker:{' '}
+              <strong style={{ color: '#e5e7eb' }}>{selectedTicker ?? 'none'}</strong>
+            </div>
+            <div style={{ marginBottom: 4 }}>
+              Polling:{' '}
+              <strong style={{ color: pollingActive ? '#22c55e' : '#f59e0b' }}>
+                {pollingActive ? 'active' : 'inactive'}
+              </strong>
+              {inactiveReason && <> ({inactiveReason})</>}
+            </div>
+            <div style={{ marginBottom: 4 }}>
+              Quote status:{' '}
+              <strong style={{ color: '#e5e7eb' }}>{marketStatus?.market_quote_status ?? 'inactive'}</strong>
+              {marketStatus?.market_quote_available && <> · buffered={marketStatus.market_buffer_size}</>}
+            </div>
+            {marketStatus?.market_last_error && (
+              <div style={{ color: '#fca5a5' }}>
+                Last market error: {marketStatus.market_last_error}
+              </div>
+            )}
+            {!pollingActive && inactiveReason === 'no_selected_ticker' && (
+              <div style={{ color: '#9ca3af', marginTop: 4 }}>
+                No market is selected, so live market polling is idle and the chart market line will stay empty.
+              </div>
+            )}
+          </div>
+        )
+      })()}
     </section>
   )
 
