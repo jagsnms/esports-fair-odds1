@@ -8,13 +8,13 @@
 - **Truth boundary:** This promoted stage is observability only. It does not change BO3 runtime behavior, does not weaken stale/fresh or safety-gate decisions, and does not claim a fix for upstream coarse progression.
 - **Risks / red flags:** The legacy in-worktree `logs/bo3_backend_live_capture_contract.jsonl` path was explicitly excluded from this promoted packet and should not be treated as part of the stage.
 
-## 2026-03-13 - [LOCAL STAGE] BO3 live freshness-gate clock-rewind diagnosis/fix
-- **Branch:** `codex/backend-bo3-clock-rewind-freshness-fix` (local stage; not promoted)
-- **Initiative / phase:** Local-stage BO3 ingestion behavior correction after promoted pipeline instrumentation showed live snapshots were fetched on time but dying at `freshness_gate_reject: clock_rewind` during an active round.
-- **Summary of local stage work:** Tightened `engine/ingest/bo3_freshness.py`, added focused deterministic coverage in `tests/unit/test_runner_bo3_monotonic_gate.py`, and now accept a `clock_rewind` snapshot only when it also shows explicit meaningful live advancement such as score progression, alive-count drop, bomb-planted transition, or known round-phase progression.
-- **Why this local stage matters:** The app should not stay stuck on older accepted state solely because one clock surface rewinds if the same BO3 snapshot clearly advances the live round in other meaningful ways.
-- **Truth boundary:** This stage is a narrow BO3 freshness-gate behavior correction only. It does not redesign the live path, does not change exporter logic, and does not claim that all BO3 lag classes are solved.
-- **Risks / red flags:** Raw snapshot logs still dedupe unchanged payloads, and this stage remains conservative by preserving rejection for truly stale/regressing snapshots and for clock rewinds with no explicit advancement signal.
+## 2026-03-13 - BO3 live freshness-gate clock-rewind diagnosis/fix
+- **Promoted from:** `codex/backend-bo3-clock-rewind-freshness-fix`
+- **Initiative / phase:** Narrow BO3 ingestion behavior correction after promoted pipeline instrumentation showed live snapshots were fetched on time but dying at `freshness_gate_reject: clock_rewind` during an active round.
+- **Summary of promoted work:** Tightened `engine/ingest/bo3_freshness.py`, added focused deterministic coverage in `tests/unit/test_runner_bo3_monotonic_gate.py`, and now accept a `clock_rewind` snapshot only when it also shows explicit meaningful live advancement such as score progression, alive-count drop, bomb-planted transition, or known round-phase progression.
+- **Why this promoted stage matters:** The app should not stay stuck on older accepted state solely because one clock surface rewinds if the same BO3 snapshot clearly advances the live round in other meaningful ways.
+- **Truth boundary:** This promoted stage is a narrow BO3 freshness-gate behavior correction only. It does not redesign the live path, does not change exporter logic, and does not claim that all BO3 lag classes are solved.
+- **Risks / red flags:** Raw snapshot logs still dedupe unchanged payloads, and this promoted stage remains conservative by preserving rejection for truly stale/regressing snapshots and for clock rewinds with no explicit advancement signal.
 ## 2026-03-13 - BO3.gg poller and live ingestion pipeline audit instrumentation
 - **Promoted from:** `codex/backend-bo3-poller-ingestion-audit`
 - **Initiative / phase:** Narrow BO3 live audit/instrumentation step after confirming that live lag concerns needed fetch -> suppression -> propagation evidence instead of guesswork.
