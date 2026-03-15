@@ -50,7 +50,29 @@ CONTRACT_DIAGNOSTIC_REQUIRED_KEYS = [
     "structural_violations",
     "behavioral_violations",
 ]
-
+COMMON_POINT_SOURCE_BASIS_CONTRACT_ID = "common_point_source_basis.v1"
+COMMON_POINT_SOURCE_SHARED_FIELDS = [
+    "p_hat",
+    "rail_low",
+    "rail_high",
+    "game_number",
+    "map_index",
+    "round_number",
+]
+COMMON_POINT_SOURCE_EXCLUDED_FIELDS_BY_SOURCE = {
+    "replay_point_source": [
+        "time",
+        "point.event",
+        "derived",
+        "derived.debug",
+    ],
+    "canonical_phase2_trace": [
+        "point_index_in_round",
+        "label_scope",
+        "round_winner_team_id",
+        "round_winner_is_team_a",
+    ],
+}
 
 def _load_engine_spec_required_keys() -> list[str]:
     """Load canonical diagnostics required keys from ENGINE_SPEC with trim+dedupe normalization."""
@@ -157,6 +179,19 @@ def _build_replay_point_source(captured: list[dict[str, Any]]) -> dict[str, Any]
         )
     return {"records": records}
 
+
+def common_point_source_basis_descriptor() -> dict[str, Any]:
+    return {
+        "contract_id": COMMON_POINT_SOURCE_BASIS_CONTRACT_ID,
+        "shared_fields": list(COMMON_POINT_SOURCE_SHARED_FIELDS),
+        "excluded_fields_by_source": dict(COMMON_POINT_SOURCE_EXCLUDED_FIELDS_BY_SOURCE),
+        "contract_limits": {
+            "shared_field_subset_only": True,
+            "record_matching_implied": False,
+            "alignment_implied": False,
+            "scoring_or_selection_implied": False,
+        },
+    }
 async def run_assessment(
     replay_path: str,
     *,
@@ -416,6 +451,7 @@ async def run_assessment(
         "p_hat_median": _median(p_hats),
         "rail_low_min": min(rail_lows) if rail_lows else None,
         "rail_high_max": max(rail_highs) if rail_highs else None,
+        **({"common_point_source_basis": common_point_source_basis_descriptor()} if include_captured_points else {}),
         **({"replay_point_source": _build_replay_point_source(captured)} if include_captured_points else {}),
         **({"captured_points": captured} if include_captured_points else {}),
     }

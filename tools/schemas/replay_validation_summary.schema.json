@@ -204,6 +204,86 @@
       "type": "array",
       "items": { "type": "string", "minLength": 1 }
     },
+    "common_point_source_basis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_id",
+        "shared_fields",
+        "excluded_fields_by_source",
+        "contract_limits"
+      ],
+      "properties": {
+        "contract_id": {
+          "type": "string",
+          "const": "common_point_source_basis.v1"
+        },
+        "shared_fields": {
+          "const": [
+            "p_hat",
+            "rail_low",
+            "rail_high",
+            "game_number",
+            "map_index",
+            "round_number"
+          ]
+        },
+        "excluded_fields_by_source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "replay_point_source",
+            "canonical_phase2_trace"
+          ],
+          "properties": {
+            "replay_point_source": {
+              "const": [
+                "time",
+                "point.event",
+                "derived",
+                "derived.debug"
+              ]
+            },
+            "canonical_phase2_trace": {
+              "const": [
+                "point_index_in_round",
+                "label_scope",
+                "round_winner_team_id",
+                "round_winner_is_team_a"
+              ]
+            }
+          }
+        },
+        "contract_limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "shared_field_subset_only",
+            "record_matching_implied",
+            "alignment_implied",
+            "scoring_or_selection_implied"
+          ],
+          "properties": {
+            "shared_field_subset_only": {
+              "type": "boolean",
+              "const": true
+            },
+            "record_matching_implied": {
+              "type": "boolean",
+              "const": false
+            },
+            "alignment_implied": {
+              "type": "boolean",
+              "const": false
+            },
+            "scoring_or_selection_implied": {
+              "type": "boolean",
+              "const": false
+            }
+          }
+        }
+      }
+    },
     "replay_point_source": {
       "type": "object",
       "additionalProperties": false,

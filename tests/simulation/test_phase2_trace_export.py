@@ -30,6 +30,25 @@ def test_phase2_trace_export_contract_and_pairing_truthfulness() -> None:
         "join_keys": list(phase2.PHASE2_TRACE_JOIN_KEYS),
         "export_condition": phase2.PHASE2_TRACE_EXPORT_CONDITION,
     }
+    assert trace["common_point_source_basis"] == phase2.common_point_source_basis_descriptor()
+    assert trace["common_point_source_basis"]["shared_fields"] == [
+        "p_hat",
+        "rail_low",
+        "rail_high",
+        "game_number",
+        "map_index",
+        "round_number",
+    ]
+    assert trace["common_point_source_basis"]["contract_limits"] == {
+        "shared_field_subset_only": True,
+        "record_matching_implied": False,
+        "alignment_implied": False,
+        "scoring_or_selection_implied": False,
+    }
+    assert "point_index_in_round" not in trace["common_point_source_basis"]["shared_fields"]
+    assert "label_scope" not in trace["common_point_source_basis"]["shared_fields"]
+    assert "round_winner_team_id" not in trace["common_point_source_basis"]["shared_fields"]
+    assert "round_winner_is_team_a" not in trace["common_point_source_basis"]["shared_fields"]
 
     assert trace["total_prediction_points_seen"] == (
         phase2.PHASE2_STAGE1_ROUNDS * phase2.PHASE2_STAGE1_TICKS_PER_ROUND
@@ -85,6 +104,7 @@ def test_eco_bias_trace_export_preserves_same_truthful_rules() -> None:
         "join_keys": list(phase2.PHASE2_TRACE_JOIN_KEYS),
         "export_condition": phase2.PHASE2_TRACE_EXPORT_CONDITION,
     }
+    assert trace["common_point_source_basis"] == phase2.common_point_source_basis_descriptor()
     assert trace["total_prediction_points_seen"] == (
         phase2.PHASE2_STAGE1_ROUNDS * phase2.PHASE2_STAGE1_TICKS_PER_ROUND
     )

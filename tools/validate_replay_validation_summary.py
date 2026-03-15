@@ -116,7 +116,7 @@ def validate_replay_validation_summary(
         result["errors"] = [f"schema unusable validator setup: {exc}"]
         return 1, result
 
-    # Optional nested replay_point_source data is validated entirely by schema when present.
+    # Optional nested replay_point_source and common_point_source_basis data are validated entirely by schema when present.
     violations = sorted(
         list(validator.iter_errors(artifact_obj)),
         key=lambda err: (

@@ -85,6 +85,39 @@ def _valid_replay_point_source_payload() -> dict:
         ]
     }
 
+
+def _valid_common_point_source_basis_payload() -> dict:
+    return {
+        "contract_id": "common_point_source_basis.v1",
+        "shared_fields": [
+            "p_hat",
+            "rail_low",
+            "rail_high",
+            "game_number",
+            "map_index",
+            "round_number",
+        ],
+        "excluded_fields_by_source": {
+            "replay_point_source": [
+                "time",
+                "point.event",
+                "derived",
+                "derived.debug",
+            ],
+            "canonical_phase2_trace": [
+                "point_index_in_round",
+                "label_scope",
+                "round_winner_team_id",
+                "round_winner_is_team_a",
+            ],
+        },
+        "contract_limits": {
+            "shared_field_subset_only": True,
+            "record_matching_implied": False,
+            "alignment_implied": False,
+            "scoring_or_selection_implied": False,
+        },
+    }
 def _assert_common_shape(payload: dict) -> None:
     required_keys = {
         "schema_version",
@@ -126,6 +159,7 @@ def test_pass_with_valid_artifact(tmp_path: Path) -> None:
 def test_pass_with_valid_artifact_including_replay_point_source(tmp_path: Path) -> None:
     artifact = tmp_path / "valid_summary_with_point_source.json"
     payload = _valid_replay_summary_payload()
+    payload["common_point_source_basis"] = _valid_common_point_source_basis_payload()
     payload["replay_point_source"] = _valid_replay_point_source_payload()
     _write_json(artifact, payload)
     exit_code, result = validate_replay_validation_summary(
@@ -143,6 +177,7 @@ def test_pass_with_valid_artifact_including_replay_point_source(tmp_path: Path) 
 def test_fail_with_out_of_scope_field_in_replay_point_source_record(tmp_path: Path) -> None:
     artifact = tmp_path / "invalid_summary_with_point_source.json"
     payload = _valid_replay_summary_payload()
+    payload["common_point_source_basis"] = _valid_common_point_source_basis_payload()
     payload["replay_point_source"] = _valid_replay_point_source_payload()
     payload["replay_point_source"]["records"][0]["event"] = None
     _write_json(artifact, payload)
@@ -157,6 +192,24 @@ def test_fail_with_out_of_scope_field_in_replay_point_source_record(tmp_path: Pa
     assert any("$.replay_point_source.records[0]" in violation for violation in result["violations"])
     _assert_common_shape(result)
 
+
+def test_fail_with_invalid_common_point_source_basis_shared_fields(tmp_path: Path) -> None:
+    artifact = tmp_path / "invalid_common_basis_summary.json"
+    payload = _valid_replay_summary_payload()
+    payload["common_point_source_basis"] = _valid_common_point_source_basis_payload()
+    payload["common_point_source_basis"]["shared_fields"].append("time")
+    payload["replay_point_source"] = _valid_replay_point_source_payload()
+    _write_json(artifact, payload)
+    exit_code, result = validate_replay_validation_summary(
+        artifact_path=artifact,
+        schema_path=DEFAULT_SCHEMA,
+        validated_at="2026-03-09T20:00:00Z",
+    )
+    assert exit_code == 2
+    assert result["status"] == "fail"
+    assert result["errors"] == []
+    assert any("$.common_point_source_basis.shared_fields" in violation for violation in result["violations"])
+    _assert_common_shape(result)
 
 def test_fail_with_schema_violating_artifact(tmp_path: Path) -> None:
     artifact = tmp_path / "invalid_summary.json"

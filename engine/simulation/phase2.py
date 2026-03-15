@@ -8,7 +8,10 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from tools.replay_verification_assess import run_assessment
+from tools.replay_verification_assess import (
+    common_point_source_basis_descriptor as replay_common_point_source_basis_descriptor,
+    run_assessment,
+)
 from tools.synthetic_state_generator import (
     POLICY_FAMILIES,
     generate_synthetic_distribution_summary,
@@ -72,6 +75,10 @@ def phase2_summary_metadata(policy_profile: str) -> dict[str, str]:
         "fixture_class": phase2_fixture_class(profile),
         "trace_source_contract": phase2_trace_source_contract(profile),
     }
+
+
+def common_point_source_basis_descriptor() -> dict[str, Any]:
+    return replay_common_point_source_basis_descriptor()
 
 
 
@@ -169,6 +176,7 @@ def _build_phase2_trace_export(
             "join_keys": list(PHASE2_TRACE_JOIN_KEYS),
             "export_condition": PHASE2_TRACE_EXPORT_CONDITION,
         },
+        "common_point_source_basis": common_point_source_basis_descriptor(),
         "total_prediction_points_seen": int(total_prediction_points_seen),
         "round_result_event_count": int(round_result_event_count),
         "labeled_prediction_record_count": int(len(trace_records)),

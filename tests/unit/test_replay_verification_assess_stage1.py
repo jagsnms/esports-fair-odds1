@@ -4,7 +4,11 @@ import asyncio
 import json
 from pathlib import Path
 
-from tools.replay_verification_assess import run_assessment, CONTRACT_DIAGNOSTIC_REQUIRED_KEYS
+from tools.replay_verification_assess import (
+    CONTRACT_DIAGNOSTIC_REQUIRED_KEYS,
+    common_point_source_basis_descriptor,
+    run_assessment,
+)
 from engine.compute.rails_cs2 import (
     RAIL_INPUT_POLICY_V2_STRICT,
     V2_ACTIVATED,
@@ -138,6 +142,29 @@ def _assert_replay_point_source_contract(summary: dict) -> None:
         assert "debug" not in record
         assert record["time"] is None
 
+
+def _assert_common_point_source_basis(summary: dict) -> None:
+    assert summary["common_point_source_basis"] == common_point_source_basis_descriptor()
+    basis = summary["common_point_source_basis"]
+    assert basis["shared_fields"] == [
+        "p_hat",
+        "rail_low",
+        "rail_high",
+        "game_number",
+        "map_index",
+        "round_number",
+    ]
+    assert "time" not in basis["shared_fields"]
+    assert "point_index_in_round" not in basis["shared_fields"]
+    assert "label_scope" not in basis["shared_fields"]
+    assert "round_winner_team_id" not in basis["shared_fields"]
+    assert "round_winner_is_team_a" not in basis["shared_fields"]
+    assert basis["contract_limits"] == {
+        "shared_field_subset_only": True,
+        "record_matching_implied": False,
+        "alignment_implied": False,
+        "scoring_or_selection_implied": False,
+    }
 def test_sparse_fallback_classes_remain_deterministic_and_fallback_only() -> None:
     schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
 
@@ -198,6 +225,8 @@ def test_carryover_complete_fixture_activates_v2_with_valid_prematch_map() -> No
 
 def test_replay_point_source_contract_is_optional_for_summary_only_runs() -> None:
     first, second = _run_deterministic(SPARSE_RAW_FIXTURE_PATH)
+    assert "common_point_source_basis" not in first
+    assert "common_point_source_basis" not in second
     assert "replay_point_source" not in first
     assert "replay_point_source" not in second
     assert "captured_points" not in first
@@ -218,9 +247,12 @@ def test_replay_point_source_contract_is_deterministic_and_bounded_for_promoted_
         )
         _assert_schema_conformance(first, schema)
         _assert_schema_conformance(second, schema)
+        assert first["common_point_source_basis"] == second["common_point_source_basis"]
         assert first["replay_point_source"] == second["replay_point_source"]
         assert len(first["replay_point_source"]["records"]) == first["total_points_captured"]
         assert "captured_points" in first
+        _assert_common_point_source_basis(first)
+        _assert_common_point_source_basis(second)
         _assert_replay_point_source_contract(first)
         _assert_replay_point_source_contract(second)
 
