@@ -41,11 +41,24 @@ def _summary(
     return payload
 
 
-def _alignment_payload(*, selected_rounds: int | None = phase2.PHASE2_STAGE1_ROUNDS) -> dict[str, object]:
+def _alignment_payload(
+    *,
+    target_replay_total_points: int = 10,
+    candidate_totals: dict[int, int] | None = None,
+    selected_rounds: int | None = phase2.PHASE2_STAGE1_ROUNDS,
+) -> dict[str, object]:
+    candidate_totals = candidate_totals or {32: 10}
     return {
-        "target_replay_total_points": 10,
-        "attempted_synthetic_rounds": [32],
-        "attempt_results": [{"attempted_rounds": 32, "synthetic_total_points": 10, "abs_delta": 0}],
+        "target_replay_total_points": target_replay_total_points,
+        "attempted_synthetic_rounds": list(candidate_totals.keys()),
+        "attempt_results": [
+            {
+                "attempted_rounds": int(round_count),
+                "synthetic_total_points": int(total_points),
+                "abs_delta": abs(int(target_replay_total_points) - int(total_points)),
+            }
+            for round_count, total_points in candidate_totals.items()
+        ],
         "selected_synthetic_rounds": selected_rounds,
         "alignment_achieved": selected_rounds is not None,
         "stop_reason": None if selected_rounds is not None else pilot.ALIGNMENT_STOP_REASON,
@@ -58,7 +71,10 @@ def _pilot_artifact(
     replay_summary: dict[str, object],
     synthetic_summary: dict[str, object],
     selected_rounds: int | None = phase2.PHASE2_STAGE1_ROUNDS,
+    alignment: dict[str, object] | None = None,
+    force_inconclusive_reason: str | None = None,
 ) -> dict[str, object]:
+    alignment_payload = alignment or _alignment_payload(selected_rounds=selected_rounds)
     return pilot.build_pilot_decision_artifact(
         run_id=f"artifact_{policy_profile}",
         replay_input_path="tools/fixtures/replay_carryover_complete_v1.jsonl",
@@ -70,8 +86,8 @@ def _pilot_artifact(
         replay_summary=replay_summary,
         synthetic_summary=synthetic_summary,
         synthetic_source_contract=phase2.phase2_source_contract(policy_profile),
-        alignment=_alignment_payload(selected_rounds=selected_rounds),
-        force_inconclusive_reason=(None if selected_rounds is not None else pilot.ALIGNMENT_STOP_REASON),
+        alignment=alignment_payload,
+        force_inconclusive_reason=force_inconclusive_reason,
     )
 
 
@@ -101,6 +117,7 @@ def test_build_replay_multisource_decision_artifact_prefers_balanced_when_it_has
     assert artifact["decision"]["decision_basis"] == decision_tool.DECISION_BASIS
     assert artifact["replay_anchor"]["fixture_class"] == "replay_fixture_class"
     assert sorted(artifact["sources"].keys()) == ["balanced_v1", "eco_bias_v1"]
+    assert artifact["sources"]["balanced_v1"]["refusal_class"] == pilot.REFUSAL_CLASS_NONE
     assert artifact["sources"]["balanced_v1"]["cross_surface_failed_checks"] == []
     assert artifact["sources"]["eco_bias_v1"]["cross_surface_failed_checks"] == [
         pilot.CHECK_ID_P_HAT_MIN_ABS_DELTA_LTE_0_05,
@@ -168,6 +185,52 @@ def test_equal_failed_check_count_with_different_failed_check_identities_does_no
     assert artifact["decision"]["decision"] != "no_material_difference"
 
 
+def test_build_replay_multisource_decision_artifact_surfaces_specific_refusal_classes_for_unusable_sources() -> None:
+    replay_summary = _summary(fixture_class="fixture_alpha")
+    unaligned_alignment = _alignment_payload(
+        target_replay_total_points=3,
+        candidate_totals={32: 159, 31: 154, 33: 164, 30: 149, 34: 169},
+        selected_rounds=None,
+    )
+    balanced_artifact = _pilot_artifact(
+        policy_profile=phase2.PHASE2_STAGE1_POLICY_PROFILE,
+        replay_summary=replay_summary,
+        synthetic_summary=_summary(total_points_captured=159, raw_contract_points=159, p_hat_min=0.30, p_hat_max=0.64),
+        selected_rounds=None,
+        alignment=unaligned_alignment,
+        force_inconclusive_reason=pilot.ALIGNMENT_STOP_REASON,
+    )
+    eco_artifact = _pilot_artifact(
+        policy_profile=phase2.PHASE2_SECOND_SOURCE_POLICY_PROFILE,
+        replay_summary=replay_summary,
+        synthetic_summary=_summary(total_points_captured=154, raw_contract_points=154, p_hat_min=0.31, p_hat_max=0.63),
+        selected_rounds=None,
+        alignment=unaligned_alignment,
+        force_inconclusive_reason=pilot.ALIGNMENT_STOP_REASON,
+    )
+
+    artifact = decision_tool.build_replay_multisource_decision_artifact(
+        run_id="decision_specific_refusal_classes",
+        replay_input_path="tools/fixtures/replay_carryover_complete_v1.jsonl",
+        generated_at="2026-03-10T00:00:00Z",
+        replay_summary=replay_summary,
+        balanced_artifact=balanced_artifact,
+        eco_artifact=eco_artifact,
+    )
+
+    assert artifact["decision"]["decision"] == "inconclusive"
+    assert artifact["sources"]["balanced_v1"]["refusal_class"] == (
+        pilot.REFUSAL_CLASS_ALIGNMENT_NO_CANDIDATE_REPLAY_BELOW_CANDIDATE_FAMILY
+    )
+    assert artifact["sources"]["eco_bias_v1"]["refusal_class"] == (
+        pilot.REFUSAL_CLASS_ALIGNMENT_NO_CANDIDATE_REPLAY_BELOW_CANDIDATE_FAMILY
+    )
+    assert artifact["decision"]["reasons"] == [
+        "balanced_v1 source block is not replay-comparable enough for a two-source decision (alignment_no_candidate_replay_below_candidate_family)",
+        "eco_bias_v1 source block is not replay-comparable enough for a two-source decision (alignment_no_candidate_replay_below_candidate_family)",
+    ]
+
+
 def test_runner_writes_stable_combined_two_source_artifact(tmp_path: Path, monkeypatch) -> None:
     replay_input = tmp_path / "replay.jsonl"
     replay_input.write_text('{"dummy": true}\n', encoding="utf-8")
@@ -231,5 +294,7 @@ def test_runner_writes_stable_combined_two_source_artifact(tmp_path: Path, monke
     assert payload["decision"]["decision_basis"] == decision_tool.DECISION_BASIS
     assert sorted(payload["sources"].keys()) == ["balanced_v1", "eco_bias_v1"]
     assert payload["sources"]["balanced_v1"]["synthetic_seed"] == decision_tool.FIXED_SYNTHETIC_SEED
+    assert payload["sources"]["balanced_v1"]["refusal_class"] == pilot.REFUSAL_CLASS_NONE
     assert payload["sources"]["eco_bias_v1"]["synthetic_seed"] == decision_tool.FIXED_SYNTHETIC_SEED
+    assert payload["sources"]["eco_bias_v1"]["refusal_class"] == pilot.REFUSAL_CLASS_NONE
     assert payload["replay_anchor"]["fixture_class"] == "fixture_alpha"

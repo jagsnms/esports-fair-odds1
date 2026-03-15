@@ -53,6 +53,29 @@ def _canonical_phase2_artifact(
     }
 
 
+def _alignment_payload(
+    *,
+    target_replay_total_points: int,
+    candidate_totals: dict[int, int],
+    selected_rounds: int | None = None,
+) -> dict[str, object]:
+    return {
+        "target_replay_total_points": target_replay_total_points,
+        "attempted_synthetic_rounds": list(candidate_totals.keys()),
+        "attempt_results": [
+            {
+                "attempted_rounds": int(round_count),
+                "synthetic_total_points": int(total_points),
+                "abs_delta": abs(int(target_replay_total_points) - int(total_points)),
+            }
+            for round_count, total_points in candidate_totals.items()
+        ],
+        "selected_synthetic_rounds": selected_rounds,
+        "alignment_achieved": selected_rounds is not None,
+        "stop_reason": None if selected_rounds is not None else pilot.ALIGNMENT_STOP_REASON,
+    }
+
+
 def _assert_decision_contract_coherence(payload: dict[str, object]) -> None:
     decision = payload["decision"]
     comparison = payload["comparison"]
@@ -60,11 +83,13 @@ def _assert_decision_contract_coherence(payload: dict[str, object]) -> None:
     failed_checks = comparison["failed_checks"]
     mismatch_class = comparison["mismatch_class"]
     decision_reasons = payload["decision_reasons"]
+    refusal_class = payload["refusal_class"]
 
     if decision == "pass":
         assert failed_checks == []
         assert mismatch_class == "none"
         assert decision_reasons == []
+        assert refusal_class == pilot.REFUSAL_CLASS_NONE
         return
     if decision == "mismatch":
         assert isinstance(failed_checks, list)
@@ -74,11 +99,13 @@ def _assert_decision_contract_coherence(payload: dict[str, object]) -> None:
         else:
             assert mismatch_class == "cross_surface_behavioral_or_metric"
         assert isinstance(decision_reasons, list) and len(decision_reasons) > 0
+        assert refusal_class == pilot.REFUSAL_CLASS_NONE
         return
     if decision == "inconclusive":
         assert failed_checks == []
         assert mismatch_class == "none"
         assert isinstance(decision_reasons, list) and len(decision_reasons) > 0
+        assert isinstance(refusal_class, str) and refusal_class != pilot.REFUSAL_CLASS_NONE
         return
     raise AssertionError(f"unexpected decision: {decision!r}")
 
@@ -98,6 +125,7 @@ def test_build_pilot_decision_artifact_pass_when_local_and_cross_checks_hold() -
 
     assert artifact["decision"] == "pass"
     assert artifact["decision_reasons"] == []
+    assert artifact["refusal_class"] == pilot.REFUSAL_CLASS_NONE
     assert artifact["comparison"]["cross_surface_pass"] is True
     assert artifact["comparison"]["failed_checks"] == []
     assert artifact["slice"]["synthetic_source_contract"] == pilot.CANONICAL_PHASE2_SOURCE_CONTRACT
@@ -118,6 +146,7 @@ def test_build_pilot_decision_artifact_mismatch_when_cross_surface_delta_exceeds
     )
 
     assert artifact["decision"] == "mismatch"
+    assert artifact["refusal_class"] == pilot.REFUSAL_CLASS_NONE
     assert artifact["comparison"]["failed_checks"] == [
         "p_hat_min_abs_delta_lte_0_05",
         "p_hat_max_abs_delta_lte_0_05",
@@ -142,6 +171,109 @@ def test_build_pilot_decision_artifact_inconclusive_when_p_hat_count_is_insuffic
     assert artifact["decision"] == "inconclusive"
     assert artifact["comparison"]["failed_checks"] == []
     assert artifact["decision_reasons"] == [pilot.TRAJECTORY_FINGERPRINT_INSUFFICIENT_P_HAT_COUNT_REASON]
+    assert artifact["refusal_class"] == pilot.REFUSAL_CLASS_TRAJECTORY_FINGERPRINT_INSUFFICIENT
+
+
+def test_build_pilot_decision_artifact_inconclusive_when_p_hat_median_is_missing() -> None:
+    replay_summary = _summary()
+    replay_summary.pop("p_hat_median")
+    artifact = pilot.build_pilot_decision_artifact(
+        run_id="pilot_missing_p_hat_median",
+        replay_input_path="tools/fixtures/raw_replay_sample.jsonl",
+        synthetic_seed=1337,
+        synthetic_policy_profile=phase2.PHASE2_STAGE1_POLICY_PROFILE,
+        synthetic_rounds=phase2.PHASE2_STAGE1_ROUNDS,
+        synthetic_ticks_per_round=phase2.PHASE2_STAGE1_TICKS_PER_ROUND,
+        generated_at="2026-03-09T00:00:00Z",
+        replay_summary=replay_summary,
+        synthetic_summary=_summary(),
+    )
+
+    assert artifact["decision"] == "inconclusive"
+    assert artifact["decision_reasons"] == ["trajectory fingerprint unavailable: missing p_hat_median"]
+    assert artifact["refusal_class"] == pilot.REFUSAL_CLASS_TRAJECTORY_FINGERPRINT_INSUFFICIENT
+
+
+def test_build_pilot_decision_artifact_inconclusive_when_replay_local_sanity_fails() -> None:
+    artifact = pilot.build_pilot_decision_artifact(
+        run_id="pilot_replay_local_sanity_failure",
+        replay_input_path="tools/fixtures/raw_replay_sample.jsonl",
+        synthetic_seed=1337,
+        synthetic_policy_profile=phase2.PHASE2_STAGE1_POLICY_PROFILE,
+        synthetic_rounds=phase2.PHASE2_STAGE1_ROUNDS,
+        synthetic_ticks_per_round=phase2.PHASE2_STAGE1_TICKS_PER_ROUND,
+        generated_at="2026-03-09T00:00:00Z",
+        replay_summary=_summary(raw_contract_points=9),
+        synthetic_summary=_summary(),
+    )
+
+    assert artifact["decision"] == "inconclusive"
+    assert artifact["refusal_class"] == pilot.REFUSAL_CLASS_LOCAL_SANITY_REPLAY_FAILURE
+    assert artifact["decision_reasons"] == [
+        "replay local sanity failed: raw_contract_points must equal total_points_captured exactly"
+    ]
+
+
+def test_build_pilot_decision_artifact_inconclusive_when_synthetic_local_sanity_fails() -> None:
+    artifact = pilot.build_pilot_decision_artifact(
+        run_id="pilot_synthetic_local_sanity_failure",
+        replay_input_path="tools/fixtures/raw_replay_sample.jsonl",
+        synthetic_seed=1337,
+        synthetic_policy_profile=phase2.PHASE2_STAGE1_POLICY_PROFILE,
+        synthetic_rounds=phase2.PHASE2_STAGE1_ROUNDS,
+        synthetic_ticks_per_round=phase2.PHASE2_STAGE1_TICKS_PER_ROUND,
+        generated_at="2026-03-09T00:00:00Z",
+        replay_summary=_summary(),
+        synthetic_summary=_summary(raw_contract_points=9),
+    )
+
+    assert artifact["decision"] == "inconclusive"
+    assert artifact["refusal_class"] == pilot.REFUSAL_CLASS_LOCAL_SANITY_SYNTHETIC_FAILURE
+    assert artifact["decision_reasons"] == [
+        "synthetic local sanity failed: raw_contract_points must equal total_points_captured exactly"
+    ]
+
+
+def test_build_pilot_decision_artifact_classifies_alignment_refusal_above_candidate_family() -> None:
+    alignment = _alignment_payload(target_replay_total_points=20, candidate_totals={32: 10, 31: 12})
+    artifact = pilot.build_pilot_decision_artifact(
+        run_id="pilot_alignment_above_family",
+        replay_input_path="tools/fixtures/raw_replay_sample.jsonl",
+        synthetic_seed=1337,
+        synthetic_policy_profile=phase2.PHASE2_STAGE1_POLICY_PROFILE,
+        synthetic_rounds=phase2.PHASE2_STAGE1_ROUNDS,
+        synthetic_ticks_per_round=phase2.PHASE2_STAGE1_TICKS_PER_ROUND,
+        generated_at="2026-03-09T00:00:00Z",
+        replay_summary=_summary(total_points_captured=20, raw_contract_points=20),
+        synthetic_summary=_summary(total_points_captured=10, raw_contract_points=10),
+        alignment=alignment,
+        force_inconclusive_reason=pilot.ALIGNMENT_STOP_REASON,
+    )
+
+    assert artifact["decision"] == "inconclusive"
+    assert artifact["decision_reasons"] == [pilot.ALIGNMENT_STOP_REASON]
+    assert artifact["refusal_class"] == pilot.REFUSAL_CLASS_ALIGNMENT_NO_CANDIDATE_REPLAY_ABOVE_CANDIDATE_FAMILY
+
+
+def test_build_pilot_decision_artifact_classifies_alignment_refusal_within_candidate_family() -> None:
+    alignment = _alignment_payload(target_replay_total_points=13, candidate_totals={32: 10, 31: 15})
+    artifact = pilot.build_pilot_decision_artifact(
+        run_id="pilot_alignment_within_family",
+        replay_input_path="tools/fixtures/raw_replay_sample.jsonl",
+        synthetic_seed=1337,
+        synthetic_policy_profile=phase2.PHASE2_STAGE1_POLICY_PROFILE,
+        synthetic_rounds=phase2.PHASE2_STAGE1_ROUNDS,
+        synthetic_ticks_per_round=phase2.PHASE2_STAGE1_TICKS_PER_ROUND,
+        generated_at="2026-03-09T00:00:00Z",
+        replay_summary=_summary(total_points_captured=13, raw_contract_points=13),
+        synthetic_summary=_summary(total_points_captured=10, raw_contract_points=10),
+        alignment=alignment,
+        force_inconclusive_reason=pilot.ALIGNMENT_STOP_REASON,
+    )
+
+    assert artifact["decision"] == "inconclusive"
+    assert artifact["decision_reasons"] == [pilot.ALIGNMENT_STOP_REASON]
+    assert artifact["refusal_class"] == pilot.REFUSAL_CLASS_ALIGNMENT_NO_CANDIDATE_WITHIN_CANDIDATE_FAMILY
 
 
 def test_runner_writes_stable_artifact_for_canonical_phase2_inputs(tmp_path: Path, monkeypatch) -> None:
@@ -249,6 +381,7 @@ def test_runner_selects_first_aligned_canonical_round_candidate(tmp_path: Path, 
     assert payload["alignment"]["stop_reason"] is None
     assert payload["slice"]["synthetic_rounds"] == 31
     assert payload["slice"]["synthetic_source_contract"] == pilot.CANONICAL_PHASE2_SOURCE_CONTRACT
+    assert payload["refusal_class"] == pilot.REFUSAL_CLASS_NONE
 
 
 def test_runner_rejects_noncanonical_profile() -> None:
@@ -324,6 +457,7 @@ def test_runner_marks_unaligned_canonical_search_inconclusive(tmp_path: Path, mo
     assert calls == [(20260310, 32), (20260310, 31), (20260310, 33), (20260310, 30), (20260310, 34)]
     assert payload["decision"] == "inconclusive"
     assert payload["decision_reasons"] == [pilot.ALIGNMENT_STOP_REASON]
+    assert payload["refusal_class"] == pilot.REFUSAL_CLASS_ALIGNMENT_NO_CANDIDATE_REPLAY_BELOW_CANDIDATE_FAMILY
     assert payload["alignment"]["alignment_achieved"] is False
     assert payload["alignment"]["attempted_synthetic_rounds"] == list(pilot.CANONICAL_PHASE2_ROUND_CANDIDATES)
     assert payload["alignment"]["selected_synthetic_rounds"] is None
@@ -368,11 +502,17 @@ def test_runner_uses_canonical_phase2_slice_for_real_fixture_deterministically(t
         assert first_payload["alignment"]["selected_synthetic_rounds"] in pilot.CANONICAL_PHASE2_ROUND_CANDIDATES
         assert first_payload["slice"]["synthetic_rounds"] == first_payload["alignment"]["selected_synthetic_rounds"]
         assert first_payload["decision"] in ("pass", "mismatch")
+        assert first_payload["refusal_class"] == pilot.REFUSAL_CLASS_NONE
     else:
         assert first_payload["alignment"]["attempted_synthetic_rounds"] == list(pilot.CANONICAL_PHASE2_ROUND_CANDIDATES)
         assert first_payload["alignment"]["selected_synthetic_rounds"] is None
         assert first_payload["decision"] == "inconclusive"
         assert first_payload["decision_reasons"] == [pilot.ALIGNMENT_STOP_REASON]
         assert first_payload["alignment"]["stop_reason"] == pilot.ALIGNMENT_STOP_REASON
+        assert first_payload["refusal_class"] in {
+            pilot.REFUSAL_CLASS_ALIGNMENT_NO_CANDIDATE_REPLAY_BELOW_CANDIDATE_FAMILY,
+            pilot.REFUSAL_CLASS_ALIGNMENT_NO_CANDIDATE_REPLAY_ABOVE_CANDIDATE_FAMILY,
+            pilot.REFUSAL_CLASS_ALIGNMENT_NO_CANDIDATE_WITHIN_CANDIDATE_FAMILY,
+        }
     assert first_payload["synthetic"]["invariant_violations_total"] == 0
     assert first_payload["synthetic"]["behavioral_violations_total"] == 0

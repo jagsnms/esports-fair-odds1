@@ -104,6 +104,7 @@ def _source_block(source_payload: dict[str, Any]) -> dict[str, Any]:
         "alignment_result": alignment,
         "source_decision": source_payload["decision"],
         "source_decision_reasons": source_payload["decision_reasons"],
+        "refusal_class": source_payload.get("refusal_class", pilot.REFUSAL_CLASS_NONE),
         "cross_surface_failed_checks": comparison["failed_checks"],
         "mismatch_class": comparison["mismatch_class"],
         "key_replay_vs_source_deltas": _comparison_metrics(source_payload),
@@ -121,6 +122,16 @@ def _usable_source_block(source_block: dict[str, Any]) -> bool:
         and alignment["alignment_achieved"] is True
         and source_block["source_decision"] in ("pass", "mismatch")
     )
+
+
+def _source_not_replay_comparable_reason(source_name: str, source_block: dict[str, Any]) -> str:
+    refusal_class = source_block.get("refusal_class")
+    if isinstance(refusal_class, str) and refusal_class and refusal_class != pilot.REFUSAL_CLASS_NONE:
+        return (
+            f"{source_name} source block is not replay-comparable enough for a two-source decision "
+            f"({refusal_class})"
+        )
+    return f"{source_name} source block is not replay-comparable enough for a two-source decision"
 
 
 def _severity_tuple(source_block: dict[str, Any]) -> tuple[float, float, float, float, float]:
@@ -187,9 +198,9 @@ def build_replay_multisource_decision_artifact(
     if not _usable_source_block(balanced_block) or not _usable_source_block(eco_block):
         decision = "inconclusive"
         if not _usable_source_block(balanced_block):
-            reasons.append("balanced_v1 source block is not replay-comparable enough for a two-source decision")
+            reasons.append(_source_not_replay_comparable_reason(PHASE2_STAGE1_POLICY_PROFILE, balanced_block))
         if not _usable_source_block(eco_block):
-            reasons.append("eco_bias_v1 source block is not replay-comparable enough for a two-source decision")
+            reasons.append(_source_not_replay_comparable_reason(PHASE2_SECOND_SOURCE_POLICY_PROFILE, eco_block))
     else:
         disagreement_kind_compatible = _compatible_disagreement_kind(balanced_block, eco_block)
         if disagreement_kind_compatible and _all_metric_differences_within_tie_threshold(balanced_block, eco_block):

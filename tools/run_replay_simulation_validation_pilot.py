@@ -74,6 +74,19 @@ FAILED_CHECK_ORDER = (
 MISMATCH_CLASS_VOLUME_ALIGNMENT_ONLY = "volume_alignment_only"
 MISMATCH_CLASS_CROSS_SURFACE_BEHAVIORAL_OR_METRIC = "cross_surface_behavioral_or_metric"
 MISMATCH_CLASS_NONE = "none"
+REFUSAL_CLASS_NONE = "none"
+REFUSAL_CLASS_ALIGNMENT_NO_CANDIDATE_REPLAY_BELOW_CANDIDATE_FAMILY = (
+    "alignment_no_candidate_replay_below_candidate_family"
+)
+REFUSAL_CLASS_ALIGNMENT_NO_CANDIDATE_REPLAY_ABOVE_CANDIDATE_FAMILY = (
+    "alignment_no_candidate_replay_above_candidate_family"
+)
+REFUSAL_CLASS_ALIGNMENT_NO_CANDIDATE_WITHIN_CANDIDATE_FAMILY = (
+    "alignment_no_candidate_within_candidate_family"
+)
+REFUSAL_CLASS_LOCAL_SANITY_REPLAY_FAILURE = "local_sanity_replay_failure"
+REFUSAL_CLASS_LOCAL_SANITY_SYNTHETIC_FAILURE = "local_sanity_synthetic_failure"
+REFUSAL_CLASS_TRAJECTORY_FINGERPRINT_INSUFFICIENT = "trajectory_fingerprint_insufficient"
 ALIGNMENT_ABS_DELTA_THRESHOLD = 1
 CANONICAL_PHASE2_ROUND_CANDIDATES = (32, 31, 33, 30, 34)
 ALIGNMENT_STOP_REASON = (
@@ -223,6 +236,39 @@ def _default_alignment_payload() -> dict[str, Any]:
     }
 
 
+def _candidate_totals_from_alignment(alignment: Any) -> list[int]:
+    if not isinstance(alignment, dict):
+        return []
+    attempt_results = alignment.get("attempt_results")
+    if not isinstance(attempt_results, list):
+        return []
+    totals: list[int] = []
+    for attempt in attempt_results:
+        if not isinstance(attempt, dict):
+            continue
+        synthetic_total_points = attempt.get("synthetic_total_points")
+        if _is_int(synthetic_total_points):
+            totals.append(int(synthetic_total_points))
+    return totals
+
+
+def _classify_alignment_refusal(alignment: Any) -> str:
+    if not isinstance(alignment, dict):
+        return REFUSAL_CLASS_ALIGNMENT_NO_CANDIDATE_WITHIN_CANDIDATE_FAMILY
+    replay_total_points = alignment.get("target_replay_total_points")
+    if not _is_int(replay_total_points):
+        return REFUSAL_CLASS_ALIGNMENT_NO_CANDIDATE_WITHIN_CANDIDATE_FAMILY
+    candidate_totals = _candidate_totals_from_alignment(alignment)
+    if not candidate_totals:
+        return REFUSAL_CLASS_ALIGNMENT_NO_CANDIDATE_WITHIN_CANDIDATE_FAMILY
+    replay_total_points_int = int(replay_total_points)
+    if replay_total_points_int < min(candidate_totals):
+        return REFUSAL_CLASS_ALIGNMENT_NO_CANDIDATE_REPLAY_BELOW_CANDIDATE_FAMILY
+    if replay_total_points_int > max(candidate_totals):
+        return REFUSAL_CLASS_ALIGNMENT_NO_CANDIDATE_REPLAY_ABOVE_CANDIDATE_FAMILY
+    return REFUSAL_CLASS_ALIGNMENT_NO_CANDIDATE_WITHIN_CANDIDATE_FAMILY
+
+
 def _build_slice_metadata(
     *,
     replay_input_path: str,
@@ -277,6 +323,7 @@ def build_pilot_decision_artifact(
     comparison = _empty_comparison_block()
     comparison_reasons = comparison["cross_surface_reasons"]
     failed_checks = comparison["failed_checks"]
+    refusal_class = REFUSAL_CLASS_NONE
 
     if replay["local_sanity_pass"] is not True:
         decision_reasons.extend(replay["local_sanity_reasons"])
@@ -286,8 +333,14 @@ def build_pilot_decision_artifact(
     if force_inconclusive_reason is not None:
         decision = "inconclusive"
         decision_reasons = [force_inconclusive_reason]
+        refusal_class = _classify_alignment_refusal(alignment)
     elif decision_reasons:
         decision = "inconclusive"
+        refusal_class = (
+            REFUSAL_CLASS_LOCAL_SANITY_REPLAY_FAILURE
+            if replay["local_sanity_pass"] is not True
+            else REFUSAL_CLASS_LOCAL_SANITY_SYNTHETIC_FAILURE
+        )
     else:
         replay_p_hat_count = replay["p_hat_count"]
         synthetic_p_hat_count = synthetic["p_hat_count"]
@@ -299,6 +352,7 @@ def build_pilot_decision_artifact(
         ):
             decision = "inconclusive"
             decision_reasons = [TRAJECTORY_FINGERPRINT_INSUFFICIENT_P_HAT_COUNT_REASON]
+            refusal_class = REFUSAL_CLASS_TRAJECTORY_FINGERPRINT_INSUFFICIENT
             return {
                 "schema_version": SCHEMA_VERSION,
                 "decision_contract_version": DECISION_VERSION,
@@ -311,10 +365,12 @@ def build_pilot_decision_artifact(
                 "comparison": comparison,
                 "decision": decision,
                 "decision_reasons": decision_reasons,
+                "refusal_class": refusal_class,
             }
         if replay["p_hat_median"] is None or synthetic["p_hat_median"] is None:
             decision = "inconclusive"
             decision_reasons = ["trajectory fingerprint unavailable: missing p_hat_median"]
+            refusal_class = REFUSAL_CLASS_TRAJECTORY_FINGERPRINT_INSUFFICIENT
             return {
                 "schema_version": SCHEMA_VERSION,
                 "decision_contract_version": DECISION_VERSION,
@@ -327,6 +383,7 @@ def build_pilot_decision_artifact(
                 "comparison": comparison,
                 "decision": decision,
                 "decision_reasons": decision_reasons,
+                "refusal_class": refusal_class,
             }
 
         replay_coverage = replay["raw_contract_coverage_rate"]
@@ -402,6 +459,7 @@ def build_pilot_decision_artifact(
         "comparison": comparison,
         "decision": decision,
         "decision_reasons": decision_reasons,
+        "refusal_class": refusal_class,
     }
 
 
