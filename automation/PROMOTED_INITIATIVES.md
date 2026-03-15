@@ -51,3 +51,24 @@ Proposal and planning runs must check this file before proposing new work.
 - **Stage 3A distribution control + evidence gate**
   - status: promoted/shared truth
   - evidence hint: promoted Stage 3A line including redistribution revise
+
+## D) Canonical simulation / bounded evidence line
+
+- **Seeded simulation Phase 1 contract**
+  - status: promoted/shared truth
+  - evidence hint: `engine/simulation/phase1.py`, `tools/simulate_phase1.py`
+- **Bounded Phase 2 canonical simulation contract (`balanced_v1`)**
+  - status: promoted/shared truth
+  - evidence hint: `engine/simulation/phase2.py`, `tests/simulation/test_phase2_policy_contract.py`
+- **Bounded Phase 2 V2 activation on landed `balanced_v1` slice**
+  - status: promoted/shared truth
+  - evidence hint: `engine/simulation/phase2.py` with replay-assessed V2 activation on the canonical `balanced_v1` slice
+- **Canonical Phase 2 trace export (`balanced_v1`)**
+  - status: promoted/shared truth
+  - evidence hint: `tests/simulation/test_phase2_trace_export.py`, canonical `round_result` trace export in `engine/simulation/phase2.py`
+- **Bounded canonical simulation calibration evidence path (`balanced_v1`, seed `20260310`)**
+  - status: promoted/shared truth
+  - evidence hint: `tools/export_calibration_reliability_evidence.py`, `automation/reports/calibration_reliability_evidence_export_manifest_v1.json`
+- **Bounded `eco_bias_v1` second source + source-vs-source comparison artifact**
+  - status: promoted/shared truth
+  - evidence hint: `tools/compare_phase2_sources.py`, `automation/reports/phase2_source_comparison_balanced_v1_vs_eco_bias_v1_seed20260310.json`

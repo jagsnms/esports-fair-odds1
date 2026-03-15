@@ -46,3 +46,101 @@
 - **Why this local stage matters:** The repo can now attempt a same-match, leakage-aware BO3 live labeled evidence export instead of guessing label identity from round/team shape alone.
 - **Current local artifact note:** The branch-local exporter wrote point-in-time local artifacts at `automation/reports/backend_bo3_live_round_calibration_evidence_v1.json` and `automation/reports/backend_bo3_live_round_calibration_evidence_report_v1.json`. The current local run labeled `0` records because many persisted `round_result` rows in the local `history_points.jsonl` still predate the promoted `match_id` emission bridge; those local counts are not promoted repo truth.
 - **Truth boundary:** This stage only adds a narrow exporter for round-level `q_intra_total` vs `round_result`, with strict later-than timing, conservative duplicate collapse, same-match `match_id` join, and explicit malformed-row accounting. It does not prove calibration quality, add `p_hat` / `segment_result`, or change runtime BO3 behavior.
+
+## [BACKFILLED] 2026-03-10 - Master catch-up merge from `agent-initiative-base`
+- **Branch:** `master`
+- **Initiative / phase:** Deliberate source-of-truth catch-up merge
+- **Summary of push:** Merged the approved branch-only groundwork from `agent-initiative-base` into `master` so future final landings can target `master` directly.
+- **Why it mattered:** `master` had been missing the canonical engine/replay/simulation/doc surfaces needed for current work.
+- **Risks / red flags:** Large merge by scope; future landings still need normal staged review discipline.
+- **Checks at that time:** full canonical pytest passed before and after merge.
+- **Next likely step (at that time):** Continue only the highest-leverage approved project work directly on `master`.
+
+## [BACKFILLED] 2026-03-10 - Phase 2 bounded policy-driven canonical simulation baseline
+- **Branch:** `master`
+- **Initiative / phase:** Phase 2 Stage 1 bounded policy-driven canonical simulation contract (`balanced_v1` only)
+- **Summary of push:** Landed the first bounded policy-driven canonical simulation artifact on one deterministic `balanced_v1` slice with truthful synthetic replay metadata.
+- **Why it mattered:** Opened the first replay-comparable Phase 2 simulation contract instead of leaving simulation policy work in a separate synthetic lane.
+- **Risks / red flags:** At that point the slice still had `rail_input_v2_activated_points = 0`, so richer carryover-complete semantics were not established yet.
+- **Checks at that time:** focused Phase 2 simulation tests passed; CLI emitted deterministic machine-readable JSON.
+- **Next likely step (at that time):** Decide whether to make the bounded `balanced_v1` slice carryover-complete enough to activate V2 before any profile expansion.
+
+## 2026-03-10 - Phase 2 bounded V2 activation on the landed `balanced_v1` slice
+- **Branch:** `master`
+- **Initiative / phase:** Phase 2 bounded carryover-completeness correction (`balanced_v1` only)
+- **Summary of push:** Added the minimum missing contract input needed for the existing landed `balanced_v1` Phase 2 slice to satisfy the carryover-completeness gate through the real replay assessment path, and tightened the focused Phase 2 test to lock that behavior down explicitly.
+- **Key files/subsystems touched:**
+  - `engine/simulation/phase2.py`
+  - `tests/simulation/test_phase2_policy_contract.py`
+  - `docs/branch_history_master.md`
+  - `docs/current_status_master.md`
+- **Tests/checks run and result:** focused Phase 2 unittest passed; repeated CLI runs for seed `20260310` remained deterministic; emitted artifact showed `policy_profile="balanced_v1"`, `assessment_prematch_map=0.55`, `rail_input_v2_activated_points=159`, `rail_input_v1_fallback_points=0`, no `V2_REQUIRED_FIELDS_MISSING`, `required_complete_points=159`, `required_incomplete_points=0`, and zero structural / behavioral / invariant violations.
+- **Risks / red flags:** This is bounded V2 activation on one slice only. It does not broaden profiles, seeds, calibration/export integration, or complete all Phase 2 semantics.
+- **Why this push matters:** It turns the landed Phase 2 slice from policy-driven-but-fallback-only into policy-driven-with-real-V2-activation through the canonical path.
+- **Next likely step (at this time):** Re-rank whether a bounded next Phase 2 semantic extension still beats pausing or another Bible-level project.
+
+## 2026-03-10 - Canonical simulation trace export with per-point prediction/outcome labels
+- **Branch:** `master`
+- **Initiative / phase:** Bounded canonical trace-export/source-contract step (`balanced_v1` only)
+- **Summary of push:** Landed one deterministic machine-readable trace-export path for the canonical `balanced_v1` simulation lane so prediction points are paired only to truthful runner-emitted `round_result` labels, and removed the duplicate canonical execution introduced in the initial implementation by reusing the existing canonical assessment pass.
+- **Project commits:**
+  - `897f97400e21e6099ba4abc887d9d55eaca0c9cb` `Add canonical Phase 2 trace export contract`
+  - `374485d9df58f12213076ffb4716cf0729f061c6` `Reuse assessment pass for Phase 2 trace export`
+  - `d1dfab139698fc31ef65c9e71fc50207ccf3b99c` `Update master docs for validated trace export stage`
+- **Key files/subsystems touched:**
+  - `engine/simulation/phase2.py`
+  - `tools/replay_verification_assess.py`
+  - `tests/simulation/test_phase2_trace_export.py`
+  - `docs/branch_history_master.md`
+  - `docs/current_status_master.md`
+- **Tests/checks run and result:** approved validations passed: `tests/unit/test_run_replay_simulation_validation_pilot.py`, `tests/simulation/test_phase2_policy_contract.py`, and `tests/simulation/test_phase2_trace_export.py`; repeated `tools/simulate_phase2.py --seed 20260310` runs emitted identical machine-readable output.
+- **Risks / red flags:** This is still one bounded `balanced_v1` slice only. The export is a source-contract step, not a calibration lane, and unlabeled final-round prediction points are excluded rather than given pseudo-labels.
+- **Why this push matters:** It opens the truthful raw source contract that later downstream evidence work was missing, without faking calibration-ready outputs or broadening simulation semantics.
+- **Next likely step (at this time):** Re-rank the next meaningful project from current `master` reality rather than continuing by inertia.
+
+## 2026-03-10 - Bounded true simulation calibration evidence from canonical Phase 2 trace export
+- **Branch:** `master`
+- **Initiative / phase:** Bounded simulation evidence-path step (`balanced_v1` only, fixed seed `20260310`)
+- **Summary of push:** Landed one truthful simulation calibration evidence path sourced only from explicit canonical `balanced_v1` trace inputs, replacing the prior hard-disabled simulation export state for this bounded source with gate/schema-compatible baseline/current simulation evidence records.
+- **Project commit:**
+  - `4b0147761780c64e919c97d5b4eab1303714f283` `Add bounded canonical simulation calibration evidence path`
+- **Key files/subsystems touched:**
+  - `tools/export_calibration_reliability_evidence.py`
+  - `tools/calibration_reliability_evidence_gate.py`
+  - `tools/fixtures/calibration_reliability_simulation_exported_v1.json`
+  - `tools/fixtures/canonical_phase2_balanced_v1_trace_baseline_v1.json`
+  - `tools/fixtures/canonical_phase2_balanced_v1_trace_current_v1.json`
+  - `automation/reports/calibration_reliability_evidence_export_manifest_v1.json`
+  - `tests/unit/test_export_calibration_reliability_evidence.py`
+  - `tests/unit/test_run_calibration_reliability_evidence_gate.py`
+  - `tests/unit/test_calibration_reliability_evidence_schema.py`
+  - `docs/branch_history_master.md`
+  - `docs/current_status_master.md`
+- **Explicit baseline/current input method:** Two explicit canonical trace-export JSON inputs are used, one for `baseline` and one for `current`. In this bounded stage they are separate files but identical `balanced_v1`/seed `20260310` traces, so the lane is truthful about source identity without claiming comparative improvement.
+- **Tests/checks run and result:** `tests/unit/test_export_calibration_reliability_evidence.py`, `tests/unit/test_run_calibration_reliability_evidence_gate.py`, `tests/unit/test_calibration_reliability_evidence_schema.py`, and `tests/simulation/test_phase2_trace_export.py` all passed; repeated `tools/simulate_phase2.py --seed 20260310` runs remained deterministic; the bounded calibration export path emitted simulation evidence records and truthful manifest provenance including unlabeled-point exclusion counts.
+- **Risks / red flags:** This is still bounded `balanced_v1` evidence only, not calibration redesign or general simulation-calibration completion. Baseline/current are explicit but identical at this stage, and final-round prediction points remain unlabeled under current canonical semantics and are excluded explicitly rather than imputed.
+- **Why this push matters:** The repo now has one truthful downstream simulation evidence path derived from promoted canonical trace records instead of a hard-disabled simulation side.
+- **Next likely step (at this time):** Re-rank the next meaningful project from current `master` reality without assuming more Phase 2 or broader calibration work automatically.
+
+## 2026-03-10 - Bounded `eco_bias_v1` second source and source-vs-source comparison pressure
+- **Branch:** `master`
+- **Initiative / phase:** Bounded second-source pressure step (`balanced_v1` vs `eco_bias_v1`, fixed seed `20260310`)
+- **Summary of push:** Promoted exactly one bounded second canonical Phase 2 source using `eco_bias_v1` on the same fixed seed/shape/truthfulness rules as `balanced_v1`, and landed one thin machine-readable source-vs-source comparison artifact that keeps source identity explicit instead of abusing baseline/current semantics.
+- **Project commits:**
+  - `5a50f4781099eb78309d943e467037c1da437ffc` `Add bounded eco bias Phase 2 second source`
+  - `9cbaad2f6430c3e71744bb616facf2bd2c100bcd` `Correct second source validation status docs`
+- **Key files/subsystems touched:**
+  - `engine/simulation/phase2.py`
+  - `tools/simulate_phase2.py`
+  - `tools/compare_phase2_sources.py`
+  - `tools/schemas/simulation_phase2_policy_summary.schema.json`
+  - `tests/simulation/test_phase2_policy_contract.py`
+  - `tests/simulation/test_phase2_trace_export.py`
+  - `automation/reports/phase2_source_comparison_balanced_v1_vs_eco_bias_v1_seed20260310.json`
+  - `docs/branch_history_master.md`
+  - `docs/current_status_master.md`
+- **Bounded second-source contract:** `eco_bias_v1`, seed `20260310`, `round_count = 32`, `ticks_per_round = 4`, same canonical engine path, same replay-comparable assessment path, same labeled-point-only trace export rule, same explicit unlabeled-point exclusion count reporting, and zero structural / behavioral / invariant violations.
+- **Tests/checks run and result:** `tests/simulation/test_phase2_policy_contract.py` and `tests/simulation/test_phase2_trace_export.py` passed; the approved `balanced_v1` CLI simulation run completed deterministically; the direct `.venv311` `eco_bias_v1` CLI validation completed successfully; the direct `.venv311` comparison CLI validation completed successfully and emitted a machine-readable artifact with explicit left/right source identity, same seed/shape basis, preserved safety floor, and non-zero family-distribution deltas.
+- **Risks / red flags:** This is still only one extra bounded source and one fixed seed. It creates decision pressure, but it does not answer broader representativeness by itself and must not be misread as broad simulation/calibration completion.
+- **Why this push matters:** The canonical simulation lane is no longer stuck with a single truthful source and no comparison pressure; `master` can now test whether a materially different bounded source changes the observed lane enough to justify further work.
+- **Next likely step (at this time):** Re-rank the next meaningful project from current `master` reality rather than assuming more Phase 2 expansion automatically.
