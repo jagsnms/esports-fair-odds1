@@ -72,3 +72,6 @@ Proposal and planning runs must check this file before proposing new work.
 - **Bounded `eco_bias_v1` second source + source-vs-source comparison artifact**
   - status: promoted/shared truth
   - evidence hint: `tools/compare_phase2_sources.py`, `automation/reports/phase2_source_comparison_balanced_v1_vs_eco_bias_v1_seed20260310.json`
+- **Replay-anchored two-source decision contract (`balanced_v1` vs `eco_bias_v1`)**
+  - status: promoted/shared truth
+  - evidence hint: `tools/run_replay_multisource_decision.py`, `tests/unit/test_run_replay_multisource_decision.py`, `automation/reports/replay_multisource_decision_balanced_v1_vs_eco_bias_v1_seed20260310.json`
