@@ -1,10 +1,11 @@
-﻿"""
+"""
 Async Runner: loop at poll_interval_s; BO3 live, REPLAY from JSONL, or GRID.
 Market: poll Kalshi when enabled, push to delay buffer, attach market_mid to points.
 """
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import math
@@ -308,6 +309,196 @@ def _bo3_raw_record_signature(payload: dict, match_id: int) -> tuple[Any, ...] |
     return (match_id, gn, rn, phase, s1, s2, ms1, ms2)
 
 
+
+def _bo3_hash_value(value: Any) -> str:
+    """Return a compact stable hash for operator-facing BO3 diagnostics."""
+    try:
+        raw = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+    except (TypeError, ValueError):
+        raw = json.dumps(str(value), ensure_ascii=False)
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def _bo3_player_state_signature(team: dict[str, Any] | Any) -> tuple[Any, ...]:
+    """Extract a compact per-team player-state signature for stale-window comparisons."""
+    if not isinstance(team, dict):
+        return ()
+    states = team.get("player_states")
+    if not isinstance(states, list):
+        return ()
+    rows: list[tuple[Any, ...]] = []
+    for idx, player in enumerate(states):
+        if not isinstance(player, dict):
+            continue
+        player_key = (
+            player.get("id")
+            or player.get("provider_id")
+            or player.get("steam_profile_id")
+            or player.get("nickname")
+            or idx
+        )
+        inventory = player.get("inventory")
+        inv_sig = tuple(str(item) for item in inventory) if isinstance(inventory, list) else ()
+        rows.append(
+            (
+                str(player_key),
+                player.get("is_alive"),
+                player.get("health"),
+                player.get("armor"),
+                player.get("kills"),
+                player.get("deaths"),
+                player.get("kills_in_round"),
+                player.get("deaths_in_round"),
+                player.get("has_bomb"),
+                player.get("has_defuse_kit"),
+                player.get("primary_weapon"),
+                player.get("secondary_weapon"),
+                inv_sig,
+            )
+        )
+    rows.sort()
+    return tuple(rows)
+
+
+def _bo3_alive_count_signature(team: dict[str, Any] | Any) -> int | None:
+    """Return players_alive when present, else derive from player_states."""
+    if not isinstance(team, dict):
+        return None
+    players_alive = team.get("players_alive")
+    if players_alive is not None:
+        try:
+            return int(players_alive)
+        except (TypeError, ValueError):
+            return None
+    states = team.get("player_states")
+    if isinstance(states, list):
+        return sum(1 for player in states if isinstance(player, dict) and player.get("is_alive") is True)
+    return None
+
+
+def _bo3_payload_compare_diag(
+    prev_payload: dict[str, Any] | None,
+    payload: dict[str, Any] | None,
+    *,
+    match_id: int,
+) -> dict[str, Any]:
+    """Build compact full-vs-reduced BO3 payload comparison diagnostics for one fetch."""
+    if not isinstance(payload, dict):
+        return {}
+    t1 = payload.get("team_one") if isinstance(payload.get("team_one"), dict) else {}
+    t2 = payload.get("team_two") if isinstance(payload.get("team_two"), dict) else {}
+    timestamp_sig = {
+        "updated_at": payload.get("updated_at"),
+        "created_at": payload.get("created_at"),
+        "sent_time": payload.get("sent_time"),
+        "ts": payload.get("ts"),
+        "seq_index": payload.get("seq_index"),
+    }
+    score_sig = {
+        "game_number": payload.get("game_number"),
+        "round_number": payload.get("round_number"),
+        "team_one_score": t1.get("score"),
+        "team_two_score": t2.get("score"),
+        "team_one_match_score": t1.get("match_score"),
+        "team_two_match_score": t2.get("match_score"),
+    }
+    micro_sig = {
+        "round_phase": payload.get("round_phase") or payload.get("phase"),
+        "is_bomb_planted": payload.get("is_bomb_planted"),
+        "team_one_alive": _bo3_alive_count_signature(t1),
+        "team_two_alive": _bo3_alive_count_signature(t2),
+        "team_one_players": _bo3_player_state_signature(t1),
+        "team_two_players": _bo3_player_state_signature(t2),
+    }
+    raw_record_sig = _bo3_raw_record_signature(payload, match_id)
+    out = {
+        "last_payload_full_hash": _bo3_hash_value(payload),
+        "last_payload_timestamp_hash": _bo3_hash_value(timestamp_sig),
+        "last_payload_score_hash": _bo3_hash_value(score_sig),
+        "last_payload_micro_hash": _bo3_hash_value(micro_sig),
+        "last_payload_raw_record_sig_hash": (_bo3_hash_value(raw_record_sig) if raw_record_sig is not None else None),
+        "last_payload_round_phase": micro_sig["round_phase"],
+        "last_payload_bomb_planted": micro_sig["is_bomb_planted"],
+        "last_payload_alive_counts": (
+            micro_sig["team_one_alive"],
+            micro_sig["team_two_alive"],
+        ),
+    }
+    if not isinstance(prev_payload, dict):
+        return out
+    prev_t1 = prev_payload.get("team_one") if isinstance(prev_payload.get("team_one"), dict) else {}
+    prev_t2 = prev_payload.get("team_two") if isinstance(prev_payload.get("team_two"), dict) else {}
+    prev_timestamp_sig = {
+        "updated_at": prev_payload.get("updated_at"),
+        "created_at": prev_payload.get("created_at"),
+        "sent_time": prev_payload.get("sent_time"),
+        "ts": prev_payload.get("ts"),
+        "seq_index": prev_payload.get("seq_index"),
+    }
+    prev_score_sig = {
+        "game_number": prev_payload.get("game_number"),
+        "round_number": prev_payload.get("round_number"),
+        "team_one_score": prev_t1.get("score"),
+        "team_two_score": prev_t2.get("score"),
+        "team_one_match_score": prev_t1.get("match_score"),
+        "team_two_match_score": prev_t2.get("match_score"),
+    }
+    prev_micro_sig = {
+        "round_phase": prev_payload.get("round_phase") or prev_payload.get("phase"),
+        "is_bomb_planted": prev_payload.get("is_bomb_planted"),
+        "team_one_alive": _bo3_alive_count_signature(prev_t1),
+        "team_two_alive": _bo3_alive_count_signature(prev_t2),
+        "team_one_players": _bo3_player_state_signature(prev_t1),
+        "team_two_players": _bo3_player_state_signature(prev_t2),
+    }
+    prev_raw_record_sig = _bo3_raw_record_signature(prev_payload, match_id)
+    full_changed = payload != prev_payload
+    timestamp_changed = timestamp_sig != prev_timestamp_sig
+    score_changed = score_sig != prev_score_sig
+    micro_changed = micro_sig != prev_micro_sig
+    phase_changed = micro_sig["round_phase"] != prev_micro_sig["round_phase"]
+    bomb_changed = micro_sig["is_bomb_planted"] != prev_micro_sig["is_bomb_planted"]
+    alive_changed = (
+        micro_sig["team_one_alive"] != prev_micro_sig["team_one_alive"]
+        or micro_sig["team_two_alive"] != prev_micro_sig["team_two_alive"]
+    )
+    player_state_changed = (
+        micro_sig["team_one_players"] != prev_micro_sig["team_one_players"]
+        or micro_sig["team_two_players"] != prev_micro_sig["team_two_players"]
+    )
+    raw_record_sig_changed = raw_record_sig != prev_raw_record_sig
+    change_flags: list[str] = []
+    for flag_name, changed in (
+        ("full_changed", full_changed),
+        ("timestamp_changed", timestamp_changed),
+        ("score_changed", score_changed),
+        ("micro_changed", micro_changed),
+        ("phase_changed", phase_changed),
+        ("bomb_changed", bomb_changed),
+        ("alive_changed", alive_changed),
+        ("player_state_changed", player_state_changed),
+        ("raw_record_sig_changed", raw_record_sig_changed),
+        ("ignored_by_raw_record_dedupe", full_changed and not raw_record_sig_changed),
+    ):
+        if changed:
+            change_flags.append(flag_name)
+    out.update(
+        {
+            "payload_full_changed_from_prev": full_changed,
+            "payload_timestamp_changed_from_prev": timestamp_changed,
+            "payload_score_changed_from_prev": score_changed,
+            "payload_micro_changed_from_prev": micro_changed,
+            "payload_phase_changed_from_prev": phase_changed,
+            "payload_bomb_changed_from_prev": bomb_changed,
+            "payload_alive_changed_from_prev": alive_changed,
+            "payload_player_state_changed_from_prev": player_state_changed,
+            "payload_raw_record_sig_changed_from_prev": raw_record_sig_changed,
+            "payload_ignored_by_raw_record_dedupe": (full_changed and not raw_record_sig_changed),
+            "payload_change_flags": tuple(change_flags),
+        }
+    )
+    return out
+
 def _bo3_raw_record_path(match_id: int) -> str:
     filename = f"bo3_raw_match_{match_id}.jsonl" if _BO3_RAW_RECORD_PER_MATCH else "bo3_raw.jsonl"
     return os.path.join(_BO3_RAW_RECORD_DIR, filename)
@@ -390,6 +581,18 @@ def _set_bo3_pipeline_diag(
         diag[key] = value
     setattr(session_runtime, "bo3_pipeline_diag", diag)
 
+
+
+def _merge_bo3_pipeline_diag(session_runtime: Any, **fields: Any) -> None:
+    """Merge additional BO3 diagnostics without changing stage/timestamp fields."""
+    if session_runtime is None or not fields:
+        return
+    diag = getattr(session_runtime, "bo3_pipeline_diag", None)
+    if not isinstance(diag, dict):
+        diag = {}
+    for key, value in fields.items():
+        diag[key] = value
+    setattr(session_runtime, "bo3_pipeline_diag", diag)
 
 def _bo3_pipeline_diag_view(session_runtime: Any, now: float) -> dict[str, Any]:
     """Return operator-facing BO3 fetch->ingest->propagation diagnostics for one session."""
@@ -561,6 +764,50 @@ def _bo3_telemetry_ok(snap: dict[str, Any] | None, frame: Frame) -> tuple[bool, 
         return (False, "clock_invalid")
     return (True, None)
 
+
+
+def _bo3_snapshot_status_inputs_diag(
+    snap: dict[str, Any] | None,
+    frame: Frame,
+    last_snapshot_ts: Any,
+    last_scores: tuple[int, int] | None,
+    same_snapshot_polls: int,
+    *,
+    status: str,
+    feed_error: str | None,
+    snapshot_ts: Any,
+    is_fresh: bool,
+    payload_compare_diag: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Expose the exact BO3 stale-input view used by _bo3_snapshot_status(...)."""
+    scores = getattr(frame, "scores", (0, 0))
+    ts_advanced = snapshot_ts is not None and snapshot_ts != last_snapshot_ts
+    scores_changed = last_scores is not None and scores != last_scores
+    payload_compare_diag = payload_compare_diag or {}
+    micro_changed = bool(payload_compare_diag.get("payload_micro_changed_from_prev"))
+    full_changed = bool(payload_compare_diag.get("payload_full_changed_from_prev"))
+    return {
+        "snapshot_input_snapshot_ts": snapshot_ts,
+        "snapshot_input_last_snapshot_ts": last_snapshot_ts,
+        "snapshot_input_scores": scores,
+        "snapshot_input_last_scores": last_scores,
+        "snapshot_input_ts_advanced": ts_advanced,
+        "snapshot_input_scores_changed": scores_changed,
+        "snapshot_input_same_snapshot_polls_before": same_snapshot_polls,
+        "snapshot_input_status": status,
+        "snapshot_input_feed_error": feed_error,
+        "snapshot_input_is_fresh": is_fresh,
+        "snapshot_input_ignored_full_payload_change": bool(full_changed and not ts_advanced and not scores_changed),
+        "snapshot_input_ignored_micro_change": bool(micro_changed and not ts_advanced and not scores_changed),
+        "snapshot_input_seen_by_stale_inputs_only": tuple(
+            name
+            for name, changed in (
+                ("timestamp", ts_advanced),
+                ("score", scores_changed),
+            )
+            if changed
+        ),
+    }
 
 # BO3 health: label-only observability (no gating).
 BO3_STALE_THRESHOLD_SEC = 30
@@ -1569,6 +1816,8 @@ class Runner:
                     snap = await get_snapshot(mid)
                 if snap and isinstance(snap, dict) and (snap.get("team_one") or snap.get("team_two")):
                     success_ts = time.time()
+                    prev_snap = session_runtime.bo3_buf_raw if isinstance(session_runtime.bo3_buf_raw, dict) else None
+                    payload_compare_diag = _bo3_payload_compare_diag(prev_snap, snap, match_id=mid)
                     session_runtime.bo3_buf_raw = snap
                     session_runtime.bo3_buf_snapshot_ts = _bo3_extract_snapshot_ts(snap)
                     session_runtime.bo3_buf_ts = success_ts
@@ -1584,6 +1833,7 @@ class Runner:
                         last_fetch_success_gap_s=(round(success_ts - float(prev_success_ts), 3) if isinstance(prev_success_ts, (int, float)) else None),
                         last_fetch_duration_ms=round((time.perf_counter() - t0) * 1000, 1),
                         buffer_consecutive_failures=session_runtime.bo3_buf_consecutive_failures,
+                        **payload_compare_diag,
                         **_bo3_snapshot_diag(snap),
                     )
                     return
@@ -2071,6 +2321,21 @@ class Runner:
             session_runtime.bo3_last_snapshot_ts,
             session_runtime.bo3_last_scores,
             session_runtime.bo3_same_snapshot_polls,
+        )
+        _merge_bo3_pipeline_diag(
+            session_runtime,
+            **_bo3_snapshot_status_inputs_diag(
+                snap if isinstance(snap, dict) else None,
+                frame,
+                session_runtime.bo3_last_snapshot_ts,
+                session_runtime.bo3_last_scores,
+                session_runtime.bo3_same_snapshot_polls,
+                status=status,
+                feed_error=feed_error,
+                snapshot_ts=snapshot_ts,
+                is_fresh=is_fresh,
+                payload_compare_diag=(getattr(session_runtime, "bo3_pipeline_diag", None) if isinstance(getattr(session_runtime, "bo3_pipeline_diag", None), dict) else None),
+            ),
         )
         if status != "live":
             now = time.time()
@@ -3488,7 +3753,3 @@ class Runner:
             except asyncio.CancelledError:
                 break
         self._task = None
-
-
-
-

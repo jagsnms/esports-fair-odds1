@@ -3,6 +3,7 @@ Unit tests for multi-session types: SessionKey, SessionRuntime, registry. No Fas
 """
 from __future__ import annotations
 
+import copy
 import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -12,7 +13,7 @@ import pytest
 from engine.telemetry.core import MatchContext, SourceKind
 from engine.telemetry.session import SessionKey, SessionRuntime, SessionRegistry
 
-from backend.services.runner import Runner
+from backend.services.runner import Runner, _bo3_payload_compare_diag
 from backend.store.memory_store import MemoryStore
 
 
@@ -107,6 +108,9 @@ def test_runner_sessions_diag_exposes_bo3_pipeline_for_bo3_session() -> None:
         "last_emit_reason": "selector_denied",
         "last_source_updated_at": "2026-03-13T05:00:00Z",
         "last_source_provider_event_id": "evt-123",
+        "last_payload_full_hash": "hash-full",
+        "payload_micro_changed_from_prev": True,
+        "snapshot_input_ignored_micro_change": True,
     }
     runner._sessions[SessionKey(source=SourceKind.BO3, id="123")] = runtime
 
@@ -126,7 +130,81 @@ def test_runner_sessions_diag_exposes_bo3_pipeline_for_bo3_session() -> None:
     assert pipe["buffer_has_snapshot"] is True
     assert pipe["buffer_snapshot_ts"] == "2026-03-13T05:00:00Z"
     assert pipe["buffer_consecutive_failures"] == 1
+    assert pipe["last_payload_full_hash"] == "hash-full"
+    assert pipe["payload_micro_changed_from_prev"] is True
+    assert pipe["snapshot_input_ignored_micro_change"] is True
     assert pipe["last_fetch_attempt_age_s"] == 1.0
     assert pipe["last_fetch_success_age_s"] == 1.5
     assert pipe["last_stage_age_s"] == 1.8
     assert pipe["buffer_last_success_age_s"] == 2.0
+
+
+def test_bo3_payload_compare_diag_flags_microstate_change_hidden_from_raw_record_sig() -> None:
+    prev_payload = {
+        "updated_at": "2026-03-14T18:00:00.000Z",
+        "created_at": "2026-03-14T18:00:00.000Z",
+        "sent_time": "2026-03-14T18:00:00.000Z",
+        "seq_index": 10,
+        "game_number": 2,
+        "round_number": 7,
+        "round_phase": "IN_PROGRESS",
+        "is_bomb_planted": False,
+        "team_one": {
+            "score": 3,
+            "match_score": 1,
+            "players_alive": 5,
+            "player_states": [
+                {
+                    "id": 101,
+                    "is_alive": True,
+                    "health": 100,
+                    "armor": 100,
+                    "kills": 4,
+                    "deaths": 2,
+                    "kills_in_round": 0,
+                    "deaths_in_round": 0,
+                    "has_bomb": False,
+                    "has_defuse_kit": True,
+                    "primary_weapon": "m4a1",
+                    "secondary_weapon": "usp-s",
+                    "inventory": ["kevlar", "vesthelm"],
+                }
+            ],
+        },
+        "team_two": {
+            "score": 6,
+            "match_score": 1,
+            "players_alive": 5,
+            "player_states": [
+                {
+                    "id": 202,
+                    "is_alive": True,
+                    "health": 100,
+                    "armor": 100,
+                    "kills": 5,
+                    "deaths": 3,
+                    "kills_in_round": 0,
+                    "deaths_in_round": 0,
+                    "has_bomb": True,
+                    "has_defuse_kit": False,
+                    "primary_weapon": "ak-47",
+                    "secondary_weapon": "glock-18",
+                    "inventory": ["kevlar", "vesthelm"],
+                }
+            ],
+        },
+    }
+    cur_payload = copy.deepcopy(prev_payload)
+    cur_payload["team_one"]["players_alive"] = 4
+    cur_payload["team_one"]["player_states"][0]["is_alive"] = False
+    cur_payload["team_one"]["player_states"][0]["health"] = 0
+    diag = _bo3_payload_compare_diag(prev_payload, cur_payload, match_id=112536)
+    assert diag["payload_full_changed_from_prev"] is True
+    assert diag["payload_timestamp_changed_from_prev"] is False
+    assert diag["payload_score_changed_from_prev"] is False
+    assert diag["payload_micro_changed_from_prev"] is True
+    assert diag["payload_alive_changed_from_prev"] is True
+    assert diag["payload_player_state_changed_from_prev"] is True
+    assert diag["payload_raw_record_sig_changed_from_prev"] is False
+    assert diag["payload_ignored_by_raw_record_dedupe"] is True
+    assert "player_state_changed" in diag["payload_change_flags"]
