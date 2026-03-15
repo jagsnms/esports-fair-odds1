@@ -1,12 +1,12 @@
 # Branch History - `master`
 
 
-## 2026-03-14 - [LOCAL STAGE] BO3 payload-diff observability packet
-- **Initiative / phase:** Local-stage BO3 observability packet capture after live continuity audits showed the need to distinguish repeated payloads, payload microstate changes, and stale-input conditions without changing runtime behavior.
-- **Summary of local stage work:** Extended `backend/services/runner.py` with BO3 payload-diff hashes and change flags plus stale-input snapshot-status diagnostics, added focused deterministic coverage in `tests/unit/test_telemetry_session.py`, and kept the packet limited to session telemetry only.
-- **Why this local stage matters:** Local BO3 audits can now see whether a fetched payload changed, which parts changed, and which stale-input conditions were present when the runner evaluated snapshot freshness, without guessing from raw repeated states alone.
-- **Truth boundary:** This stage is observability only. It does not change BO3 runtime behavior, does not weaken stale/fresh or safety-gate decisions, and does not claim a fix for upstream coarse progression.
-- **Risks / red flags:** The legacy in-worktree `logs/bo3_backend_live_capture_contract.jsonl` path was explicitly excluded from this packet decision and should not be treated as part of this local stage.
+## 2026-03-14 - BO3 payload-diff observability packet
+- **Initiative / phase:** Promoted BO3 observability extension after live continuity audits showed the need to distinguish repeated payloads, payload microstate changes, and stale-input conditions without changing runtime behavior.
+- **Summary of promoted work:** Extended `backend/services/runner.py` with BO3 payload-diff hashes and change flags plus stale-input snapshot-status diagnostics, added focused deterministic coverage in `tests/unit/test_telemetry_session.py`, and kept the packet limited to session telemetry only.
+- **Why this promoted stage matters:** BO3 audits can now see whether a fetched payload changed, which parts changed, and which stale-input conditions were present when the runner evaluated snapshot freshness, without guessing from raw repeated states alone.
+- **Truth boundary:** This promoted stage is observability only. It does not change BO3 runtime behavior, does not weaken stale/fresh or safety-gate decisions, and does not claim a fix for upstream coarse progression.
+- **Risks / red flags:** The legacy in-worktree `logs/bo3_backend_live_capture_contract.jsonl` path was explicitly excluded from this promoted packet and should not be treated as part of the stage.
 
 ## 2026-03-13 - [LOCAL STAGE] BO3 live freshness-gate clock-rewind diagnosis/fix
 - **Branch:** `codex/backend-bo3-clock-rewind-freshness-fix` (local stage; not promoted)
