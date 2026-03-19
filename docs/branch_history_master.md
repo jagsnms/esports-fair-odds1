@@ -1,5 +1,16 @@
 # Branch History - `master`
 
+## 2026-03-19 - [LOCAL STAGE] Q-Intra Real-World Calibration Program: BO3 live q_intra measurement orchestration runner
+- **Branch:** `codex/bo3-live-q-intra-measurement-runner-stage1` (local stage; not promoted)
+- **Larger project:** `Q-Intra Real-World Calibration Program`
+- **Current bounded stage:** `BO3 live q_intra measurement orchestration runner`
+- **Initiative / phase:** Second bounded measurement/evidence stage after the BO3 live q_intra reliability/sufficiency artifact landed on `master`.
+- **Summary of local stage work:** Added `tools/run_backend_bo3_live_q_intra_measurement.py`, added focused deterministic coverage in `tests/unit/test_run_backend_bo3_live_q_intra_measurement.py`, and now provide one canonical end-to-end q_intra measurement run path that executes the existing BO3 live labeled evidence exporter and then the existing q_intra reliability gate with stdout-only orchestration output.
+- **Why this local stage matters:** The larger q-intra program now has one standard way to run its current measurement loop instead of relying on manual exporter-then-gate chaining.
+- **Checks run on the branch:** `tests/unit/test_run_backend_bo3_live_q_intra_measurement.py` passed; `tests/unit/test_run_backend_bo3_live_q_intra_reliability_gate.py` passed; `tests/unit/test_export_backend_bo3_live_round_calibration_evidence.py` passed.
+- **Truth boundary:** This stage is orchestration only. It does not add a new artifact layer, does not add new calibration metrics or readiness semantics, does not retune q, does not calibrate p_hat or rails, and does not change BO3 runtime/upstream behavior.
+- **Current state:** Committed on the project branch and awaiting final promotion decision.
+
 ## 2026-03-19 - [LOCAL STAGE] Q-Intra Real-World Calibration Program: BO3 live q_intra reliability sufficiency artifact
 - **Branch:** `codex/bo3-live-q-intra-reliability-gate-stage1` (local stage; not promoted)
 - **Larger project:** `Q-Intra Real-World Calibration Program`
