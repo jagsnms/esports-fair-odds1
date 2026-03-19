@@ -1,0 +1,264 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tools/schemas/backend_bo3_live_q_intra_reliability_gate.schema.json",
+  "title": "BackendBO3LiveQIntraReliabilityGate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at",
+    "source_evidence_path",
+    "source_evidence_schema_version",
+    "prediction_target",
+    "label_event_type",
+    "gate_kind",
+    "gate_status",
+    "insufficiency_reasons",
+    "sample_counts",
+    "metric_policy",
+    "metrics",
+    "truth_boundary"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "backend_bo3_live_q_intra_reliability_gate_v1"
+    },
+    "generated_at": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_evidence_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_evidence_schema_version": {
+      "type": "string",
+      "const": "backend_bo3_live_round_calibration_evidence_v1"
+    },
+    "prediction_target": {
+      "type": "string",
+      "const": "q_intra_total"
+    },
+    "label_event_type": {
+      "type": "string",
+      "const": "round_result"
+    },
+    "gate_kind": {
+      "type": "string",
+      "const": "evidence_sufficiency_only"
+    },
+    "gate_status": {
+      "type": "string",
+      "enum": [
+        "sufficient_evidence",
+        "insufficient_evidence"
+      ]
+    },
+    "insufficiency_reasons": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "labeled_record_count_below_threshold",
+          "non_empty_bin_count_below_threshold",
+          "no_labeled_records"
+        ]
+      }
+    },
+    "sample_counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "labeled_record_count",
+        "non_empty_bin_count",
+        "empty_bin_count"
+      ],
+      "properties": {
+        "labeled_record_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "non_empty_bin_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10
+        },
+        "empty_bin_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10
+        }
+      }
+    },
+    "metric_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "includes_brier_score",
+        "includes_log_loss",
+        "includes_binned_reliability",
+        "log_loss_clipping",
+        "binning_policy",
+        "sufficiency_thresholds"
+      ],
+      "properties": {
+        "includes_brier_score": {
+          "type": "boolean",
+          "const": true
+        },
+        "includes_log_loss": {
+          "type": "boolean",
+          "const": true
+        },
+        "includes_binned_reliability": {
+          "type": "boolean",
+          "const": true
+        },
+        "log_loss_clipping": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "enabled",
+            "epsilon"
+          ],
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "const": true
+            },
+            "epsilon": {
+              "type": "number",
+              "const": 1e-15
+            }
+          }
+        },
+        "binning_policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "bin_count",
+            "binning_rule"
+          ],
+          "properties": {
+            "bin_count": {
+              "type": "integer",
+              "const": 10
+            },
+            "binning_rule": {
+              "type": "string",
+              "const": "equal_width_[0,1]_with_bin_index_min(int(q_intra_total*10),9)"
+            }
+          }
+        },
+        "sufficiency_thresholds": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "min_labeled_record_count",
+            "min_non_empty_bin_count"
+          ],
+          "properties": {
+            "min_labeled_record_count": {
+              "type": "integer",
+              "const": 100
+            },
+            "min_non_empty_bin_count": {
+              "type": "integer",
+              "const": 3
+            }
+          }
+        }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "brier_score",
+        "log_loss",
+        "reliability_curve_bins"
+      ],
+      "properties": {
+        "brier_score": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "log_loss": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "reliability_curve_bins": {
+          "type": "array",
+          "minItems": 10,
+          "maxItems": 10,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "bin_index",
+              "count",
+              "mean_prediction",
+              "empirical_rate"
+            ],
+            "properties": {
+              "bin_index": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "mean_prediction": {
+                "type": "number"
+              },
+              "empirical_rate": {
+                "type": "number"
+              }
+            }
+          }
+        }
+      }
+    },
+    "truth_boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "what_this_is",
+        "what_this_is_not"
+      ],
+      "properties": {
+        "what_this_is": {
+          "type": "string",
+          "const": "live_bo3_round_level_q_intra_calibration_measurement"
+        },
+        "what_this_is_not": {
+          "type": "array",
+          "minItems": 7,
+          "maxItems": 7,
+          "items": {
+            "type": "string",
+            "enum": [
+              "parameter_tuning",
+              "calibration_quality_certification",
+              "p_hat_calibration",
+              "rails_calibration",
+              "engine_math_change",
+              "replay_canonical_matching",
+              "bo3_upstream_coarse_progression_work"
+            ]
+          },
+          "contains": {
+            "const": "parameter_tuning"
+          }
+        }
+      }
+    }
+  }
+}

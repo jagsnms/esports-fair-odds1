@@ -1,5 +1,16 @@
 # Branch History - `master`
 
+## 2026-03-19 - [LOCAL STAGE] Q-Intra Real-World Calibration Program: BO3 live q_intra reliability sufficiency artifact
+- **Branch:** `codex/bo3-live-q-intra-reliability-gate-stage1` (local stage; not promoted)
+- **Larger project:** `Q-Intra Real-World Calibration Program`
+- **Current bounded stage:** `BO3 live q_intra reliability sufficiency artifact`
+- **Initiative / phase:** First bounded measurement-only stage after promoted `master` gained a narrow BO3 live labeled round-level exporter for `q_intra_total` vs `round_result`.
+- **Summary of local stage work:** Added `tools/run_backend_bo3_live_q_intra_reliability_gate.py`, added `tools/schemas/backend_bo3_live_q_intra_reliability_gate.schema.json`, added focused deterministic coverage in `tests/unit/test_run_backend_bo3_live_q_intra_reliability_gate.py`, and now emit one machine-readable BO3 live q_intra reliability/sufficiency artifact from the existing detailed labeled evidence export.
+- **Why this local stage matters:** The repo can now turn promoted BO3 live labeled q_intra evidence into one explicit calibration-measurement artifact with sufficiency signaling instead of stopping at raw exported labeled rows.
+- **Checks run on the branch:** `tests/unit/test_run_backend_bo3_live_q_intra_reliability_gate.py` passed; `tests/unit/test_export_backend_bo3_live_round_calibration_evidence.py` passed.
+- **Truth boundary:** This stage is measurement-only. It does not retune q, does not calibrate p_hat, does not calibrate rails, does not certify calibration quality, does not change engine math, and does not reopen replay/canonical matching or BO3 upstream/coarse-progression work.
+- **Current state:** Committed on the project branch and awaiting final promotion decision.
+
 ## 2026-03-19 - [LOCAL STAGE] Kalshi robustness packet recovery and clean promotion path
 - **Branch:** `codex/kalshi-client-robustness-recovery` (local stage; not promoted)
 - **Initiative / phase:** Bounded Kalshi quote fetch/parsing recovery after live runtime status showed polling was active with a selected ticker but quote acquisition was failing on current Kalshi response shapes.
