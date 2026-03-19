@@ -1,5 +1,16 @@
 # Branch History - `master`
 
+## 2026-03-19 - [LOCAL STAGE] Q-Intra Real-World Calibration Program: BO3 round_result score-delta carryover fix
+- **Branch:** `codex/bo3-round-result-carryover-fix-stage1` (local stage; not promoted)
+- **Larger project:** `Q-Intra Real-World Calibration Program`
+- **Current bounded stage:** `BO3 round_result score-delta carryover fix`
+- **Initiative / phase:** Narrow evidence-accumulation defect correction after live match audit showed repeated missed `round_result` emissions when BO3 score delta became knowable before the lawful emit boundary.
+- **Summary of local stage work:** Updated `backend/services/runner.py`, added focused deterministic coverage in `tests/unit/test_runner_bo3_hold.py`, and now preserve BO3 round winner information across same-round ticks until the existing lawful emit boundary so the demonstrated same-round score-delta loss mode no longer drops completed rounds before labeling.
+- **Why this local stage matters:** The larger q-intra program depends on explicit `round_result` rows for labeled evidence export. This local stage fixes a repo-side suppression defect in that label path instead of broadening into more measurement tooling.
+- **Checks run on the branch:** `tests/unit/test_runner_bo3_hold.py` passed; `tests/unit/test_runner_map_identity.py` passed.
+- **Truth boundary:** This stage preserves existing lawful emit timing only. It does not redesign map-result logic, does not redesign series/match finalization, does not touch exporter/gate/measurement tooling, does not retune q, and does not calibrate p_hat or rails.
+- **Current state:** Committed on the project branch and awaiting final promotion decision.
+
 ## 2026-03-19 - [LOCAL STAGE] Q-Intra Real-World Calibration Program: BO3 live q_intra measurement orchestration runner
 - **Branch:** `codex/bo3-live-q-intra-measurement-runner-stage1` (local stage; not promoted)
 - **Larger project:** `Q-Intra Real-World Calibration Program`

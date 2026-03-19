@@ -1010,6 +1010,8 @@ class Runner:
         self._bo3_last_seen_round_number: int | None = None  # updated every tick
         self._bo3_last_emitted_round_number: int | None = None
         self._bo3_last_emitted_round_winner_team_id: int | None = None
+        self._bo3_pending_round_result_identity: tuple[int | None, int | None, int] | None = None
+        self._bo3_pending_round_result_winner_team_id: int | None = None
         self._bo3_last_seen_segment_id_for_result: int | None = None
         self._bo3_last_seen_map_winner_team_id: int | None = None
         self._bo3_last_seen_scores: tuple[int, int] | None = None  # (team_one_score, team_two_score) for inferring winner when winning_team_id==0
@@ -1065,6 +1067,8 @@ class Runner:
         self._bo3_last_seen_round_number = None
         self._bo3_last_emitted_round_number = None
         self._bo3_last_emitted_round_winner_team_id = None
+        self._bo3_pending_round_result_identity = None
+        self._bo3_pending_round_result_winner_team_id = None
         self._bo3_last_seen_segment_id_for_result = None
         self._bo3_last_seen_map_winner_team_id = None
         self._bo3_last_seen_scores = None
@@ -1983,14 +1987,14 @@ class Runner:
         last_s1 = _tr("last_seen_score_team_one")
         last_s2 = _tr("last_seen_score_team_two")
 
-        async def maybe_emit_round_result(round_to_label: int, winner_team_id: int) -> None:
+        async def maybe_emit_round_result(round_to_label: int, winner_team_id: int) -> bool:
             if winner_team_id == 0:
-                return
+                return False
             if (
                 _tr("last_emitted_round_number") == round_to_label
                 and _tr("last_emitted_round_winner_team_id") == winner_team_id
             ):
-                return
+                return False
             round_winner_is_team_a = bool(team_a_id and winner_team_id == team_a_id)
             round_event = {
                 "event_type": "round_result",
@@ -2037,23 +2041,74 @@ class Runner:
             await self._broadcast_point(round_point)
             _set_tr("last_emitted_round_number", round_to_label)
             _set_tr("last_emitted_round_winner_team_id", winner_team_id)
+            return True
 
         # Infer winner by score delta (winning_team_id is always 0 in our BO3 replay payloads)
         winner_from_delta = _infer_round_winner_by_score_delta(
             last_s1, last_s2, s1, s2, team_one_id, team_two_id
         )
+        current_round_identity = (
+            (game_number, map_index, rn) if rn is not None else None
+        )
+        pending_round_identity = _tr("pending_round_result_identity")
+        pending_round_winner_team_id = _tr("pending_round_result_winner_team_id")
+
+        def clear_pending_round_result() -> None:
+            _set_tr("pending_round_result_identity", None)
+            _set_tr("pending_round_result_winner_team_id", None)
+
+        if current_round_identity is not None and winning_team_id != 0:
+            _set_tr("pending_round_result_identity", current_round_identity)
+            _set_tr("pending_round_result_winner_team_id", winning_team_id)
+            pending_round_identity = current_round_identity
+            pending_round_winner_team_id = winning_team_id
+        elif (
+            current_round_identity is not None
+            and winner_from_delta != 0
+            and pending_round_identity != current_round_identity
+        ):
+            _set_tr("pending_round_result_identity", current_round_identity)
+            _set_tr("pending_round_result_winner_team_id", winner_from_delta)
+            pending_round_identity = current_round_identity
+            pending_round_winner_team_id = winner_from_delta
 
         # A) phase == "FINISHED": label the round that just finished (rn)
         if phase_upper == "FINISHED" and rn is not None:
-            winner = winning_team_id if winning_team_id != 0 else winner_from_delta
-            await maybe_emit_round_result(rn, winner)
+            winner = winning_team_id if winning_team_id != 0 else (
+                pending_round_winner_team_id
+                if pending_round_identity == current_round_identity
+                else winner_from_delta
+            )
+            emitted = await maybe_emit_round_result(rn, winner)
+            if emitted and pending_round_identity == current_round_identity:
+                clear_pending_round_result()
+                pending_round_identity = None
+                pending_round_winner_team_id = None
 
         # B) rn advanced: previous round ended when round number increased
         last_rn = _tr("last_seen_round_number")
         if last_rn is not None and rn is not None and rn > last_rn:
             prev_round = last_rn
-            winner = winning_team_id if winning_team_id != 0 else winner_from_delta
-            await maybe_emit_round_result(prev_round, winner)
+            previous_round_identity = (game_number, map_index, prev_round)
+            winner = winning_team_id if winning_team_id != 0 else (
+                pending_round_winner_team_id
+                if pending_round_identity == previous_round_identity
+                else winner_from_delta
+            )
+            emitted = await maybe_emit_round_result(prev_round, winner)
+            if emitted and pending_round_identity == previous_round_identity:
+                clear_pending_round_result()
+                pending_round_identity = None
+                pending_round_winner_team_id = None
+
+        if pending_round_identity is not None:
+            valid_pending_identities: set[tuple[int | None, int | None, int]] = set()
+            if current_round_identity is not None:
+                valid_pending_identities.add(current_round_identity)
+            if last_rn is not None and game_number is not None:
+                valid_pending_identities.add((game_number, map_index, last_rn))
+            if pending_round_identity not in valid_pending_identities:
+                clear_pending_round_result()
 
         # Update last-seen round and scores every tick
         _set_tr("last_seen_round_number", rn)

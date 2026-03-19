@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from engine.models import Config, Derived, State
+from engine.models import Config, Derived, Frame, State
 
 from backend.services.runner import Runner
 from backend.store.memory_store import MemoryStore
@@ -519,6 +519,576 @@ async def test_round_result_fallback_map_index_from_last_seen_game_number() -> N
 
 def test_round_result_fallback_map_index_from_last_seen_game_number_sync() -> None:
     asyncio.run(test_round_result_fallback_map_index_from_last_seen_game_number())
+
+
+async def test_round_result_carries_inferred_winner_until_round_advances() -> None:
+    """A same-round score delta should still emit once the round later advances."""
+    store = MemoryStore(max_history=100)
+    config = Config(source="BO3", match_id=999, poll_interval_s=5.0, team_a_is_team_one=True)
+    state = State(config=config, segment_id=0)
+    derived = Derived(p_hat=0.5, bound_low=0.01, bound_high=0.99, rail_low=0.01, rail_high=0.99, kappa=0.0)
+    await store.set_current(state, derived)
+
+    broadcaster = MagicMock()
+    broadcaster.broadcast = AsyncMock()
+    runner = Runner(store=store, broadcaster=broadcaster)
+    new_state = State(config=config, segment_id=0)
+
+    await runner._maybe_emit_outcome_events_from_bo3_payload(
+        raw={
+            "team_one": {"id": 101, "score": 2, "match_score": 1},
+            "team_two": {"id": 202, "score": 3, "match_score": 1},
+            "round_phase": "IN_PROGRESS",
+            "round_number": 6,
+            "game_number": 3,
+            "winning_team_id": 0,
+        },
+        config=config,
+        new_state=new_state,
+        t=1000.0,
+        p_hat=0.5,
+        bound_low=0.01,
+        bound_high=0.99,
+        rail_low=0.01,
+        rail_high=0.99,
+        market_mid=None,
+        dbg={},
+        team_a_is_team_one=True,
+        match_id_used=999,
+    )
+    await runner._maybe_emit_outcome_events_from_bo3_payload(
+        raw={
+            "team_one": {"id": 101, "score": 3, "match_score": 1},
+            "team_two": {"id": 202, "score": 3, "match_score": 1},
+            "round_phase": "IN_PROGRESS",
+            "round_number": 6,
+            "game_number": 3,
+            "winning_team_id": 0,
+        },
+        config=config,
+        new_state=new_state,
+        t=1001.0,
+        p_hat=0.5,
+        bound_low=0.01,
+        bound_high=0.99,
+        rail_low=0.01,
+        rail_high=0.99,
+        market_mid=None,
+        dbg={},
+        team_a_is_team_one=True,
+        match_id_used=999,
+    )
+    await runner._maybe_emit_outcome_events_from_bo3_payload(
+        raw={
+            "team_one": {"id": 101, "score": 3, "match_score": 1},
+            "team_two": {"id": 202, "score": 3, "match_score": 1},
+            "round_phase": "BUY_TIME",
+            "round_number": 7,
+            "game_number": 3,
+            "winning_team_id": 0,
+        },
+        config=config,
+        new_state=new_state,
+        t=1002.0,
+        p_hat=0.5,
+        bound_low=0.01,
+        bound_high=0.99,
+        rail_low=0.01,
+        rail_high=0.99,
+        market_mid=None,
+        dbg={},
+        team_a_is_team_one=True,
+        match_id_used=999,
+    )
+
+    hist = await store.get_history(limit=20)
+    round_points = [p for p in hist if (p.get("event") or {}).get("event_type") == "round_result"]
+    assert len(round_points) == 1
+    event = round_points[0].get("event") or {}
+    assert round_points[0].get("round_number") == 6
+    assert round_points[0].get("game_number") == 3
+    assert round_points[0].get("map_index") == 2
+    assert event.get("round_winner_team_id") == 101
+    assert event.get("round_winner_is_team_a") is True
+
+
+def test_round_result_carries_inferred_winner_until_round_advances_sync() -> None:
+    asyncio.run(test_round_result_carries_inferred_winner_until_round_advances())
+
+
+async def test_round_result_carryover_does_not_duplicate_on_repeated_ticks() -> None:
+    """Carryover should emit exactly once even if same-round and boundary ticks repeat."""
+    store = MemoryStore(max_history=100)
+    config = Config(source="BO3", match_id=999, poll_interval_s=5.0, team_a_is_team_one=True)
+    state = State(config=config, segment_id=0)
+    derived = Derived(p_hat=0.5, bound_low=0.01, bound_high=0.99, rail_low=0.01, rail_high=0.99, kappa=0.0)
+    await store.set_current(state, derived)
+
+    broadcaster = MagicMock()
+    broadcaster.broadcast = AsyncMock()
+    runner = Runner(store=store, broadcaster=broadcaster)
+    new_state = State(config=config, segment_id=0)
+
+    payloads = [
+        {
+            "team_one": {"id": 101, "score": 4, "match_score": 1},
+            "team_two": {"id": 202, "score": 5, "match_score": 1},
+            "round_phase": "IN_PROGRESS",
+            "round_number": 10,
+            "game_number": 3,
+            "winning_team_id": 0,
+        },
+        {
+            "team_one": {"id": 101, "score": 5, "match_score": 1},
+            "team_two": {"id": 202, "score": 5, "match_score": 1},
+            "round_phase": "IN_PROGRESS",
+            "round_number": 10,
+            "game_number": 3,
+            "winning_team_id": 0,
+        },
+        {
+            "team_one": {"id": 101, "score": 5, "match_score": 1},
+            "team_two": {"id": 202, "score": 5, "match_score": 1},
+            "round_phase": "IN_PROGRESS",
+            "round_number": 10,
+            "game_number": 3,
+            "winning_team_id": 0,
+        },
+        {
+            "team_one": {"id": 101, "score": 5, "match_score": 1},
+            "team_two": {"id": 202, "score": 5, "match_score": 1},
+            "round_phase": "BUY_TIME",
+            "round_number": 11,
+            "game_number": 3,
+            "winning_team_id": 0,
+        },
+        {
+            "team_one": {"id": 101, "score": 5, "match_score": 1},
+            "team_two": {"id": 202, "score": 5, "match_score": 1},
+            "round_phase": "BUY_TIME",
+            "round_number": 11,
+            "game_number": 3,
+            "winning_team_id": 0,
+        },
+    ]
+
+    for offset, raw in enumerate(payloads):
+        await runner._maybe_emit_outcome_events_from_bo3_payload(
+            raw=raw,
+            config=config,
+            new_state=new_state,
+            t=1100.0 + offset,
+            p_hat=0.5,
+            bound_low=0.01,
+            bound_high=0.99,
+            rail_low=0.01,
+            rail_high=0.99,
+            market_mid=None,
+            dbg={},
+            team_a_is_team_one=True,
+            match_id_used=999,
+        )
+
+    hist = await store.get_history(limit=20)
+    round_points = [p for p in hist if (p.get("event") or {}).get("event_type") == "round_result"]
+    assert len(round_points) == 1
+    assert (round_points[0].get("event") or {}).get("round_winner_team_id") == 101
+
+
+def test_round_result_carryover_does_not_duplicate_on_repeated_ticks_sync() -> None:
+    asyncio.run(test_round_result_carryover_does_not_duplicate_on_repeated_ticks())
+
+
+async def test_explicit_round_winner_overrides_carried_inference() -> None:
+    """A later explicit winning_team_id should supersede the carried score-delta inference."""
+    store = MemoryStore(max_history=100)
+    config = Config(source="BO3", match_id=999, poll_interval_s=5.0, team_a_is_team_one=True)
+    state = State(config=config, segment_id=0)
+    derived = Derived(p_hat=0.5, bound_low=0.01, bound_high=0.99, rail_low=0.01, rail_high=0.99, kappa=0.0)
+    await store.set_current(state, derived)
+
+    broadcaster = MagicMock()
+    broadcaster.broadcast = AsyncMock()
+    runner = Runner(store=store, broadcaster=broadcaster)
+    new_state = State(config=config, segment_id=0)
+
+    await runner._maybe_emit_outcome_events_from_bo3_payload(
+        raw={
+            "team_one": {"id": 101, "score": 6, "match_score": 1},
+            "team_two": {"id": 202, "score": 5, "match_score": 1},
+            "round_phase": "IN_PROGRESS",
+            "round_number": 12,
+            "game_number": 3,
+            "winning_team_id": 0,
+        },
+        config=config,
+        new_state=new_state,
+        t=1200.0,
+        p_hat=0.5,
+        bound_low=0.01,
+        bound_high=0.99,
+        rail_low=0.01,
+        rail_high=0.99,
+        market_mid=None,
+        dbg={},
+        team_a_is_team_one=True,
+        match_id_used=999,
+    )
+    await runner._maybe_emit_outcome_events_from_bo3_payload(
+        raw={
+            "team_one": {"id": 101, "score": 6, "match_score": 1},
+            "team_two": {"id": 202, "score": 6, "match_score": 1},
+            "round_phase": "IN_PROGRESS",
+            "round_number": 12,
+            "game_number": 3,
+            "winning_team_id": 0,
+        },
+        config=config,
+        new_state=new_state,
+        t=1201.0,
+        p_hat=0.5,
+        bound_low=0.01,
+        bound_high=0.99,
+        rail_low=0.01,
+        rail_high=0.99,
+        market_mid=None,
+        dbg={},
+        team_a_is_team_one=True,
+        match_id_used=999,
+    )
+    await runner._maybe_emit_outcome_events_from_bo3_payload(
+        raw={
+            "team_one": {"id": 101, "score": 6, "match_score": 1},
+            "team_two": {"id": 202, "score": 6, "match_score": 1},
+            "round_phase": "FINISHED",
+            "round_number": 12,
+            "game_number": 3,
+            "winning_team_id": 202,
+        },
+        config=config,
+        new_state=new_state,
+        t=1202.0,
+        p_hat=0.5,
+        bound_low=0.01,
+        bound_high=0.99,
+        rail_low=0.01,
+        rail_high=0.99,
+        market_mid=None,
+        dbg={},
+        team_a_is_team_one=True,
+        match_id_used=999,
+    )
+
+    hist = await store.get_history(limit=20)
+    round_points = [p for p in hist if (p.get("event") or {}).get("event_type") == "round_result"]
+    assert len(round_points) == 1
+    assert (round_points[0].get("event") or {}).get("round_winner_team_id") == 202
+    assert (round_points[0].get("event") or {}).get("round_winner_is_team_a") is False
+
+
+def test_explicit_round_winner_overrides_carried_inference_sync() -> None:
+    asyncio.run(test_explicit_round_winner_overrides_carried_inference())
+
+
+async def test_explicit_round_winner_carries_to_boundary_when_boundary_tick_has_zero() -> None:
+    """A nonzero explicit winner seen before boundary should still emit when the boundary tick reports zero."""
+    store = MemoryStore(max_history=100)
+    config = Config(source="BO3", match_id=999, poll_interval_s=5.0, team_a_is_team_one=True)
+    state = State(config=config, segment_id=0)
+    derived = Derived(p_hat=0.5, bound_low=0.01, bound_high=0.99, rail_low=0.01, rail_high=0.99, kappa=0.0)
+    await store.set_current(state, derived)
+
+    broadcaster = MagicMock()
+    broadcaster.broadcast = AsyncMock()
+    runner = Runner(store=store, broadcaster=broadcaster)
+    new_state = State(config=config, segment_id=0)
+
+    await runner._maybe_emit_outcome_events_from_bo3_payload(
+        raw={
+            "team_one": {"id": 101, "score": 6, "match_score": 1},
+            "team_two": {"id": 202, "score": 5, "match_score": 1},
+            "round_phase": "IN_PROGRESS",
+            "round_number": 12,
+            "game_number": 3,
+            "winning_team_id": 0,
+        },
+        config=config,
+        new_state=new_state,
+        t=1250.0,
+        p_hat=0.5,
+        bound_low=0.01,
+        bound_high=0.99,
+        rail_low=0.01,
+        rail_high=0.99,
+        market_mid=None,
+        dbg={},
+        team_a_is_team_one=True,
+        match_id_used=999,
+    )
+    await runner._maybe_emit_outcome_events_from_bo3_payload(
+        raw={
+            "team_one": {"id": 101, "score": 6, "match_score": 1},
+            "team_two": {"id": 202, "score": 6, "match_score": 1},
+            "round_phase": "IN_PROGRESS",
+            "round_number": 12,
+            "game_number": 3,
+            "winning_team_id": 202,
+        },
+        config=config,
+        new_state=new_state,
+        t=1251.0,
+        p_hat=0.5,
+        bound_low=0.01,
+        bound_high=0.99,
+        rail_low=0.01,
+        rail_high=0.99,
+        market_mid=None,
+        dbg={},
+        team_a_is_team_one=True,
+        match_id_used=999,
+    )
+    await runner._maybe_emit_outcome_events_from_bo3_payload(
+        raw={
+            "team_one": {"id": 101, "score": 6, "match_score": 1},
+            "team_two": {"id": 202, "score": 6, "match_score": 1},
+            "round_phase": "BUY_TIME",
+            "round_number": 13,
+            "game_number": 3,
+            "winning_team_id": 0,
+        },
+        config=config,
+        new_state=new_state,
+        t=1252.0,
+        p_hat=0.5,
+        bound_low=0.01,
+        bound_high=0.99,
+        rail_low=0.01,
+        rail_high=0.99,
+        market_mid=None,
+        dbg={},
+        team_a_is_team_one=True,
+        match_id_used=999,
+    )
+    await runner._maybe_emit_outcome_events_from_bo3_payload(
+        raw={
+            "team_one": {"id": 101, "score": 6, "match_score": 1},
+            "team_two": {"id": 202, "score": 6, "match_score": 1},
+            "round_phase": "BUY_TIME",
+            "round_number": 13,
+            "game_number": 3,
+            "winning_team_id": 0,
+        },
+        config=config,
+        new_state=new_state,
+        t=1253.0,
+        p_hat=0.5,
+        bound_low=0.01,
+        bound_high=0.99,
+        rail_low=0.01,
+        rail_high=0.99,
+        market_mid=None,
+        dbg={},
+        team_a_is_team_one=True,
+        match_id_used=999,
+    )
+
+    hist = await store.get_history(limit=20)
+    round_points = [p for p in hist if (p.get("event") or {}).get("event_type") == "round_result"]
+    assert len(round_points) == 1
+    event = round_points[0].get("event") or {}
+    assert round_points[0].get("round_number") == 12
+    assert event.get("round_winner_team_id") == 202
+    assert event.get("round_winner_is_team_a") is False
+
+
+def test_explicit_round_winner_carries_to_boundary_when_boundary_tick_has_zero_sync() -> None:
+    asyncio.run(test_explicit_round_winner_carries_to_boundary_when_boundary_tick_has_zero())
+
+
+async def test_round_result_carryover_resets_on_map_change() -> None:
+    """Carried inference must not leak into a different game/map context."""
+    store = MemoryStore(max_history=100)
+    config = Config(source="BO3", match_id=999, poll_interval_s=5.0, team_a_is_team_one=True)
+    state = State(config=config, segment_id=0)
+    derived = Derived(p_hat=0.5, bound_low=0.01, bound_high=0.99, rail_low=0.01, rail_high=0.99, kappa=0.0)
+    await store.set_current(state, derived)
+
+    broadcaster = MagicMock()
+    broadcaster.broadcast = AsyncMock()
+    runner = Runner(store=store, broadcaster=broadcaster)
+    new_state = State(config=config, segment_id=0)
+
+    await runner._maybe_emit_outcome_events_from_bo3_payload(
+        raw={
+            "team_one": {"id": 101, "score": 8, "match_score": 1},
+            "team_two": {"id": 202, "score": 8, "match_score": 1},
+            "round_phase": "IN_PROGRESS",
+            "round_number": 17,
+            "game_number": 3,
+            "winning_team_id": 0,
+        },
+        config=config,
+        new_state=new_state,
+        t=1300.0,
+        p_hat=0.5,
+        bound_low=0.01,
+        bound_high=0.99,
+        rail_low=0.01,
+        rail_high=0.99,
+        market_mid=None,
+        dbg={},
+        team_a_is_team_one=True,
+        match_id_used=999,
+    )
+    await runner._maybe_emit_outcome_events_from_bo3_payload(
+        raw={
+            "team_one": {"id": 101, "score": 9, "match_score": 1},
+            "team_two": {"id": 202, "score": 8, "match_score": 1},
+            "round_phase": "IN_PROGRESS",
+            "round_number": 17,
+            "game_number": 3,
+            "winning_team_id": 0,
+        },
+        config=config,
+        new_state=new_state,
+        t=1301.0,
+        p_hat=0.5,
+        bound_low=0.01,
+        bound_high=0.99,
+        rail_low=0.01,
+        rail_high=0.99,
+        market_mid=None,
+        dbg={},
+        team_a_is_team_one=True,
+        match_id_used=999,
+    )
+    await runner._maybe_emit_outcome_events_from_bo3_payload(
+        raw={
+            "team_one": {"id": 101, "score": 0, "match_score": 1},
+            "team_two": {"id": 202, "score": 0, "match_score": 1},
+            "round_phase": "BUY_TIME",
+            "round_number": 1,
+            "game_number": 4,
+            "winning_team_id": 0,
+        },
+        config=config,
+        new_state=new_state,
+        t=1302.0,
+        p_hat=0.5,
+        bound_low=0.01,
+        bound_high=0.99,
+        rail_low=0.01,
+        rail_high=0.99,
+        market_mid=None,
+        dbg={},
+        team_a_is_team_one=True,
+        match_id_used=999,
+    )
+    await runner._maybe_emit_outcome_events_from_bo3_payload(
+        raw={
+            "team_one": {"id": 101, "score": 0, "match_score": 1},
+            "team_two": {"id": 202, "score": 0, "match_score": 1},
+            "round_phase": "BUY_TIME",
+            "round_number": 1,
+            "game_number": 4,
+            "winning_team_id": 0,
+        },
+        config=config,
+        new_state=new_state,
+        t=1303.0,
+        p_hat=0.5,
+        bound_low=0.01,
+        bound_high=0.99,
+        rail_low=0.01,
+        rail_high=0.99,
+        market_mid=None,
+        dbg={},
+        team_a_is_team_one=True,
+        match_id_used=999,
+    )
+
+    hist = await store.get_history(limit=20)
+    round_points = [p for p in hist if (p.get("event") or {}).get("event_type") == "round_result"]
+    assert round_points == []
+
+
+def test_round_result_carryover_resets_on_map_change_sync() -> None:
+    asyncio.run(test_round_result_carryover_resets_on_map_change())
+
+
+async def test_segment_result_still_emits_on_credible_match_score_increment() -> None:
+    """Touched path must preserve existing credible match_score increment segment_result behavior."""
+    store = MemoryStore(max_history=100)
+    config = Config(source="BO3", match_id=999, poll_interval_s=5.0, team_a_is_team_one=True)
+    state = State(config=config, segment_id=0)
+    derived = Derived(p_hat=0.5, bound_low=0.01, bound_high=0.99, rail_low=0.01, rail_high=0.99, kappa=0.0)
+    await store.set_current(state, derived)
+
+    broadcaster = MagicMock()
+    broadcaster.broadcast = AsyncMock()
+    runner = Runner(store=store, broadcaster=broadcaster)
+    new_state = State(
+        config=config,
+        segment_id=0,
+        last_frame=Frame(timestamp=1401.0, teams=("A", "B"), scores=(13, 8)),
+    )
+
+    await runner._maybe_emit_outcome_events_from_bo3_payload(
+        raw={
+            "team_one": {"id": 101, "score": 12, "match_score": 1},
+            "team_two": {"id": 202, "score": 8, "match_score": 1},
+            "round_phase": "IN_PROGRESS",
+            "round_number": 21,
+            "game_number": 3,
+            "winning_team_id": 0,
+        },
+        config=config,
+        new_state=new_state,
+        t=1400.0,
+        p_hat=0.5,
+        bound_low=0.01,
+        bound_high=0.99,
+        rail_low=0.01,
+        rail_high=0.99,
+        market_mid=None,
+        dbg={},
+        team_a_is_team_one=True,
+        match_id_used=999,
+    )
+    await runner._maybe_emit_outcome_events_from_bo3_payload(
+        raw={
+            "team_one": {"id": 101, "score": 13, "match_score": 2},
+            "team_two": {"id": 202, "score": 8, "match_score": 1},
+            "round_phase": "FINISHED",
+            "round_number": 21,
+            "game_number": 3,
+            "winning_team_id": 101,
+        },
+        config=config,
+        new_state=new_state,
+        t=1401.0,
+        p_hat=0.5,
+        bound_low=0.01,
+        bound_high=0.99,
+        rail_low=0.01,
+        rail_high=0.99,
+        market_mid=None,
+        dbg={},
+        team_a_is_team_one=True,
+        match_id_used=999,
+    )
+
+    hist = await store.get_history(limit=20)
+    segment_points = [p for p in hist if (p.get("event") or {}).get("event_type") == "segment_result"]
+    assert len(segment_points) == 1
+    event = segment_points[0].get("event") or {}
+    assert event.get("map_winner_team_id") == 101
+    assert event.get("final_rounds_a") == 13
+    assert event.get("final_rounds_b") == 8
+
+
+def test_segment_result_still_emits_on_credible_match_score_increment_sync() -> None:
+    asyncio.run(test_segment_result_still_emits_on_credible_match_score_increment())
 
 
 async def test_bo3_invalid_driver_missing_microstate_does_not_append_history_point() -> None:
