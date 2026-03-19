@@ -137,13 +137,25 @@ def fetch_kalshi_bid_ask(ticker: str) -> tuple[float, float, float, float]:
     if not t:
         raise ValueError("Missing Kalshi ticker")
 
-    def _to_int(x: Any) -> int | None:
+    def _to_cents(x: Any, *, dollars: bool) -> int | None:
         if x is None:
             return None
         try:
-            return int(float(x))
+            value = float(x)
         except (TypeError, ValueError):
             return None
+        if dollars:
+            return int(round(value * 100.0))
+        return int(round(value))
+
+    def _pick_price_cents(payload: dict[str, Any], *, cents_keys: tuple[str, ...], dollars_keys: tuple[str, ...]) -> int | None:
+        for key in cents_keys:
+            if key in payload and payload.get(key) is not None:
+                return _to_cents(payload.get(key), dollars=False)
+        for key in dollars_keys:
+            if key in payload and payload.get(key) is not None:
+                return _to_cents(payload.get(key), dollars=True)
+        return None
 
     def _best_bid(levels: list) -> tuple[float | None, Any]:
         best_p: float | None = None
@@ -177,18 +189,35 @@ def fetch_kalshi_bid_ask(ticker: str) -> tuple[float, float, float, float]:
             r.raise_for_status()
             data = r.json()
             market = data.get("market", data)
-            yb = _to_int(market.get("yes_bid", market.get("yesBid")))
-            ya = _to_int(market.get("yes_ask", market.get("yesAsk")))
-            nb = _to_int(market.get("no_bid", market.get("noBid")))
+            yb = _pick_price_cents(
+                market,
+                cents_keys=("yes_bid", "yesBid"),
+                dollars_keys=("yes_bid_dollars", "yesBidDollars"),
+            )
+            ya = _pick_price_cents(
+                market,
+                cents_keys=("yes_ask", "yesAsk"),
+                dollars_keys=("yes_ask_dollars", "yesAskDollars"),
+            )
+            nb = _pick_price_cents(
+                market,
+                cents_keys=("no_bid", "noBid"),
+                dollars_keys=("no_bid_dollars", "noBidDollars"),
+            )
+            na = _pick_price_cents(
+                market,
+                cents_keys=("no_ask", "noAsk"),
+                dollars_keys=("no_ask_dollars", "noAskDollars"),
+            )
             if ya is None and nb is not None:
                 ya = 100 - nb
+            if yb is None and na is not None:
+                yb = 100 - na
             if yb is not None or ya is not None:
                 bid = (yb / 100.0) if yb is not None else None
                 ask = (ya / 100.0) if ya is not None else None
-                if bid is None:
-                    bid = ask if ask is not None else 0.5
-                if ask is None:
-                    ask = bid
+                if bid is None or ask is None:
+                    raise RuntimeError("Market response did not contain enough quote fields")
                 mid = 0.5 * (float(bid) + float(ask))
                 return (float(bid), float(ask), mid, time.time())
         except Exception as e:
@@ -198,19 +227,17 @@ def fetch_kalshi_bid_ask(ticker: str) -> tuple[float, float, float, float]:
             r = requests.get(url, timeout=5)
             r.raise_for_status()
             data = r.json()
-            ob = data.get("orderbook", data)
-            yes_bids = ob.get("yes", []) or ob.get("yes_bids", []) or ob.get("yesOrders", [])
-            no_bids = ob.get("no", []) or ob.get("no_bids", []) or ob.get("noOrders", [])
+            ob = data.get("orderbook_fp") or data.get("orderbook", data)
+            yes_bids = ob.get("yes", []) or ob.get("yes_bids", []) or ob.get("yesOrders", []) or ob.get("yes_dollars", []) or ob.get("yesDollars", [])
+            no_bids = ob.get("no", []) or ob.get("no_bids", []) or ob.get("noOrders", []) or ob.get("no_dollars", []) or ob.get("noDollars", [])
             best_yes_c, _ = _best_bid(yes_bids)
             best_no_c, _ = _best_bid(no_bids)
             if best_yes_c is None and best_no_c is None:
                 raise RuntimeError("No orderbook levels returned")
+            if best_yes_c is None or best_no_c is None:
+                raise RuntimeError("Orderbook did not contain both yes and no bid levels")
             bid = (best_yes_c / 100.0) if best_yes_c is not None else None
             ask = ((100.0 - best_no_c) / 100.0) if best_no_c is not None else None
-            if bid is None:
-                bid = float(ask) if ask is not None else 0.5
-            if ask is None:
-                ask = float(bid)
             mid = 0.5 * (float(bid) + float(ask))
             return (float(bid), float(ask), mid, time.time())
         except Exception as e:

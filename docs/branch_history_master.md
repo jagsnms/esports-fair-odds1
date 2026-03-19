@@ -1,5 +1,74 @@
 # Branch History - `master`
 
+## 2026-03-19 - [LOCAL STAGE] Kalshi robustness packet recovery and clean promotion path
+- **Branch:** `codex/kalshi-client-robustness-recovery` (local stage; not promoted)
+- **Initiative / phase:** Bounded Kalshi quote fetch/parsing recovery after live runtime status showed polling was active with a selected ticker but quote acquisition was failing on current Kalshi response shapes.
+- **Summary of local stage work:** Hardened `engine/market/kalshi_client.py` to accept current dollar-denominated market quote fields and `orderbook_fp` / `yes_dollars` / `no_dollars` orderbook fallback shapes, added focused deterministic coverage in `tests/unit/test_kalshi_client.py`, and preserved honest failure when no lawful two-sided quote can be derived.
+- **Why this local stage matters:** `master` currently exposes market runtime truth but still carries the older Kalshi quote parser. This local stage is the bounded recovery packet intended to restore lawful live quote acquisition without touching runner/chart logic.
+- **Checks run on the branch:** `tests/unit/test_kalshi_client.py` passed; `tests/unit/test_market_runtime_status.py` passed.
+- **Truth boundary:** This stage is Kalshi client robustness only. It does not change runner behavior, chart rendering, replay/simulation surfaces, or BO3 behavior.
+- **Current state:** Committed on the project branch and awaiting final push/promotion decision.
+
+## [BACKFILLED] 2026-03-15 - Bounded replay point-source contract
+- **Branch:** `master`
+- **Initiative / phase:** Bounded replay-side source-contract step
+- **Project commit:**
+  - `cd289f7942ea17415136e19928fed513c0b9d92d` `Add bounded replay point-source contract`
+- **Summary of push:** Promoted one bounded replay-side `replay_point_source` contract under the replay validation summary artifact, limited to lawful point fields already captured by the replay assessment path.
+- **Key files/subsystems touched:**
+  - `tools/replay_verification_assess.py`
+  - `tools/schemas/replay_validation_summary.schema.json`
+  - `tools/validate_replay_validation_summary.py`
+  - `tests/unit/test_replay_verification_assess_stage1.py`
+  - `tests/unit/test_validate_replay_validation_summary.py`
+- **Truth boundary:** This stage excludes `point.event`, broad `derived`, and `derived.debug`. It does not introduce comparison logic, alignment work, or broader replay/simulation architecture changes.
+
+## [BACKFILLED] 2026-03-15 - Common point-source basis metadata
+- **Branch:** `master`
+- **Initiative / phase:** Bounded lawful shared-vocabulary metadata step
+- **Project commit:**
+  - `7c57ea2fbaeb315f0f2079c45bbae185b25875c1` `Add common point-source basis metadata`
+- **Summary of push:** Promoted one shared `common_point_source_basis` descriptor on replay-side and canonical-side source surfaces for the six lawful overlapping fields only.
+- **Key files/subsystems touched:**
+  - `tools/replay_verification_assess.py`
+  - `tools/schemas/replay_validation_summary.schema.json`
+  - `tools/validate_replay_validation_summary.py`
+  - `engine/simulation/phase2.py`
+  - `tests/unit/test_replay_verification_assess_stage1.py`
+  - `tests/unit/test_validate_replay_validation_summary.py`
+  - `tests/simulation/test_phase2_trace_export.py`
+- **Truth boundary:** This stage is metadata-only and explicitly sets `record_matching_implied = false`, `alignment_implied = false`, and `scoring_or_selection_implied = false`.
+
+## [BACKFILLED] 2026-03-15 - Common point-source projection support
+- **Branch:** `master`
+- **Initiative / phase:** Bounded shared-field projection contract step
+- **Project commit:**
+  - `90a25e9e41b08f1d2578b5ff989eaf53885b7112` `Add common point-source projection support`
+- **Summary of push:** Promoted side-local `common_point_source_projection` surfaces on replay and canonical sides, each emitting only the six lawful shared fields without implying matching or alignment.
+- **Key files/subsystems touched:**
+  - `tools/replay_verification_assess.py`
+  - `engine/simulation/phase2.py`
+  - `tools/schemas/replay_validation_summary.schema.json`
+  - `tools/validate_replay_validation_summary.py`
+  - `tests/unit/test_replay_verification_assess_stage1.py`
+  - `tests/unit/test_validate_replay_validation_summary.py`
+  - `tests/simulation/test_phase2_trace_export.py`
+- **Truth boundary:** This stage adds side-local projections only. It does not create joined records, lawful replay-to-canonical point matching, or comparison logic.
+
+## [BACKFILLED] 2026-03-15 - Market runtime status visibility
+- **Branch:** `master`
+- **Initiative / phase:** Bounded market runtime visibility step
+- **Project commit:**
+  - `1948ab27849e3b46cd8c340d06ac07daf6cf3b24` `Add market runtime status visibility`
+- **Summary of push:** Promoted machine-readable market runtime status in the backend and Market panel so selected ticker state, polling activity, inactive reason, quote status, and last error are visible to the operator.
+- **Key files/subsystems touched:**
+  - `backend/api/routes_market.py`
+  - `backend/services/market_buffer.py`
+  - `backend/services/runner.py`
+  - `frontend/src/App.tsx`
+  - `tests/unit/test_market_runtime_status.py`
+- **Truth boundary:** This stage is runtime visibility only. It does not add ticker persistence, does not redesign the chart, and does not fix quote acquisition by itself.
+
 
 ## 2026-03-14 - BO3 payload-diff observability packet
 - **Initiative / phase:** Promoted BO3 observability extension after live continuity audits showed the need to distinguish repeated payloads, payload microstate changes, and stale-input conditions without changing runtime behavior.
