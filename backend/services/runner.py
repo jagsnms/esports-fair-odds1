@@ -2196,6 +2196,7 @@ class Runner:
                             rail_high=rail_high,
                             market_mid=market_mid,
                             segment_id=finished_map_index,
+                            match_id=match_id_used,
                             map_index=finished_map_index,
                             round_number=None,
                             game_number=game_number,

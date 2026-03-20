@@ -1332,6 +1332,7 @@ async def test_segment_result_still_emits_on_credible_match_score_increment() ->
     hist = await store.get_history(limit=20)
     segment_points = [p for p in hist if (p.get("event") or {}).get("event_type") == "segment_result"]
     assert len(segment_points) == 1
+    assert segment_points[0].get("match_id") == 999
     event = segment_points[0].get("event") or {}
     assert event.get("map_winner_team_id") == 101
     assert event.get("final_rounds_a") == 13
@@ -1340,6 +1341,133 @@ async def test_segment_result_still_emits_on_credible_match_score_increment() ->
 
 def test_segment_result_still_emits_on_credible_match_score_increment_sync() -> None:
     asyncio.run(test_segment_result_still_emits_on_credible_match_score_increment())
+
+
+async def test_audited_live_map_final_emits_segment_result_with_top_level_match_id() -> None:
+    """
+    Audited live case: segment_result emits on the credible increment and now carries the
+    same top-level match_id used by round_result, so match-scoped history filtering finds it.
+    """
+    store = MemoryStore(max_history=100)
+    config = Config(source="BO3", match_id=114254, poll_interval_s=5.0, team_a_is_team_one=True)
+    state = State(config=config, segment_id=0)
+    derived = Derived(p_hat=0.5, bound_low=0.01, bound_high=0.99, rail_low=0.01, rail_high=0.99, kappa=0.0)
+    await store.set_current(state, derived)
+
+    broadcaster = MagicMock()
+    broadcaster.broadcast = AsyncMock()
+    runner = Runner(store=store, broadcaster=broadcaster)
+
+    fragment = [
+        {
+            "team_one": {"id": 10994, "score": 12, "match_score": 0},
+            "team_two": {"id": 22190, "score": 8, "match_score": 0},
+            "match_fixture": {"team_one_score": 0, "team_two_score": 0},
+            "round_phase": "IN_PROGRESS",
+            "round_number": 21,
+            "game_number": 1,
+            "winning_team_id": 0,
+        },
+        {
+            "team_one": {"id": 10994, "score": 12, "match_score": 0},
+            "team_two": {"id": 22190, "score": 9, "match_score": 0},
+            "match_fixture": {"team_one_score": 0, "team_two_score": 0},
+            "round_phase": "IN_PROGRESS",
+            "round_number": 22,
+            "game_number": 1,
+            "winning_team_id": 0,
+        },
+        {
+            "team_one": {"id": 10994, "score": 13, "match_score": 1},
+            "team_two": {"id": 22190, "score": 9, "match_score": 0},
+            "match_fixture": {"team_one_score": 0, "team_two_score": 0},
+            "round_phase": "FINISHED",
+            "round_number": 22,
+            "game_number": 1,
+            "winning_team_id": 10994,
+        },
+    ]
+    new_state = State(
+        config=config,
+        segment_id=0,
+        last_frame=Frame(timestamp=1502.0, teams=("Spirit", "Liquid"), scores=(13, 9)),
+    )
+
+    await runner._maybe_emit_outcome_events_from_bo3_payload(
+        raw=fragment[0],
+        config=config,
+        new_state=new_state,
+        t=1500.0,
+        p_hat=0.5,
+        bound_low=0.01,
+        bound_high=0.99,
+        rail_low=0.01,
+        rail_high=0.99,
+        market_mid=None,
+        dbg={},
+        team_a_is_team_one=True,
+        match_id_used=114254,
+    )
+    await runner._maybe_emit_outcome_events_from_bo3_payload(
+        raw=fragment[1],
+        config=config,
+        new_state=new_state,
+        t=1501.0,
+        p_hat=0.5,
+        bound_low=0.01,
+        bound_high=0.99,
+        rail_low=0.01,
+        rail_high=0.99,
+        market_mid=None,
+        dbg={},
+        team_a_is_team_one=True,
+        match_id_used=114254,
+    )
+
+    assert runner._bo3_last_seen_match_score_by_game == {1: (0, 0)}
+    final_ms1 = int(fragment[2]["team_one"]["match_score"])
+    final_ms2 = int(fragment[2]["team_two"]["match_score"])
+    prev_ms1, prev_ms2 = runner._bo3_last_seen_match_score_by_game[1]
+    assert (final_ms1 - prev_ms1, final_ms2 - prev_ms2) == (1, 0)
+
+    await runner._maybe_emit_outcome_events_from_bo3_payload(
+        raw=fragment[2],
+        config=config,
+        new_state=new_state,
+        t=1502.0,
+        p_hat=0.5,
+        bound_low=0.01,
+        bound_high=0.99,
+        rail_low=0.01,
+        rail_high=0.99,
+        market_mid=None,
+        dbg={},
+        team_a_is_team_one=True,
+        match_id_used=114254,
+    )
+
+    hist = await store.get_history(limit=20)
+    round_points = [p for p in hist if (p.get("event") or {}).get("event_type") == "round_result"]
+    segment_points = [p for p in hist if (p.get("event") or {}).get("event_type") == "segment_result"]
+    segment_points_for_match = [
+        p for p in segment_points if p.get("match_id") == 114254
+    ]
+
+    assert len(round_points) == 2
+    assert round_points[-1]["match_id"] == 114254
+    assert (round_points[-1].get("event") or {}).get("round_winner_team_id") == 10994
+
+    assert len(segment_points) == 1
+    assert segment_points[0].get("match_id") == 114254
+    assert len(segment_points_for_match) == 1
+    segment_event = segment_points[0].get("event") or {}
+    assert segment_event.get("map_winner_team_id") == 10994
+    assert segment_event.get("final_rounds_a") == 13
+    assert segment_event.get("final_rounds_b") == 9
+
+
+def test_audited_live_map_final_emits_segment_result_with_top_level_match_id_sync() -> None:
+    asyncio.run(test_audited_live_map_final_emits_segment_result_with_top_level_match_id())
 
 
 async def test_bo3_invalid_driver_missing_microstate_does_not_append_history_point() -> None:

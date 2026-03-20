@@ -1,5 +1,16 @@
 # Branch History - `master`
 
+## 2026-03-20 - [LOCAL STAGE] Q-Intra Real-World Calibration Program: BO3 segment_result match_id propagation fix
+- **Branch:** `codex/bo3-segment-result-match-id-propagation-fix-stage1` (local stage; not promoted)
+- **Larger project:** `Q-Intra Real-World Calibration Program`
+- **Current bounded stage:** `BO3 segment_result match_id propagation fix`
+- **Initiative / phase:** Narrow history-truth correction after live map-final diagnostics proved the audited BO3 `segment_result` was emitted but lacked top-level `match_id`, so normal match-scoped inspection treated it as absent.
+- **Summary of local stage work:** Updated `backend/services/runner.py`, added focused deterministic coverage in `tests/unit/test_runner_bo3_hold.py`, and now propagate top-level `match_id` onto emitted BO3 `segment_result` history points while leaving credible increment detection and existing emit timing unchanged.
+- **Why this local stage matters:** Round-result evidence is now healthier on `master`, but the larger q-intra project still benefits from truthful map-result history surfaces. This stage fixes a localized visibility defect in that live history narrative without reopening broader BO3 finality work.
+- **Checks run on the branch:** `tests/unit/test_runner_bo3_hold.py` passed; `tests/unit/test_runner_map_identity.py` passed.
+- **Truth boundary:** This stage only fixes `segment_result` top-level `match_id` propagation. It does not redesign round_result logic, does not redesign map/series finalization, does not touch exporter/gate/measurement tooling, does not retune q, and does not calibrate p_hat or rails.
+- **Current state:** Committed on the project branch and awaiting final promotion decision.
+
 ## 2026-03-19 - [LOCAL STAGE] Q-Intra Real-World Calibration Program: BO3 stale score-baseline round_result seeding fix
 - **Branch:** `codex/bo3-stale-score-baseline-seeding-fix-stage1` (local stage; not promoted)
 - **Larger project:** `Q-Intra Real-World Calibration Program`
