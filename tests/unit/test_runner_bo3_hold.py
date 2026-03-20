@@ -521,6 +521,257 @@ def test_round_result_fallback_map_index_from_last_seen_game_number_sync() -> No
     asyncio.run(test_round_result_fallback_map_index_from_last_seen_game_number())
 
 
+def _audited_match_111722_game1_round12_fragment() -> list[dict]:
+    """Deterministic extracted raw fragment for the audited round-12 -> round-13 case."""
+    return [
+        {
+            "team_one": {"name": "Team Spirit", "id": 654, "score": 9, "match_score": 0},
+            "team_two": {"name": "Team Liquid", "id": 790, "score": 2, "match_score": 0},
+            "round_phase": "PAUSED",
+            "round_number": 12,
+            "game_number": 1,
+            "winning_team_id": 0,
+            "created_at": "2026-03-19T14:22:42Z",
+        },
+        {
+            "team_one": {"name": "Team Spirit", "id": 654, "score": 9, "match_score": 0},
+            "team_two": {"name": "Team Liquid", "id": 790, "score": 2, "match_score": 0},
+            "round_phase": "IN_PROGRESS",
+            "round_number": 12,
+            "game_number": 1,
+            "winning_team_id": 0,
+            "created_at": "2026-03-19T14:22:43Z",
+        },
+        {
+            "team_one": {"name": "Team Spirit", "id": 654, "score": 9, "match_score": 0},
+            "team_two": {"name": "Team Liquid", "id": 790, "score": 3, "match_score": 0},
+            "round_phase": "IN_PROGRESS",
+            "round_number": 12,
+            "game_number": 1,
+            "winning_team_id": 0,
+            "created_at": "2026-03-19T14:22:44Z",
+        },
+        {
+            "team_one": {"name": "Team Spirit", "id": 654, "score": 9, "match_score": 0},
+            "team_two": {"name": "Team Liquid", "id": 790, "score": 3, "match_score": 0},
+            "round_phase": "BUY_TIME",
+            "round_number": 13,
+            "game_number": 1,
+            "winning_team_id": 0,
+            "created_at": "2026-03-19T14:22:45Z",
+        },
+        {
+            "team_one": {"name": "Team Spirit", "id": 654, "score": 9, "match_score": 0},
+            "team_two": {"name": "Team Liquid", "id": 790, "score": 3, "match_score": 0},
+            "round_phase": "IN_PROGRESS",
+            "round_number": 12,
+            "game_number": 1,
+            "winning_team_id": 0,
+            "created_at": "2026-03-19T14:22:46Z",
+        },
+        {
+            "team_one": {"name": "Team Spirit", "id": 654, "score": 9, "match_score": 0},
+            "team_two": {"name": "Team Liquid", "id": 790, "score": 3, "match_score": 0},
+            "round_phase": "BUY_TIME",
+            "round_number": 13,
+            "game_number": 1,
+            "winning_team_id": 0,
+            "created_at": "2026-03-19T14:22:47Z",
+        },
+    ]
+
+
+def _audited_match_111722_game1_round12_leadin() -> list[dict]:
+    """Minimal prior state from the same map that previously contaminated round 12 winner seeding."""
+    return [
+        {
+            "team_one": {"name": "Team Spirit", "id": 654, "score": 0, "match_score": 0},
+            "team_two": {"name": "Team Liquid", "id": 790, "score": 0, "match_score": 0},
+            "round_phase": "BUY_TIME",
+            "round_number": 1,
+            "game_number": 1,
+            "winning_team_id": 0,
+            "created_at": "2026-03-19T14:01:45Z",
+        },
+        {
+            "team_one": {"name": "Team Spirit", "id": 654, "score": 1, "match_score": 0},
+            "team_two": {"name": "Team Liquid", "id": 790, "score": 0, "match_score": 0},
+            "round_phase": "PAUSED",
+            "round_number": 2,
+            "game_number": 1,
+            "winning_team_id": 0,
+            "created_at": "2026-03-19T14:03:00Z",
+        },
+        {
+            "team_one": {"name": "Team Spirit", "id": 654, "score": 2, "match_score": 0},
+            "team_two": {"name": "Team Liquid", "id": 790, "score": 0, "match_score": 0},
+            "round_phase": "PAUSED",
+            "round_number": 3,
+            "game_number": 1,
+            "winning_team_id": 0,
+            "created_at": "2026-03-19T14:04:00Z",
+        },
+        {
+            "team_one": {"name": "Team Spirit", "id": 654, "score": 2, "match_score": 0},
+            "team_two": {"name": "Team Liquid", "id": 790, "score": 1, "match_score": 0},
+            "round_phase": "PAUSED",
+            "round_number": 4,
+            "game_number": 1,
+            "winning_team_id": 0,
+            "created_at": "2026-03-19T14:05:00Z",
+        },
+        {
+            "team_one": {"name": "Team Spirit", "id": 654, "score": 3, "match_score": 0},
+            "team_two": {"name": "Team Liquid", "id": 790, "score": 1, "match_score": 0},
+            "round_phase": "PAUSED",
+            "round_number": 5,
+            "game_number": 1,
+            "winning_team_id": 0,
+            "created_at": "2026-03-19T14:06:00Z",
+        },
+        {
+            "team_one": {"name": "Team Spirit", "id": 654, "score": 4, "match_score": 0},
+            "team_two": {"name": "Team Liquid", "id": 790, "score": 1, "match_score": 0},
+            "round_phase": "PAUSED",
+            "round_number": 6,
+            "game_number": 1,
+            "winning_team_id": 0,
+            "created_at": "2026-03-19T14:07:00Z",
+        },
+        {
+            "team_one": {"name": "Team Spirit", "id": 654, "score": 4, "match_score": 0},
+            "team_two": {"name": "Team Liquid", "id": 790, "score": 2, "match_score": 0},
+            "round_phase": "PAUSED",
+            "round_number": 7,
+            "game_number": 1,
+            "winning_team_id": 0,
+            "created_at": "2026-03-19T14:08:00Z",
+        },
+        {
+            "team_one": {"name": "Team Spirit", "id": 654, "score": 5, "match_score": 0},
+            "team_two": {"name": "Team Liquid", "id": 790, "score": 2, "match_score": 0},
+            "round_phase": "PAUSED",
+            "round_number": 8,
+            "game_number": 1,
+            "winning_team_id": 0,
+            "created_at": "2026-03-19T14:09:00Z",
+        },
+        {
+            "team_one": {"name": "Team Spirit", "id": 654, "score": 6, "match_score": 0},
+            "team_two": {"name": "Team Liquid", "id": 790, "score": 2, "match_score": 0},
+            "round_phase": "PAUSED",
+            "round_number": 9,
+            "game_number": 1,
+            "winning_team_id": 0,
+            "created_at": "2026-03-19T14:10:00Z",
+        },
+        {
+            "team_one": {"name": "Team Spirit", "id": 654, "score": 7, "match_score": 0},
+            "team_two": {"name": "Team Liquid", "id": 790, "score": 2, "match_score": 0},
+            "round_phase": "PAUSED",
+            "round_number": 10,
+            "game_number": 1,
+            "winning_team_id": 0,
+            "created_at": "2026-03-19T14:11:00Z",
+        },
+        {
+            "team_one": {"name": "Team Spirit", "id": 654, "score": 8, "match_score": 0},
+            "team_two": {"name": "Team Liquid", "id": 790, "score": 2, "match_score": 0},
+            "round_phase": "PAUSED",
+            "round_number": 11,
+            "game_number": 1,
+            "winning_team_id": 0,
+            "created_at": "2026-03-19T14:12:00Z",
+        },
+    ]
+
+
+async def test_round_result_does_not_seed_new_round_from_stale_prior_round_score_baseline() -> None:
+    """Audited round-12 case should not seed a new-round winner from prior-round score baseline."""
+    store = MemoryStore(max_history=100)
+    config = Config(source="BO3", match_id=111722, poll_interval_s=5.0, team_a_is_team_one=True)
+    state = State(config=config, segment_id=0)
+    derived = Derived(p_hat=0.5, bound_low=0.01, bound_high=0.99, rail_low=0.01, rail_high=0.99, kappa=0.0)
+    await store.set_current(state, derived)
+
+    broadcaster = MagicMock()
+    broadcaster.broadcast = AsyncMock()
+    runner = Runner(store=store, broadcaster=broadcaster)
+    new_state = State(config=config, segment_id=0)
+
+    for offset, raw in enumerate(_audited_match_111722_game1_round12_leadin()):
+        await runner._maybe_emit_outcome_events_from_bo3_payload(
+            raw=raw,
+            config=config,
+            new_state=new_state,
+            t=1500.0 + offset,
+            p_hat=0.5,
+            bound_low=0.01,
+            bound_high=0.99,
+            rail_low=0.01,
+            rail_high=0.99,
+            market_mid=None,
+            dbg={},
+            team_a_is_team_one=True,
+            match_id_used=111722,
+        )
+
+    first_round12_tick = _audited_match_111722_game1_round12_fragment()[0]
+    await runner._maybe_emit_outcome_events_from_bo3_payload(
+        raw=first_round12_tick,
+        config=config,
+        new_state=new_state,
+        t=1600.0,
+        p_hat=0.5,
+        bound_low=0.01,
+        bound_high=0.99,
+        rail_low=0.01,
+        rail_high=0.99,
+        market_mid=None,
+        dbg={},
+        team_a_is_team_one=True,
+        match_id_used=111722,
+    )
+
+    assert runner._bo3_pending_round_result_identity is None
+    assert runner._bo3_pending_round_result_winner_team_id is None
+    assert runner._bo3_last_emitted_round_number == 11
+    assert runner._bo3_last_emitted_round_winner_team_id == 654
+
+    for offset, raw in enumerate(_audited_match_111722_game1_round12_fragment()[1:], start=1):
+        await runner._maybe_emit_outcome_events_from_bo3_payload(
+            raw=raw,
+            config=config,
+            new_state=new_state,
+            t=1600.0 + offset,
+            p_hat=0.5,
+            bound_low=0.01,
+            bound_high=0.99,
+            rail_low=0.01,
+            rail_high=0.99,
+            market_mid=None,
+            dbg={},
+            team_a_is_team_one=True,
+            match_id_used=111722,
+        )
+
+    hist = await store.get_history(limit=40)
+    round12_points = [
+        p for p in hist
+        if (p.get("event") or {}).get("event_type") == "round_result"
+        and p.get("game_number") == 1
+        and p.get("round_number") == 12
+    ]
+    assert len(round12_points) == 1
+    event = round12_points[0].get("event") or {}
+    assert event.get("round_winner_team_id") == 790
+    assert event.get("round_winner_is_team_a") is False
+
+
+def test_round_result_does_not_seed_new_round_from_stale_prior_round_score_baseline_sync() -> None:
+    asyncio.run(test_round_result_does_not_seed_new_round_from_stale_prior_round_score_baseline())
+
+
 async def test_round_result_carries_inferred_winner_until_round_advances() -> None:
     """A same-round score delta should still emit once the round later advances."""
     store = MemoryStore(max_history=100)

@@ -2050,6 +2050,12 @@ class Runner:
         current_round_identity = (
             (game_number, map_index, rn) if rn is not None else None
         )
+        baseline_matches_current_round = bool(
+            game_number is not None
+            and rn is not None
+            and _tr("last_seen_game_number") == game_number
+            and _tr("last_seen_round_number") == rn
+        )
         pending_round_identity = _tr("pending_round_result_identity")
         pending_round_winner_team_id = _tr("pending_round_result_winner_team_id")
 
@@ -2065,6 +2071,7 @@ class Runner:
         elif (
             current_round_identity is not None
             and winner_from_delta != 0
+            and baseline_matches_current_round
             and pending_round_identity != current_round_identity
         ):
             _set_tr("pending_round_result_identity", current_round_identity)

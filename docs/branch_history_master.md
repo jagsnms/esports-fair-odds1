@@ -1,5 +1,16 @@
 # Branch History - `master`
 
+## 2026-03-19 - [LOCAL STAGE] Q-Intra Real-World Calibration Program: BO3 stale score-baseline round_result seeding fix
+- **Branch:** `codex/bo3-stale-score-baseline-seeding-fix-stage1` (local stage; not promoted)
+- **Larger project:** `Q-Intra Real-World Calibration Program`
+- **Current bounded stage:** `BO3 stale score-baseline round_result seeding fix`
+- **Initiative / phase:** Narrow evidence-truth defect correction after runner-only diagnostics localized the audited round-12 wrong-winner path to stale prior-round score baseline contaminating new-round winner seeding.
+- **Summary of local stage work:** Updated `backend/services/runner.py`, added focused deterministic coverage in `tests/unit/test_runner_bo3_hold.py`, and now require BO3 score-delta seeding for the current round to use a baseline valid for the current round context so stale prior-round terminal score does not poison new-round pending winner state.
+- **Why this local stage matters:** The larger q-intra program depends on truthful explicit `round_result` rows for labeled evidence export. This local stage fixes a repo-side wrong-winner contamination path in that label surface without redesigning broader BO3 outcome handling.
+- **Checks run on the branch:** `tests/unit/test_runner_bo3_hold.py` passed; `tests/unit/test_runner_map_identity.py` passed.
+- **Truth boundary:** This stage preserves normal same-round score-first reconciliation and existing lawful emit timing only. It does not redesign map-result logic, does not redesign series/match finalization, does not touch exporter/gate/measurement tooling, does not retune q, and does not calibrate p_hat or rails.
+- **Current state:** Committed on the project branch and awaiting final promotion decision.
+
 ## 2026-03-19 - [LOCAL STAGE] Q-Intra Real-World Calibration Program: BO3 round_result score-delta carryover fix
 - **Branch:** `codex/bo3-round-result-carryover-fix-stage1` (local stage; not promoted)
 - **Larger project:** `Q-Intra Real-World Calibration Program`
