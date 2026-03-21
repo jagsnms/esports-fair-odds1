@@ -38,3 +38,13 @@ def test_invariant_diagnostics_wired_to_contract_diagnostics() -> None:
     assert contract_diag.get("loadout_totals") == (8000.0, 6000.0)
     assert contract_diag.get("round_phase") == "IN_PROGRESS"
     assert contract_diag.get("round_number") is None
+    explain = dbg.get("explain") or {}
+    assert explain.get("target_p_hat") == contract_diag.get("target_p_hat")
+    assert explain.get("p_hat_prev") == contract_diag.get("p_hat_prev")
+    assert explain.get("movement_confidence") == contract_diag.get("movement_confidence")
+    assert explain.get("expected_p_hat_after_movement") == contract_diag.get("expected_p_hat_after_movement")
+    assert explain.get("movement_gap_abs") == contract_diag.get("movement_gap_abs")
+    assert explain.get("alive_counts") == contract_diag.get("alive_counts")
+    assert explain.get("hp_totals") == contract_diag.get("hp_totals")
+    assert explain.get("loadout_totals") == contract_diag.get("loadout_totals")
+    assert explain.get("round_phase") == contract_diag.get("round_phase")

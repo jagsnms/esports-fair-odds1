@@ -35,6 +35,7 @@ def _build_explain(
     rail_low: float,
     rail_high: float,
     p_hat_final: float,
+    contract_diag: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build per-tick explain dict for HistoryPoint (logging / calibration / ML).
     When midround_v2_result has raw_score_pre_urgency, adds score-space diagnostics for
@@ -66,6 +67,20 @@ def _build_explain(
         "rails": {"rail_low": rail_low, "rail_high": rail_high, "corridor_width": corridor_width},
         "final": {"p_hat_final": p_hat_final, "clamp_reason": clamp_reason},
     }
+    if isinstance(contract_diag, dict):
+        for key in (
+            "round_phase",
+            "alive_counts",
+            "hp_totals",
+            "loadout_totals",
+            "target_p_hat",
+            "p_hat_prev",
+            "movement_confidence",
+            "expected_p_hat_after_movement",
+            "movement_gap_abs",
+        ):
+            if key in contract_diag:
+                out[key] = contract_diag.get(key)
     # Score-space diagnostics (pre-asymptote): raw score and additive term contribs for history_score_points.jsonl
     raw_pre = midround_v2_result.get("raw_score_pre_urgency")
     if raw_pre is not None:
@@ -228,18 +243,6 @@ def resolve_p_hat(
             "reason": "buy_time_frozen_midpoint",
             "round_phase": round_phase,
         }
-        explain = _build_explain(
-            phase=phase_upper,
-            p_base_map=base,
-            p_base_series=None,
-            midround_weight=midround_weight,
-            midround_v2_result=midround_v2_result,
-            q_intra_debug=q_intra_debug,
-            micro_adj_breakdown=micro_adj_breakdown,
-            rail_low=rail_low,
-            rail_high=rail_high,
-            p_hat_final=p_hat_final,
-        )
         contract_diag = _contract_diag(
             frame=frame,
             config=config,
@@ -251,6 +254,19 @@ def resolve_p_hat(
             p_hat_old=p_hat_old,
             p_hat_final=p_hat_final,
             movement_confidence=midround_weight,
+        )
+        explain = _build_explain(
+            phase=phase_upper,
+            p_base_map=base,
+            p_base_series=None,
+            midround_weight=midround_weight,
+            midround_v2_result=midround_v2_result,
+            q_intra_debug=q_intra_debug,
+            micro_adj_breakdown=micro_adj_breakdown,
+            rail_low=rail_low,
+            rail_high=rail_high,
+            p_hat_final=p_hat_final,
+            contract_diag=contract_diag,
         )
         debug_dict = {
             "p_hat_base": base,
@@ -295,18 +311,6 @@ def resolve_p_hat(
         p_hat_final = p_hat_old + midround_weight * (target_p_hat - p_hat_old)
         p_hat_final = max(rail_low, min(rail_high, p_hat_final))
 
-    explain = _build_explain(
-        phase=phase_upper,
-        p_base_map=base,
-        p_base_series=None,
-        midround_weight=midround_weight,
-        midround_v2_result=midround_v2_result,
-        q_intra_debug=q_intra_debug,
-        micro_adj_breakdown=micro_adj_breakdown,
-        rail_low=rail_low,
-        rail_high=rail_high,
-        p_hat_final=p_hat_final,
-    )
     contract_diag = _contract_diag(
         frame=frame,
         config=config,
@@ -318,6 +322,19 @@ def resolve_p_hat(
         p_hat_old=p_hat_old,
         p_hat_final=p_hat_final,
         movement_confidence=midround_weight,
+    )
+    explain = _build_explain(
+        phase=phase_upper,
+        p_base_map=base,
+        p_base_series=None,
+        midround_weight=midround_weight,
+        midround_v2_result=midround_v2_result,
+        q_intra_debug=q_intra_debug,
+        micro_adj_breakdown=micro_adj_breakdown,
+        rail_low=rail_low,
+        rail_high=rail_high,
+        p_hat_final=p_hat_final,
+        contract_diag=contract_diag,
     )
     debug_dict = {
         "p_hat_base": base,

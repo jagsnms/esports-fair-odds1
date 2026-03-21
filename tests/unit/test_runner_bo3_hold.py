@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from engine.models import Config, Derived, Frame, State
+from engine.models import Config, Derived, Frame, HistoryPoint, State
 
 from backend.services.runner import Runner
 from backend.store.memory_store import MemoryStore
@@ -1518,7 +1518,7 @@ async def test_bo3_invalid_driver_missing_microstate_does_not_append_history_poi
 
 async def test_bo3_valid_driver_with_microstate_appends_history_point() -> None:
     """
-    Live BO3 tick WITH player_states (valid microstate) must append one history point.
+    Live BO3 tick WITH player_states (valid microstate) must append one joinable history point.
     """
     store = MemoryStore(max_history=100)
     config = Config(source="BO3", match_id=789, poll_interval_s=5.0)
@@ -1576,6 +1576,21 @@ async def test_bo3_valid_driver_with_microstate_appends_history_point() -> None:
     assert did_bo3 is True
     history = await store.get_history(limit=10)
     assert len(history) == 1, "live BO3 tick with valid microstate must append one history point"
+    point = history[0]
+    assert point.get("match_id") == 789
+    assert point.get("game_number") == 1
+    assert point.get("map_index") == 0
+    explain = point.get("explain") or {}
+    assert explain.get("round_phase") == "IN_PROGRESS"
+    assert explain.get("q_intra_total") is not None
+    assert explain.get("alive_counts") == (2, 2)
+    assert explain.get("hp_totals") == (200.0, 180.0)
+    assert explain.get("loadout_totals") == (5500.0, 4500.0)
+    assert "target_p_hat" in explain
+    assert "p_hat_prev" in explain
+    assert "movement_confidence" in explain
+    assert "expected_p_hat_after_movement" in explain
+    assert "movement_gap_abs" in explain
 
 
 def test_bo3_invalid_driver_missing_microstate_does_not_append_history_point_sync() -> None:
@@ -1584,3 +1599,135 @@ def test_bo3_invalid_driver_missing_microstate_does_not_append_history_point_syn
 
 def test_bo3_valid_driver_with_microstate_appends_history_point_sync() -> None:
     asyncio.run(test_bo3_valid_driver_with_microstate_appends_history_point())
+
+
+async def test_persisted_history_rows_allow_round_boundary_reconstruction() -> None:
+    """
+    Persisted artifacts alone should let us reconstruct compute-before, event row, and compute-after
+    around a round boundary using stable match/map/round identity plus time order.
+    """
+    store = MemoryStore(max_history=100)
+    config = Config(source="BO3", match_id=222333, poll_interval_s=5.0, team_a_is_team_one=True)
+    state = State(config=config, segment_id=0)
+    derived = Derived(p_hat=0.64, bound_low=0.2, bound_high=0.8, rail_low=0.35, rail_high=0.75, kappa=0.0)
+    await store.set_current(state, derived)
+
+    broadcaster = MagicMock()
+    broadcaster.broadcast = AsyncMock()
+    runner = Runner(store=store, broadcaster=broadcaster)
+    new_state = State(config=config, segment_id=0)
+
+    pre_point = HistoryPoint(
+        time=2000.0,
+        p_hat=0.64,
+        bound_low=0.2,
+        bound_high=0.8,
+        rail_low=0.35,
+        rail_high=0.75,
+        segment_id=0,
+        match_id=222333,
+        map_index=0,
+        game_number=1,
+        round_number=12,
+        explain={
+            "phase": "IN_PROGRESS",
+            "round_phase": "IN_PROGRESS",
+            "q_intra_total": 0.82,
+            "alive_counts": (4, 1),
+            "hp_totals": (260.0, 72.0),
+            "loadout_totals": (14800.0, 4200.0),
+            "target_p_hat": 0.72,
+            "p_hat_prev": 0.61,
+            "movement_confidence": 0.25,
+            "expected_p_hat_after_movement": 0.6375,
+            "movement_gap_abs": 0.0025,
+            "final": {"p_hat_final": 0.64, "clamp_reason": None},
+            "score_raw": 0.16,
+            "term_contribs": {
+                "term_alive": 0.08,
+                "term_hp": 0.05,
+                "term_loadout": 0.03,
+                "term_bomb": 0.0,
+                "term_cash": 0.0,
+            },
+            "base_intercept": 0.0,
+            "p_unshaped": 0.82,
+        },
+    )
+    await store.append_point(pre_point, new_state, derived)
+
+    await runner._maybe_emit_outcome_events_from_bo3_payload(
+        raw={
+            "team_one": {"id": 1001, "score": 9, "match_score": 0},
+            "team_two": {"id": 1002, "score": 3, "match_score": 0},
+            "round_phase": "FINISHED",
+            "round_number": 12,
+            "game_number": 1,
+            "winning_team_id": 1001,
+        },
+        config=config,
+        new_state=new_state,
+        t=2001.0,
+        p_hat=0.64,
+        bound_low=0.2,
+        bound_high=0.8,
+        rail_low=0.35,
+        rail_high=0.75,
+        market_mid=None,
+        dbg={},
+        team_a_is_team_one=True,
+        match_id_used=222333,
+    )
+
+    post_point = HistoryPoint(
+        time=2002.0,
+        p_hat=0.57,
+        bound_low=0.2,
+        bound_high=0.8,
+        rail_low=0.35,
+        rail_high=0.75,
+        segment_id=0,
+        match_id=222333,
+        map_index=0,
+        game_number=1,
+        round_number=13,
+        explain={
+            "phase": "BUY_TIME",
+            "round_phase": "BUY_TIME",
+            "q_intra_total": 0.5,
+            "alive_counts": (5, 5),
+            "hp_totals": (500.0, 500.0),
+            "loadout_totals": (16000.0, 16000.0),
+            "target_p_hat": None,
+            "p_hat_prev": 0.57,
+            "movement_confidence": 0.0,
+            "expected_p_hat_after_movement": None,
+            "movement_gap_abs": None,
+            "final": {"p_hat_final": 0.57, "clamp_reason": None},
+        },
+    )
+    await store.append_point(post_point, new_state, Derived(p_hat=0.57, bound_low=0.2, bound_high=0.8, rail_low=0.35, rail_high=0.75, kappa=0.0))
+
+    hist = await store.get_history(limit=10)
+    rows_for_match = [p for p in hist if p.get("match_id") == 222333]
+    round_result_rows = [p for p in rows_for_match if (p.get("event") or {}).get("event_type") == "round_result"]
+    assert len(round_result_rows) == 1
+    event_row = round_result_rows[0]
+    event_idx = rows_for_match.index(event_row)
+    assert event_idx > 0
+    assert event_idx < len(rows_for_match) - 1
+
+    pre_row = rows_for_match[event_idx - 1]
+    post_row = rows_for_match[event_idx + 1]
+    assert pre_row.get("round_number") == 12
+    assert (pre_row.get("explain") or {}).get("round_phase") == "IN_PROGRESS"
+    assert event_row.get("game_number") == 1
+    assert event_row.get("map_index") == 0
+    assert event_row.get("round_number") == 12
+    assert (event_row.get("event") or {}).get("round_winner_team_id") == 1001
+    assert post_row.get("round_number") == 13
+    assert (post_row.get("explain") or {}).get("round_phase") == "BUY_TIME"
+
+
+def test_persisted_history_rows_allow_round_boundary_reconstruction_sync() -> None:
+    asyncio.run(test_persisted_history_rows_allow_round_boundary_reconstruction())

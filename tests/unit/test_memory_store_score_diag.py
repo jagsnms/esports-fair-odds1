@@ -211,6 +211,63 @@ def test_make_score_diag_record_includes_team_identity_when_present() -> None:
     assert rec.get("a_side") == "CT"
 
 
+def test_make_score_diag_record_includes_match_identity_and_movement_fields() -> None:
+    """Unified calibration rows keep match identity and the minimum movement diagnostics."""
+    point = HistoryPoint(
+        time=42.0,
+        p_hat=0.61,
+        bound_low=0.1,
+        bound_high=0.9,
+        rail_low=0.35,
+        rail_high=0.75,
+        match_id=777,
+        game_number=2,
+        map_index=1,
+        round_number=14,
+        explain={
+            "phase": "IN_PROGRESS",
+            "round_phase": "IN_PROGRESS",
+            "q_intra_total": 0.73,
+            "alive_counts": (4, 2),
+            "hp_totals": (287.0, 120.0),
+            "loadout_totals": (15400.0, 9800.0),
+            "target_p_hat": 0.69,
+            "p_hat_prev": 0.58,
+            "movement_confidence": 0.25,
+            "expected_p_hat_after_movement": 0.6075,
+            "movement_gap_abs": 0.0025,
+            "final": {"p_hat_final": 0.61, "clamp_reason": None},
+            "score_raw": 0.13,
+            "term_contribs": {
+                "term_alive": 0.06,
+                "term_hp": 0.04,
+                "term_loadout": 0.03,
+                "term_bomb": 0.0,
+                "term_cash": 0.0,
+            },
+            "base_intercept": 0.0,
+            "p_unshaped": 0.73,
+        },
+    )
+    rec = _make_score_diag_record(point)
+    assert rec is not None
+    assert rec["match_id"] == 777
+    assert rec["game_number"] == 2
+    assert rec["map_index"] == 1
+    assert rec["round_number"] == 14
+    assert rec["round_phase"] == "IN_PROGRESS"
+    assert rec["q_intra_total"] == 0.73
+    assert rec["alive_counts"] == (4, 2)
+    assert rec["hp_totals"] == (287.0, 120.0)
+    assert rec["loadout_totals"] == (15400.0, 9800.0)
+    assert rec["target_p_hat"] == 0.69
+    assert rec["p_hat_prev"] == 0.58
+    assert rec["p_hat_final"] == 0.61
+    assert rec["movement_confidence"] == 0.25
+    assert rec["expected_p_hat_after_movement"] == 0.6075
+    assert rec["movement_gap_abs"] == 0.0025
+
+
 def test_make_score_diag_record_skips_missing_score_raw() -> None:
     """Ticks without score_raw in explain are not emitted."""
     point = HistoryPoint(

@@ -2497,6 +2497,7 @@ class Runner:
                 rail_high=fail_derived.rail_high,
                 market_mid=market_mid,
                 segment_id=getattr(state, "segment_id", 0),
+                match_id=mid,
                 explain=hold_explain,
             )
             store_append_ts = time.time()
@@ -2887,6 +2888,7 @@ class Runner:
                 map_index=map_index_ep,
                 round_number=round_number_ep,
                 game_number=game_number_ep,
+                match_id=mid,
                 explain=ep_explain,
                 event=evt,
                 **_team_identity_for_point(getattr(new_state, "last_frame", None), config),
@@ -2934,6 +2936,7 @@ class Runner:
             map_index=map_index_bo3,
             round_number=round_number_ep,
             game_number=game_number_ep,
+            match_id=mid,
             explain=explain,
             **bo3_identity_kw,
         )
@@ -3386,6 +3389,7 @@ class Runner:
             map_index=map_index_pt,
             round_number=round_number_pt,
             game_number=game_number_pt,
+            match_id=self._replay_match_id,
             explain=explain,
             event=event,
             **_team_identity_for_point(getattr(state, "last_frame", None), config),
@@ -3504,6 +3508,7 @@ class Runner:
                     rail_high=derived_obj.rail_high,
                     market_mid=None,
                     segment_id=seg,
+                    match_id=self._replay_match_id,
                     explain=loop_explain,
                 )
                 await self._store.append_point(pt, loop_state, derived_obj)
@@ -3699,6 +3704,7 @@ class Runner:
             map_index=map_index_replay,
             round_number=round_number_replay,
             game_number=game_number_replay,
+            match_id=self._replay_match_id,
             explain=replay_explain,
             **replay_identity_kw,
         )
