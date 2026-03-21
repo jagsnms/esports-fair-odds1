@@ -101,6 +101,11 @@ def _normalize_side(side: Any) -> str | None:
         return "T"
     if s == "CT":
         return "CT"
+    compact = s.replace("-", "_").replace(" ", "_")
+    if compact == "TERRORIST":
+        return "T"
+    if compact in ("COUNTER_TERRORIST", "COUNTERTERRORIST"):
+        return "CT"
     return None
 
 

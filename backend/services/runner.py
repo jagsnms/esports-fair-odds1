@@ -281,7 +281,14 @@ def _normalize_side_raw(side: Any) -> str | None:
     if side is None:
         return None
     s = str(side).strip().upper()
-    return s if s in ("T", "CT") else None
+    if s in ("T", "CT"):
+        return s
+    compact = s.replace("-", "_").replace(" ", "_")
+    if compact == "TERRORIST":
+        return "T"
+    if compact in ("COUNTER_TERRORIST", "COUNTERTERRORIST"):
+        return "CT"
+    return None
 
 
 def _bo3_raw_record_signature(payload: dict, match_id: int) -> tuple[Any, ...] | None:

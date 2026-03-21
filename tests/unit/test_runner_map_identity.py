@@ -18,6 +18,9 @@ from backend.services.runner import (
 def test_normalize_side_raw() -> None:
     assert _normalize_side_raw("T") == "T"
     assert _normalize_side_raw("CT") == "CT"
+    assert _normalize_side_raw("TERRORIST") == "T"
+    assert _normalize_side_raw("COUNTER_TERRORIST") == "CT"
+    assert _normalize_side_raw("counter-terrorist") == "CT"
     assert _normalize_side_raw(" t ") == "T"
     assert _normalize_side_raw(None) is None
     assert _normalize_side_raw("") is None
@@ -60,8 +63,8 @@ def test_ensure_map_identity_from_raw_populates_cache() -> None:
     runner = Runner(store=store, broadcaster=MagicMock())
 
     raw = {
-        "team_one": {"id": 1, "provider_id": "team_a_prov"},
-        "team_two": {"id": 2, "provider_id": "team_b_prov"},
+        "team_one": {"id": 1, "provider_id": "team_a_prov", "side": "TERRORIST"},
+        "team_two": {"id": 2, "provider_id": "team_b_prov", "side": "COUNTER_TERRORIST"},
     }
     config = Config(source="BO3", match_id=99, team_a_is_team_one=True)
 
@@ -72,6 +75,7 @@ def test_ensure_map_identity_from_raw_populates_cache() -> None:
     assert entry1["team_one_provider_id"] == "team_a_prov"
     assert entry1["team_two_provider_id"] == "team_b_prov"
     assert entry1["team_a_is_team_one"] is True
+    assert entry1["a_side"] == "T"
 
     # Same (game, map) returns same cached entry
     entry2 = runner._ensure_map_identity_from_raw(raw, config, game_number=1, map_index=0)

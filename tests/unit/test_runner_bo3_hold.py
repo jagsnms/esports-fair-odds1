@@ -4,6 +4,8 @@ Unit tests for BO3 runner: non-live status (PAUSED/STALE/EMPTY/INVALID_CLOCK) st
 from __future__ import annotations
 
 import asyncio
+import json
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from engine.models import Config, Derived, Frame, HistoryPoint, State
@@ -1731,3 +1733,88 @@ async def test_persisted_history_rows_allow_round_boundary_reconstruction() -> N
 
 def test_persisted_history_rows_allow_round_boundary_reconstruction_sync() -> None:
     asyncio.run(test_persisted_history_rows_allow_round_boundary_reconstruction())
+
+
+def test_bo3_provider_side_strings_persist_a_side_on_live_compute_and_score_rows(tmp_path: Path) -> None:
+    async def _run() -> None:
+        history_path = tmp_path / "history_points.jsonl"
+        score_path = tmp_path / "history_score_points.jsonl"
+        with (
+            patch("backend.store.memory_store._HISTORY_RECORD_ENABLED", True),
+            patch("backend.store.memory_store._HISTORY_RECORD_JSONL_PATH", str(history_path)),
+            patch("backend.store.memory_store._HISTORY_SCORE_RECORD_ENABLED", True),
+            patch("backend.store.memory_store._HISTORY_SCORE_RECORD_JSONL_PATH", str(score_path)),
+        ):
+            store = MemoryStore(max_history=100)
+            config = Config(source="BO3", match_id=789, poll_interval_s=5.0, team_a_is_team_one=True)
+            state = State(config=config, segment_id=1)
+            derived = Derived(
+                p_hat=0.5,
+                bound_low=0.2,
+                bound_high=0.8,
+                rail_low=0.4,
+                rail_high=0.6,
+                kappa=0.0,
+                debug={},
+            )
+            await store.set_current(state, derived)
+
+            broadcaster = MagicMock()
+            broadcaster.broadcast = AsyncMock()
+            runner = Runner(store=store, broadcaster=broadcaster)
+
+            snap_with_provider_side_strings = {
+                "team_one": {
+                    "name": "A",
+                    "score": 0,
+                    "id": 1,
+                    "side": "TERRORIST",
+                    "player_states": [
+                        {"is_alive": True, "health": 100, "balance": 4000, "equipment_value": 3000},
+                        {"is_alive": True, "health": 100, "balance": 3500, "equipment_value": 2500},
+                    ],
+                },
+                "team_two": {
+                    "name": "B",
+                    "score": 0,
+                    "id": 2,
+                    "side": "COUNTER_TERRORIST",
+                    "player_states": [
+                        {"is_alive": True, "health": 100, "balance": 4000, "equipment_value": 3000},
+                        {"is_alive": True, "health": 80, "balance": 2000, "equipment_value": 1500},
+                    ],
+                },
+                "created_at": "ts1",
+                "round_phase": "IN_PROGRESS",
+                "game_number": 1,
+                "round_number": 1,
+                "round_time_remaining": 115.0,
+            }
+
+            with (
+                patch("engine.ingest.bo3_client.get_snapshot", AsyncMock(return_value=snap_with_provider_side_strings)),
+                patch(
+                    "backend.services.runner._bo3_snapshot_status",
+                    return_value=("live", "ok", "ts1", True),
+                ),
+            ):
+                did_bo3 = await runner._tick_bo3(config)
+
+            assert did_bo3 is True
+            history = await store.get_history(limit=10)
+            assert len(history) == 1
+            assert history[0].get("game_number") == 1
+            assert history[0].get("round_number") == 1
+            assert history[0].get("a_side") == "T"
+
+            score_rows = [
+                json.loads(line)
+                for line in score_path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            assert len(score_rows) == 1
+            assert score_rows[0].get("game_number") == 1
+            assert score_rows[0].get("round_number") == 1
+            assert score_rows[0].get("a_side") == "T"
+
+    asyncio.run(_run())

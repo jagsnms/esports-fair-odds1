@@ -195,6 +195,31 @@ def test_player_rows_team_mapping_and_alive_ordering() -> None:
     assert names_b_b == ["one_alive_1", "one_alive_2", "one_dead"]
 
 
+def test_provider_side_strings_normalize_to_team_a_side() -> None:
+    raw = {
+        "team_one": {
+            "name": "Team1",
+            "score": 3,
+            "match_score": 1,
+            "side": "TERRORIST",
+            "player_states": [{"is_alive": True, "health": 100, "balance": 1000, "equipment_value": 2000}],
+        },
+        "team_two": {
+            "name": "Team2",
+            "score": 5,
+            "match_score": 2,
+            "side": "COUNTER_TERRORIST",
+            "player_states": [{"is_alive": True, "health": 100, "balance": 800, "equipment_value": 1500}],
+        },
+    }
+
+    frame_team_one = bo3_snapshot_to_frame(raw, team_a_is_team_one=True)
+    frame_team_two = bo3_snapshot_to_frame(raw, team_a_is_team_one=False)
+
+    assert frame_team_one.a_side == "T"
+    assert frame_team_two.a_side == "CT"
+
+
 class TestBo3NormalizeMicrostateFields(unittest.TestCase):
     """Run the same tests via unittest."""
 
