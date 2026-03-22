@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from engine.models import Config, Derived, Frame, HistoryPoint, State
 
-from backend.services.runner import Runner
+from backend.services.runner import Runner, _inter_map_break_phat_and_dbg
 from backend.store.memory_store import MemoryStore
 
 
@@ -1593,6 +1593,84 @@ async def test_bo3_valid_driver_with_microstate_appends_history_point() -> None:
     assert "movement_confidence" in explain
     assert "expected_p_hat_after_movement" in explain
     assert "movement_gap_abs" in explain
+
+
+async def test_bo3_live_tick_carries_forward_true_previous_p_hat() -> None:
+    """Live BO3 resolve path must use the carried-forward persisted PHAT state as p_hat_prev."""
+    store = MemoryStore(max_history=100)
+    config = Config(source="BO3", match_id=790, poll_interval_s=5.0)
+    state = State(config=config, segment_id=1)
+    derived = Derived(
+        p_hat=0.73,
+        bound_low=0.2,
+        bound_high=0.8,
+        rail_low=0.4,
+        rail_high=0.6,
+        kappa=0.0,
+        debug={},
+    )
+    await store.set_current(state, derived)
+
+    broadcaster = MagicMock()
+    broadcaster.broadcast = AsyncMock()
+    runner = Runner(store=store, broadcaster=broadcaster)
+
+    snap_with_players = {
+        "team_one": {
+            "name": "A",
+            "score": 0,
+            "id": 1,
+            "player_states": [
+                {"is_alive": True, "health": 100, "balance": 4000, "equipment_value": 3000},
+                {"is_alive": True, "health": 100, "balance": 3500, "equipment_value": 2500},
+            ],
+        },
+        "team_two": {
+            "name": "B",
+            "score": 0,
+            "id": 2,
+            "player_states": [
+                {"is_alive": True, "health": 100, "balance": 4000, "equipment_value": 3000},
+                {"is_alive": True, "health": 80, "balance": 2000, "equipment_value": 1500},
+            ],
+        },
+        "created_at": "ts1",
+        "round_phase": "IN_PROGRESS",
+        "game_number": 1,
+        "round_time_remaining": 115.0,
+    }
+
+    with (
+        patch("engine.ingest.bo3_client.get_snapshot", AsyncMock(return_value=snap_with_players)),
+        patch(
+            "backend.services.runner._bo3_snapshot_status",
+            return_value=("live", "ok", "ts1", True),
+        ),
+    ):
+        did_bo3 = await runner._tick_bo3(config)
+
+    assert did_bo3 is True
+    history = await store.get_history(limit=10)
+    assert len(history) == 1
+    point = history[0]
+    explain = history[0].get("explain") or {}
+    assert explain.get("p_hat_prev_source") == "carried_forward"
+    expected_prev = max(point["rail_low"], min(point["rail_high"], 0.73))
+    assert explain.get("p_hat_prev") == expected_prev
+
+
+def test_bo3_live_tick_carries_forward_true_previous_p_hat_sync() -> None:
+    asyncio.run(test_bo3_live_tick_carries_forward_true_previous_p_hat())
+
+
+def test_inter_map_break_preserves_carried_forward_p_hat_when_available() -> None:
+    """Inter-map helper keeps last PHAT continuity instead of silently recentring it."""
+    p_hat, dbg = _inter_map_break_phat_and_dbg(0.2, 0.8, "map_transition", 0.71, {})
+    expected = max(dbg["map_low"], min(dbg["map_high"], 0.71))
+    assert p_hat == expected
+    assert dbg["p_hat_old"] == 0.71
+    assert dbg["p_hat_final"] == expected
+    assert dbg["map_low"] <= p_hat <= dbg["map_high"]
 
 
 def test_bo3_invalid_driver_missing_microstate_does_not_append_history_point_sync() -> None:

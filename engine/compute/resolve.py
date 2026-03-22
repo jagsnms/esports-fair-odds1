@@ -29,6 +29,7 @@ def _build_explain(
     p_base_map: float,
     p_base_series: float | None,
     midround_weight: float,
+    p_hat_prev_source: str,
     midround_v2_result: dict[str, Any],
     q_intra_debug: dict[str, Any],
     micro_adj_breakdown: dict[str, float],
@@ -61,6 +62,7 @@ def _build_explain(
         "p_base_map": p_base_map,
         "p_base_series": p_base_series,
         "midround_weight": midround_weight,
+        "p_hat_prev_source": p_hat_prev_source,
         "q_intra_total": q_intra_total,
         "q_terms": q_terms,
         "micro_adj": micro_adj_breakdown,
@@ -205,10 +207,17 @@ def resolve_p_hat(
     config: Config,
     state: State,
     rails: tuple[float, float],
+    *,
+    p_hat_prev: float | None = None,
 ) -> tuple[float, dict[str, Any]]:
-    """Base = prematch_map if set else 0.5; add micro_adjustment_cs2(frame); clamp into rails and [0,1].
+    """Resolve current PHAT inside the ordered rail corridor.
+
+    `p_hat_prev` is the true carried-forward prior PHAT state when available.
+    If absent, resolve falls back to the legacy reconstructed anchor
+    `prematch_map + micro_adjustment_cs2(frame)` clamped into rails.
+
     Midround V2: always compute features; apply mixture only when round_phase in IN_PROGRESS.
-    Else p_hat_final = p_hat_old and debug midround_v2 has skipped=True, reason=phase_not_in_progress.
+    Else p_hat_final preserves the carried-forward anchor and debug midround_v2 reports the hold reason.
     Returns (p_hat, debug_dict).
     """
     # Ensure corridor is ordered so mixture is monotonic: p_hat increases with q_intra (p_unshaped).
@@ -225,7 +234,13 @@ def resolve_p_hat(
     micro_adj_breakdown = micro_adjustment_cs2_breakdown(frame)
     p_pre_clamp01 = base + adj
     p_post_clamp01 = max(0.0, min(1.0, p_pre_clamp01))
-    p_hat_old = max(rail_low, min(rail_high, p_post_clamp01))
+    reconstructed_p_hat = max(rail_low, min(rail_high, p_post_clamp01))
+    if isinstance(p_hat_prev, (int, float)):
+        p_hat_old = max(rail_low, min(rail_high, float(p_hat_prev)))
+        p_hat_prev_source = "carried_forward"
+    else:
+        p_hat_old = reconstructed_p_hat
+        p_hat_prev_source = "reconstructed_fallback"
 
     q_intra, q_intra_debug = compute_q_intra_cs2(frame, config=config)
     features = compute_cs2_midround_features(frame, config=config)
@@ -236,11 +251,11 @@ def resolve_p_hat(
 
     midround_v2_result: dict[str, Any]
     if phase_upper in BUY_TIME_PHASES:
-        p_hat_final = 0.5 * (rail_low + rail_high)
+        p_hat_final = p_hat_old
         midround_weight = 0.0
         midround_v2_result = {
             "skipped": True,
-            "reason": "buy_time_frozen_midpoint",
+            "reason": "buy_time_hold_previous_phat",
             "round_phase": round_phase,
         }
         contract_diag = _contract_diag(
@@ -260,6 +275,7 @@ def resolve_p_hat(
             p_base_map=base,
             p_base_series=None,
             midround_weight=midround_weight,
+            p_hat_prev_source=p_hat_prev_source,
             midround_v2_result=midround_v2_result,
             q_intra_debug=q_intra_debug,
             micro_adj_breakdown=micro_adj_breakdown,
@@ -273,6 +289,8 @@ def resolve_p_hat(
             "micro_adj": adj,
             "p_hat_pre_clamp01": p_pre_clamp01,
             "p_hat_post_clamp01": p_post_clamp01,
+            "p_hat_reconstructed": reconstructed_p_hat,
+            "p_hat_prev_source": p_hat_prev_source,
             "rail_low": rail_low,
             "rail_high": rail_high,
             "q_intra": q_intra_debug,
@@ -293,7 +311,7 @@ def resolve_p_hat(
         midround_weight = 0.0
         midround_v2_result = {
             "skipped": True,
-            "reason": "phase_not_in_progress",
+            "reason": "phase_hold_previous_phat",
             "round_phase": round_phase,
         }
     else:
@@ -328,6 +346,7 @@ def resolve_p_hat(
         p_base_map=base,
         p_base_series=None,
         midround_weight=midround_weight,
+        p_hat_prev_source=p_hat_prev_source,
         midround_v2_result=midround_v2_result,
         q_intra_debug=q_intra_debug,
         micro_adj_breakdown=micro_adj_breakdown,
@@ -341,6 +360,8 @@ def resolve_p_hat(
         "micro_adj": adj,
         "p_hat_pre_clamp01": p_pre_clamp01,
         "p_hat_post_clamp01": p_post_clamp01,
+        "p_hat_reconstructed": reconstructed_p_hat,
+        "p_hat_prev_source": p_hat_prev_source,
         "rail_low": rail_low,
         "rail_high": rail_high,
         "q_intra": q_intra_debug,

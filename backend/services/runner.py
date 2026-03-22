@@ -1158,6 +1158,18 @@ class Runner:
                 "rails_hi": rail_high,
             }
 
+    async def _previous_p_hat_for_compute(self, *, write_to_store: bool, session_runtime: Any = None) -> float | None:
+        """Return the true carried-forward PHAT state for the active compute path when available."""
+        if write_to_store:
+            cur = await self._store.get_current()
+            derived = (cur.get("derived") or {}) if isinstance(cur, dict) else {}
+            value = derived.get("p_hat")
+        else:
+            value = getattr(session_runtime, "last_p_hat", None)
+        if isinstance(value, (int, float)) and math.isfinite(float(value)):
+            return float(value)
+        return None
+
     def _ensure_map_identity_from_raw(
         self,
         raw: dict[str, Any],
@@ -2669,6 +2681,10 @@ class Runner:
         session_runtime.last_good_ts = t
         session_runtime.telemetry_reason = None
         self._log_bo3_session_update(mid, session_runtime, t)
+        p_hat_prev = await self._previous_p_hat_for_compute(
+            write_to_store=write_to_store,
+            session_runtime=session_runtime,
+        )
         bounds_result = compute_bounds(frame, config, new_state)
         bound_low, bound_high = bounds_result[0], bounds_result[1]
         bounds_debug = bounds_result[2] if len(bounds_result) > 2 else {}
@@ -2676,15 +2692,8 @@ class Runner:
         # Detect inter-map break (between maps) and keep corridors/p_hat stable.
         is_break, break_reason = detect_inter_map_break(frame, new_state)
         if is_break:
-            # Stage 3B: continuity from store only when write_to_store; else session-local only.
-            if write_to_store:
-                cur = await self._store.get_current()
-                d = (cur.get("derived") or {}) if isinstance(cur, dict) else {}
-                last_p = d.get("p_hat")
-            else:
-                last_p = getattr(session_runtime, "last_p_hat", None)
             p_hat, dbg = _inter_map_break_phat_and_dbg(
-                bound_low, bound_high, break_reason, last_p, dict(bounds_debug)
+                bound_low, bound_high, break_reason, p_hat_prev, dict(bounds_debug)
             )
             rail_low = dbg["map_low"]
             rail_high = dbg["map_high"]
@@ -2697,7 +2706,13 @@ class Runner:
             rail_low, rail_high = rails_result[0], rails_result[1]
             rails_debug = rails_result[2] if len(rails_result) > 2 else {}
             setattr(config, "contract_testing_mode", getattr(config, "invariant_diagnostics", False))
-            p_hat, dbg = resolve_p_hat(frame, config, new_state, (rail_low, rail_high))
+            p_hat, dbg = resolve_p_hat(
+                frame,
+                config,
+                new_state,
+                (rail_low, rail_high),
+                p_hat_prev=p_hat_prev,
+            )
             dbg = {**dbg, **bounds_debug, **rails_debug}
             dbg["bo3_monotonic_gate"] = gate_diag
             dbg["match_context_diag"] = _match_context_diag(ctx, _sel_decision.to_diag() if _sel_decision else None)
@@ -3211,20 +3226,17 @@ class Runner:
             session_runtime.last_state = new_state
             session_runtime.last_frame = asdict(frame)
             session_runtime.last_update_ts = t
+        p_hat_prev = await self._previous_p_hat_for_compute(
+            write_to_store=write_to_store,
+            session_runtime=session_runtime,
+        )
         bounds_result = compute_bounds(frame, config, new_state)
         bound_low, bound_high = bounds_result[0], bounds_result[1]
         bounds_debug = bounds_result[2] if len(bounds_result) > 2 else {}
         is_break, break_reason = detect_inter_map_break(frame, new_state)
         if is_break:
-            # Stage 3B: continuity from store only when write_to_store; else session-local only.
-            if write_to_store:
-                cur = await self._store.get_current()
-                d = (cur.get("derived") or {}) if isinstance(cur, dict) else {}
-                last_p = d.get("p_hat")
-            else:
-                last_p = getattr(session_runtime, "last_p_hat", None)
             p_hat, dbg = _inter_map_break_phat_and_dbg(
-                bound_low, bound_high, break_reason, last_p, dict(bounds_debug)
+                bound_low, bound_high, break_reason, p_hat_prev, dict(bounds_debug)
             )
             rail_low = dbg["map_low"]
             rail_high = dbg["map_high"]
@@ -3237,7 +3249,13 @@ class Runner:
             rail_low, rail_high = rails_result[0], rails_result[1]
             rails_debug = rails_result[2] if len(rails_result) > 2 else {}
             setattr(config, "contract_testing_mode", getattr(config, "invariant_diagnostics", False))
-            p_hat, dbg = resolve_p_hat(frame, config, new_state, (rail_low, rail_high))
+            p_hat, dbg = resolve_p_hat(
+                frame,
+                config,
+                new_state,
+                (rail_low, rail_high),
+                p_hat_prev=p_hat_prev,
+            )
             dbg = {**dbg, **bounds_debug, **rails_debug}
             dbg["source"] = "GRID"
             dbg["grid_series_id"] = grid_series_id
@@ -3574,18 +3592,15 @@ class Runner:
 
         old_state = await self._store.get_state()
         new_state = reduce_state(old_state, frame, config)
+        p_hat_prev = await self._previous_p_hat_for_compute(write_to_store=True)
         bounds_result = compute_bounds(frame, config, new_state)
         bound_low, bound_high = bounds_result[0], bounds_result[1]
         bounds_debug = bounds_result[2] if len(bounds_result) > 2 else {}
 
         is_break, break_reason = detect_inter_map_break(frame, new_state)
         if is_break:
-            # Stage 3B: REPLAY is single-session; continuity from store.
-            cur = await self._store.get_current()
-            d = (cur.get("derived") or {}) if isinstance(cur, dict) else {}
-            last_p = d.get("p_hat")
             p_hat, dbg = _inter_map_break_phat_and_dbg(
-                bound_low, bound_high, break_reason, last_p, dict(bounds_debug)
+                bound_low, bound_high, break_reason, p_hat_prev, dict(bounds_debug)
             )
             rail_low = dbg["map_low"]
             rail_high = dbg["map_high"]
@@ -3597,7 +3612,13 @@ class Runner:
             rail_low, rail_high = rails_result[0], rails_result[1]
             rails_debug = rails_result[2] if len(rails_result) > 2 else {}
             setattr(config, "contract_testing_mode", getattr(config, "invariant_diagnostics", False))
-            p_hat, dbg = resolve_p_hat(frame, config, new_state, (rail_low, rail_high))
+            p_hat, dbg = resolve_p_hat(
+                frame,
+                config,
+                new_state,
+                (rail_low, rail_high),
+                p_hat_prev=p_hat_prev,
+            )
             dbg = {**dbg, **bounds_debug, **rails_debug}
         dbg["replay_mode"] = "raw_contract"
 

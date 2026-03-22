@@ -103,8 +103,29 @@ def test_resolve_clamps_to_01() -> None:
     assert 0 <= p <= 1
 
 
-def test_midround_buy_time_frozen_midpoint() -> None:
-    """When round_phase is BUY_TIME, p_hat_final = rail midpoint (no loadout pegging)."""
+def test_resolve_uses_carried_forward_p_hat_prev_when_provided() -> None:
+    """When provided, p_hat_prev is the real carried-forward anchor instead of a reconstructed pseudo-state."""
+    frame = _frame(
+        alive_counts=(4, 2),
+        hp_totals=(400.0, 200.0),
+        loadout_totals=(10000.0, 5000.0),
+        bomb_phase_time_remaining={"round_phase": "IN_PROGRESS"},
+    )
+    config = _config(prematch_map=0.1)
+    state = _state()
+    rails = (0.2, 0.8)
+    p, dbg = resolve_p_hat(frame, config, state, rails, p_hat_prev=0.78)
+    assert dbg["p_hat_prev_source"] == "carried_forward"
+    assert dbg["p_hat_old"] == 0.78
+    assert dbg["p_hat_reconstructed"] != 0.78
+    target_p_hat = dbg["midround_v2"]["p_mid"]
+    expected = 0.78 + dbg["midround_weight"] * (target_p_hat - 0.78)
+    expected = max(rails[0], min(rails[1], expected))
+    assert p == expected
+
+
+def test_midround_buy_time_holds_carried_forward_p_hat() -> None:
+    """BUY_TIME preserves carried-forward PHAT instead of midpoint-resetting the corridor."""
     frame = _frame(
         alive_counts=(4, 2),
         hp_totals=(350.0, 250.0),
@@ -113,20 +134,19 @@ def test_midround_buy_time_frozen_midpoint() -> None:
     config = _config(prematch_map=0.5)
     state = _state()
     rails = (0.2, 0.8)
-    rail_low, rail_high = rails
-    p, dbg = resolve_p_hat(frame, config, state, rails)
+    p, dbg = resolve_p_hat(frame, config, state, rails, p_hat_prev=0.73)
     assert dbg["midround_weight"] == 0.0
-    expected_mid = 0.5 * (rail_low + rail_high)
-    assert dbg["p_hat_final"] == expected_mid
-    assert p == expected_mid
+    assert dbg["p_hat_prev_source"] == "carried_forward"
+    assert dbg["p_hat_final"] == 0.73
+    assert p == 0.73
     mv2 = dbg.get("midround_v2") or {}
     assert mv2.get("skipped") is True
-    assert mv2.get("reason") == "buy_time_frozen_midpoint"
+    assert mv2.get("reason") == "buy_time_hold_previous_phat"
     assert mv2.get("round_phase") == "BUY_TIME"
 
 
-def test_midround_freezetime_frozen_midpoint() -> None:
-    """FREEZETIME: same as BUY_TIME, p_hat = rail midpoint."""
+def test_midround_freezetime_holds_carried_forward_p_hat() -> None:
+    """FREEZETIME preserves carried-forward PHAT instead of midpoint-resetting the corridor."""
     frame = _frame(
         alive_counts=(5, 5),
         hp_totals=(400.0, 400.0),
@@ -135,14 +155,29 @@ def test_midround_freezetime_frozen_midpoint() -> None:
     config = _config(prematch_map=0.5)
     state = _state()
     rails = (0.2, 0.8)
-    rail_low, rail_high = rails
-    p, dbg = resolve_p_hat(frame, config, state, rails)
-    expected_mid = 0.5 * (rail_low + rail_high)
-    assert p == expected_mid
+    p, dbg = resolve_p_hat(frame, config, state, rails, p_hat_prev=0.27)
+    assert p == 0.27
     mv2 = dbg.get("midround_v2") or {}
     assert mv2.get("skipped") is True
-    assert mv2.get("reason") == "buy_time_frozen_midpoint"
+    assert mv2.get("reason") == "buy_time_hold_previous_phat"
     assert mv2.get("round_phase") == "FREEZETIME"
+
+
+def test_non_in_progress_phase_holds_carried_forward_p_hat() -> None:
+    """Resolved/non-live phases preserve continuity from carried-forward PHAT."""
+    frame = _frame(
+        alive_counts=(5, 2),
+        hp_totals=(420.0, 120.0),
+        loadout_totals=(15000.0, 5000.0),
+        bomb_phase_time_remaining={"round_phase": "FINISHED"},
+    )
+    config = _config(prematch_map=0.2)
+    state = _state()
+    p, dbg = resolve_p_hat(frame, config, state, (0.3, 0.9), p_hat_prev=0.81)
+    assert p == 0.81
+    mv2 = dbg.get("midround_v2") or {}
+    assert mv2.get("skipped") is True
+    assert mv2.get("reason") == "phase_hold_previous_phat"
 
 
 def test_midround_in_progress_stays_within_rails() -> None:
@@ -411,11 +446,17 @@ class TestResolveMicroAdj(unittest.TestCase):
     def test_resolve_clamps_to_01(self) -> None:
         test_resolve_clamps_to_01()
 
-    def test_midround_buy_time_frozen_midpoint(self) -> None:
-        test_midround_buy_time_frozen_midpoint()
+    def test_resolve_uses_carried_forward_p_hat_prev_when_provided(self) -> None:
+        test_resolve_uses_carried_forward_p_hat_prev_when_provided()
 
-    def test_midround_freezetime_frozen_midpoint(self) -> None:
-        test_midround_freezetime_frozen_midpoint()
+    def test_midround_buy_time_holds_carried_forward_p_hat(self) -> None:
+        test_midround_buy_time_holds_carried_forward_p_hat()
+
+    def test_midround_freezetime_holds_carried_forward_p_hat(self) -> None:
+        test_midround_freezetime_holds_carried_forward_p_hat()
+
+    def test_non_in_progress_phase_holds_carried_forward_p_hat(self) -> None:
+        test_non_in_progress_phase_holds_carried_forward_p_hat()
 
     def test_midround_in_progress_stays_within_rails(self) -> None:
         test_midround_in_progress_stays_within_rails()
