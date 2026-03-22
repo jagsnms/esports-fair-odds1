@@ -1,5 +1,22 @@
 # Branch History - `master`
 
+## 2026-03-21 - PHAT semantics redesign / correction
+- **Promoted from:** `codex/phat-semantics-redesign-correction-stage1`
+- **Larger project:** `Q-Intra Real-World Calibration Program`
+- **Current bounded stage:** `PHAT semantics redesign / correction`
+- **Project commit:**
+  - `100505e7a9a0b7f98e265e1cfa6de3425ef7217c` `Correct PHAT continuity semantics`
+- **Promotion path:** fast-forward promotion from the approved stage branch onto `master`
+- **Summary of promoted work:** Promoted the bounded PHAT semantics correction that makes active runner compute paths pass true carried-forward `p_hat_prev` into `resolve_p_hat(...)`, removes midpoint reset behavior from `BUY_TIME` / `FREEZETIME`, holds carried-forward PHAT explicitly on non-`IN_PROGRESS` phases, and preserves explicit inter-map continuity through carried-forward `last_p` when available.
+- **Key files/subsystems touched:**
+  - `backend/services/runner.py`
+  - `engine/compute/resolve.py`
+  - `tests/unit/test_resolve_micro_adj.py`
+  - `tests/unit/test_runner_bo3_hold.py`
+- **Checks run and result:** `tests/unit/test_resolve_micro_adj.py`, `tests/unit/test_runner_bo3_hold.py`, and `tests/unit/test_runner_source_contract_parity.py` passed on the approved stage branch; broader compatibility also passed with `tests/unit/test_runner_map_identity.py`, `tests/unit/test_memory_store_score_diag.py`, `tests/unit/test_export_backend_bo3_live_round_calibration_evidence.py`, `tests/unit/test_run_backend_bo3_live_q_intra_measurement.py`, and `tests/unit/test_run_backend_bo3_live_q_intra_reliability_gate.py`.
+- **Truth boundary:** This is a PHAT state-semantics correction only. It does not tune q, does not tune rails, does not tune p_hat movement confidence, does not add nonlinear corridor weighting, and does not redesign reports.
+- **Promotion-lineage note:** Because the approved PHAT stage branch was stacked on already-committed prerequisites, this fast-forward also brought the unified BO3 calibration evidence schema persistence commit and the BO3 live side-context normalization completeness fix onto `master` as part of the promoted ancestry.
+
 ## 2026-03-20 - [LOCAL STAGE] Q-Intra Real-World Calibration Program: BO3 segment_result match_id propagation fix
 - **Branch:** `codex/bo3-segment-result-match-id-propagation-fix-stage1` (local stage; not promoted)
 - **Larger project:** `Q-Intra Real-World Calibration Program`
