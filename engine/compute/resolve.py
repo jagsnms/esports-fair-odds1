@@ -1,7 +1,12 @@
 """
-Resolve p_hat from frame/config/state and rails. Base + microstate adjustment, clamped into rails.
-Midround V2 is always computed; applied only when round_phase is IN_PROGRESS (phase-gated).
-Returns (p_hat, debug_dict).
+Resolve authoritative PHAT truth from frame/config/state and rails.
+
+The returned `p_hat` is the current truth object used for semantics, evidence,
+and calibration. Any movement-smoothed PHAT is tracked separately in debug as a
+downstream display object.
+
+Midround V2 is always computed; applied only when round_phase is IN_PROGRESS
+(phase-gated). Returns (p_hat_truth, debug_dict).
 """
 from __future__ import annotations
 
@@ -19,7 +24,7 @@ from engine.compute.q_intra_cs2 import compute_q_intra_cs2
 
 # Only apply V2 mixture when round is in progress (phase-gated)
 IN_PROGRESS_PHASES = frozenset({"IN_PROGRESS"})
-# BUY_TIME / FREEZETIME: freeze p_hat at map rail midpoint (no loadout pegging)
+# BUY_TIME / FREEZETIME: hold the carried-forward PHAT state (no midpoint reset)
 BUY_TIME_PHASES = frozenset({"BUY_TIME", "FREEZETIME"})
 
 
@@ -35,6 +40,10 @@ def _build_explain(
     micro_adj_breakdown: dict[str, float],
     rail_low: float,
     rail_high: float,
+    p_hat_truth: float,
+    p_hat_truth_prev: float,
+    display_p_hat_prev: float,
+    display_p_hat: float,
     p_hat_final: float,
     contract_diag: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -63,11 +72,20 @@ def _build_explain(
         "p_base_series": p_base_series,
         "midround_weight": midround_weight,
         "p_hat_prev_source": p_hat_prev_source,
+        "p_hat_truth_prev": p_hat_truth_prev,
+        "p_hat_truth": p_hat_truth,
+        "display_p_hat_prev": display_p_hat_prev,
+        "display_p_hat": display_p_hat,
         "q_intra_total": q_intra_total,
         "q_terms": q_terms,
         "micro_adj": micro_adj_breakdown,
         "rails": {"rail_low": rail_low, "rail_high": rail_high, "corridor_width": corridor_width},
-        "final": {"p_hat_final": p_hat_final, "clamp_reason": clamp_reason},
+        "final": {
+            "p_hat_truth": p_hat_truth,
+            "display_p_hat": display_p_hat,
+            "p_hat_final": p_hat_final,
+            "clamp_reason": clamp_reason,
+        },
     }
     if isinstance(contract_diag, dict):
         for key in (
@@ -209,16 +227,19 @@ def resolve_p_hat(
     rails: tuple[float, float],
     *,
     p_hat_prev: float | None = None,
+    display_p_hat_prev: float | None = None,
 ) -> tuple[float, dict[str, Any]]:
     """Resolve current PHAT inside the ordered rail corridor.
 
-    `p_hat_prev` is the true carried-forward prior PHAT state when available.
-    If absent, resolve falls back to the legacy reconstructed anchor
-    `prematch_map + micro_adjustment_cs2(frame)` clamped into rails.
+    `p_hat_prev` is the true carried-forward prior PHAT truth state when
+    available. `display_p_hat_prev` is the prior downstream display PHAT when
+    available. If either is absent, resolve falls back to the legacy
+    reconstructed anchor `prematch_map + micro_adjustment_cs2(frame)` clamped
+    into rails.
 
     Midround V2: always compute features; apply mixture only when round_phase in IN_PROGRESS.
-    Else p_hat_final preserves the carried-forward anchor and debug midround_v2 reports the hold reason.
-    Returns (p_hat, debug_dict).
+    Else the truth PHAT preserves the carried-forward truth anchor and debug
+    midround_v2 reports the hold reason. Returns (p_hat_truth, debug_dict).
     """
     # Ensure corridor is ordered so mixture is monotonic: p_hat increases with q_intra (p_unshaped).
     # If rails were (hi, lo), mixture would invert; normalize so rail_low <= rail_high.
@@ -236,11 +257,20 @@ def resolve_p_hat(
     p_post_clamp01 = max(0.0, min(1.0, p_pre_clamp01))
     reconstructed_p_hat = max(rail_low, min(rail_high, p_post_clamp01))
     if isinstance(p_hat_prev, (int, float)):
-        p_hat_old = max(rail_low, min(rail_high, float(p_hat_prev)))
+        p_hat_truth_prev = max(rail_low, min(rail_high, float(p_hat_prev)))
         p_hat_prev_source = "carried_forward"
     else:
-        p_hat_old = reconstructed_p_hat
+        p_hat_truth_prev = reconstructed_p_hat
         p_hat_prev_source = "reconstructed_fallback"
+    if isinstance(display_p_hat_prev, (int, float)):
+        display_p_hat_old = max(rail_low, min(rail_high, float(display_p_hat_prev)))
+        display_p_hat_prev_source = "carried_forward"
+    elif isinstance(p_hat_prev, (int, float)):
+        display_p_hat_old = p_hat_truth_prev
+        display_p_hat_prev_source = "truth_fallback"
+    else:
+        display_p_hat_old = reconstructed_p_hat
+        display_p_hat_prev_source = "reconstructed_fallback"
 
     q_intra, q_intra_debug = compute_q_intra_cs2(frame, config=config)
     features = compute_cs2_midround_features(frame, config=config)
@@ -251,7 +281,9 @@ def resolve_p_hat(
 
     midround_v2_result: dict[str, Any]
     if phase_upper in BUY_TIME_PHASES:
-        p_hat_final = p_hat_old
+        p_hat_truth = p_hat_truth_prev
+        display_p_hat = display_p_hat_old
+        p_hat_final = display_p_hat
         midround_weight = 0.0
         midround_v2_result = {
             "skipped": True,
@@ -266,7 +298,7 @@ def resolve_p_hat(
             midround_v2_result=midround_v2_result,
             rail_low=rail_low,
             rail_high=rail_high,
-            p_hat_old=p_hat_old,
+            p_hat_old=display_p_hat_old,
             p_hat_final=p_hat_final,
             movement_confidence=midround_weight,
         )
@@ -281,6 +313,10 @@ def resolve_p_hat(
             micro_adj_breakdown=micro_adj_breakdown,
             rail_low=rail_low,
             rail_high=rail_high,
+            p_hat_truth=p_hat_truth,
+            p_hat_truth_prev=p_hat_truth_prev,
+            display_p_hat_prev=display_p_hat_old,
+            display_p_hat=display_p_hat,
             p_hat_final=p_hat_final,
             contract_diag=contract_diag,
         )
@@ -291,11 +327,16 @@ def resolve_p_hat(
             "p_hat_post_clamp01": p_post_clamp01,
             "p_hat_reconstructed": reconstructed_p_hat,
             "p_hat_prev_source": p_hat_prev_source,
+            "display_p_hat_prev_source": display_p_hat_prev_source,
             "rail_low": rail_low,
             "rail_high": rail_high,
             "q_intra": q_intra_debug,
             "midround_weight": midround_weight,
-            "p_hat_old": p_hat_old,
+            "p_hat_truth_prev": p_hat_truth_prev,
+            "p_hat_truth": p_hat_truth,
+            "display_p_hat_prev": display_p_hat_old,
+            "display_p_hat": display_p_hat,
+            "p_hat_old": display_p_hat_old,
             "p_hat_final": p_hat_final,
             "midround_v2": midround_v2_result,
             "phase_unknown": phase_unknown,
@@ -304,10 +345,12 @@ def resolve_p_hat(
         }
         if "reason" in q_intra_debug:
             debug_dict["reason"] = q_intra_debug["reason"]
-        return p_hat_final, debug_dict
+        return p_hat_truth, debug_dict
 
     if not apply_v2:
-        p_hat_final = p_hat_old
+        p_hat_truth = p_hat_truth_prev
+        display_p_hat = display_p_hat_old
+        p_hat_final = display_p_hat
         midround_weight = 0.0
         midround_v2_result = {
             "skipped": True,
@@ -324,10 +367,11 @@ def resolve_p_hat(
             frame=frame,
         )
         midround_v2_result = result
-        # Stage 2: movement toward target (Bible Ch 6 Step 8), then clamp to rails.
-        target_p_hat = result["p_mid"]
-        p_hat_final = p_hat_old + midround_weight * (target_p_hat - p_hat_old)
-        p_hat_final = max(rail_low, min(rail_high, p_hat_final))
+        target_p_hat = max(rail_low, min(rail_high, float(result["p_mid"])))
+        p_hat_truth = target_p_hat
+        display_p_hat = display_p_hat_old + midround_weight * (p_hat_truth - display_p_hat_old)
+        display_p_hat = max(rail_low, min(rail_high, display_p_hat))
+        p_hat_final = display_p_hat
 
     contract_diag = _contract_diag(
         frame=frame,
@@ -337,7 +381,7 @@ def resolve_p_hat(
         midround_v2_result=midround_v2_result,
         rail_low=rail_low,
         rail_high=rail_high,
-        p_hat_old=p_hat_old,
+        p_hat_old=display_p_hat_old,
         p_hat_final=p_hat_final,
         movement_confidence=midround_weight,
     )
@@ -352,6 +396,10 @@ def resolve_p_hat(
         micro_adj_breakdown=micro_adj_breakdown,
         rail_low=rail_low,
         rail_high=rail_high,
+        p_hat_truth=p_hat_truth,
+        p_hat_truth_prev=p_hat_truth_prev,
+        display_p_hat_prev=display_p_hat_old,
+        display_p_hat=display_p_hat,
         p_hat_final=p_hat_final,
         contract_diag=contract_diag,
     )
@@ -362,11 +410,16 @@ def resolve_p_hat(
         "p_hat_post_clamp01": p_post_clamp01,
         "p_hat_reconstructed": reconstructed_p_hat,
         "p_hat_prev_source": p_hat_prev_source,
+        "display_p_hat_prev_source": display_p_hat_prev_source,
         "rail_low": rail_low,
         "rail_high": rail_high,
         "q_intra": q_intra_debug,
         "midround_weight": midround_weight,
-        "p_hat_old": p_hat_old,
+        "p_hat_truth_prev": p_hat_truth_prev,
+        "p_hat_truth": p_hat_truth,
+        "display_p_hat_prev": display_p_hat_old,
+        "display_p_hat": display_p_hat,
+        "p_hat_old": display_p_hat_old,
         "p_hat_final": p_hat_final,
         "midround_v2": midround_v2_result,
         "phase_unknown": phase_unknown,
@@ -376,4 +429,4 @@ def resolve_p_hat(
     if "reason" in q_intra_debug:
         debug_dict["reason"] = q_intra_debug["reason"]
 
-    return p_hat_final, debug_dict
+    return p_hat_truth, debug_dict

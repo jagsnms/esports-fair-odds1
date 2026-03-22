@@ -1582,8 +1582,12 @@ async def test_bo3_valid_driver_with_microstate_appends_history_point() -> None:
     assert point.get("match_id") == 789
     assert point.get("game_number") == 1
     assert point.get("map_index") == 0
+    assert point.get("p_truth") == point.get("p")
+    assert point.get("display_p") is not None
     explain = point.get("explain") or {}
     assert explain.get("round_phase") == "IN_PROGRESS"
+    assert explain.get("p_hat_truth") == point.get("p")
+    assert explain.get("display_p_hat") == point.get("display_p")
     assert explain.get("q_intra_total") is not None
     assert explain.get("alive_counts") == (2, 2)
     assert explain.get("hp_totals") == (200.0, 180.0)
@@ -1657,6 +1661,8 @@ async def test_bo3_live_tick_carries_forward_true_previous_p_hat() -> None:
     assert explain.get("p_hat_prev_source") == "carried_forward"
     expected_prev = max(point["rail_low"], min(point["rail_high"], 0.73))
     assert explain.get("p_hat_prev") == expected_prev
+    assert explain.get("p_hat_truth") == point.get("p")
+    assert explain.get("display_p_hat") == point.get("display_p")
 
 
 def test_bo3_live_tick_carries_forward_true_previous_p_hat_sync() -> None:

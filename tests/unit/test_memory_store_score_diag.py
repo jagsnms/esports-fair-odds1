@@ -69,6 +69,8 @@ def test_make_score_diag_record_reconstruction() -> None:
         f"score_raw={score_raw_out} != contrib_sum + residual_contrib = {contrib_sum + residual_contrib}"
     )
     assert rec["phase"] == "IN_PROGRESS"
+    assert rec["p_hat_truth"] == 0.52
+    assert rec["display_p_hat"] == 0.52
     assert rec["p_hat_final"] == 0.52
 
 
@@ -262,6 +264,8 @@ def test_make_score_diag_record_includes_match_identity_and_movement_fields() ->
     assert rec["loadout_totals"] == (15400.0, 9800.0)
     assert rec["target_p_hat"] == 0.69
     assert rec["p_hat_prev"] == 0.58
+    assert rec["p_hat_truth"] == 0.61
+    assert rec["display_p_hat"] == 0.61
     assert rec["p_hat_final"] == 0.61
     assert rec["movement_confidence"] == 0.25
     assert rec["expected_p_hat_after_movement"] == 0.6075
@@ -338,7 +342,7 @@ async def test_score_diag_file_created_when_enabled(tmp_path: object) -> None:
 
 @pytest.mark.asyncio
 async def test_history_points_schema_unchanged(tmp_path: object) -> None:
-    """With both recorders enabled, history_points.jsonl still gets the same wire schema (unchanged)."""
+    """With both recorders enabled, history_points.jsonl keeps core wire keys and adds explicit truth/display aliases."""
     history_path = os.path.join(str(tmp_path), "history_points.jsonl")
     score_path = os.path.join(str(tmp_path), "history_score_points.jsonl")
     with (
@@ -376,6 +380,8 @@ async def test_history_points_schema_unchanged(tmp_path: object) -> None:
     # Existing schema: t, p, lo, hi, rail_low, rail_high, explain, etc. (no score_diag-specific keys in wire)
     assert "t" in wire
     assert "p" in wire
+    assert wire["p_truth"] == 0.5
+    assert wire["display_p"] == 0.5
     assert "lo" in wire
     assert "hi" in wire
     assert "explain" in wire

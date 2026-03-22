@@ -31,7 +31,8 @@ def test_invariant_diagnostics_wired_to_contract_diagnostics() -> None:
     assert contract_diag.get("rail_low") == 0.2
     assert contract_diag.get("rail_high") == 0.8
     assert contract_diag.get("p_hat_prev") is not None
-    assert contract_diag.get("p_hat_final") == p_hat
+    assert contract_diag.get("p_hat_final") == dbg.get("display_p_hat")
+    assert dbg.get("p_hat_truth") == p_hat
     assert contract_diag.get("round_time_remaining_s") is None
     assert contract_diag.get("alive_counts") == (5, 4)
     assert contract_diag.get("hp_totals") == (400.0, 300.0)

@@ -64,11 +64,15 @@ def _minimal_explain(
         "p_base_map": None,
         "p_base_series": None,
         "midround_weight": 0.0,
+        "p_hat_truth_prev": p_hat,
+        "p_hat_truth": p_hat,
+        "display_p_hat_prev": p_hat,
+        "display_p_hat": p_hat,
         "q_intra_total": None,
         "q_terms": {},
         "micro_adj": {"alive_adj": 0.0, "hp_adj": 0.0, "econ_adj": 0.0},
         "rails": {"rail_low": rail_low, "rail_high": rail_high, "corridor_width": cw},
-        "final": {"p_hat_final": p_hat, "clamp_reason": clamp_reason},
+        "final": {"p_hat_truth": p_hat, "display_p_hat": p_hat, "p_hat_final": p_hat, "clamp_reason": clamp_reason},
     }
 
 
@@ -93,6 +97,10 @@ def _inter_map_break_phat_and_dbg(
         "inter_map_break": True,
         "inter_map_break_reason": break_reason,
         "p_hat_old": last_p,
+        "p_hat_truth_prev": p_hat,
+        "p_hat_truth": p_hat,
+        "display_p_hat_prev": p_hat,
+        "display_p_hat": p_hat,
         "p_hat_final": p_hat,
         "series_low": bound_low,
         "series_high": bound_high,
@@ -105,11 +113,15 @@ def _inter_map_break_phat_and_dbg(
         "p_base_map": None,
         "p_base_series": None,
         "midround_weight": 0.0,
+        "p_hat_truth_prev": p_hat,
+        "p_hat_truth": p_hat,
+        "display_p_hat_prev": p_hat,
+        "display_p_hat": p_hat,
         "q_intra_total": None,
         "q_terms": {},
         "micro_adj": {"alive_adj": 0.0, "hp_adj": 0.0, "econ_adj": 0.0},
         "rails": {"rail_low": rail_low, "rail_high": rail_high, "corridor_width": cw},
-        "final": {"p_hat_final": p_hat, "clamp_reason": "inter_map_break"},
+        "final": {"p_hat_truth": p_hat, "display_p_hat": p_hat, "p_hat_final": p_hat, "clamp_reason": "inter_map_break"},
     }
     return (p_hat, dbg)
 
@@ -1169,6 +1181,40 @@ class Runner:
         if isinstance(value, (int, float)) and math.isfinite(float(value)):
             return float(value)
         return None
+
+    async def _previous_display_p_hat_for_compute(self, *, write_to_store: bool, session_runtime: Any = None) -> float | None:
+        """Return the carried-forward display PHAT when available; fallback to truth PHAT."""
+        if write_to_store:
+            cur = await self._store.get_current()
+            derived = (cur.get("derived") or {}) if isinstance(cur, dict) else {}
+            value = derived.get("display_p_hat")
+            if not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+                value = derived.get("p_hat")
+        else:
+            value = getattr(session_runtime, "last_display_p_hat", None)
+            if not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+                value = getattr(session_runtime, "last_p_hat", None)
+        if isinstance(value, (int, float)) and math.isfinite(float(value)):
+            return float(value)
+        return None
+
+    def _display_p_hat_from_debug(self, p_hat: float, dbg: dict[str, Any] | None) -> float:
+        """Extract downstream display PHAT from debug when present; otherwise use truth PHAT."""
+        if isinstance(dbg, dict):
+            value = dbg.get("display_p_hat")
+            if isinstance(value, (int, float)) and math.isfinite(float(value)):
+                return float(value)
+            explain = dbg.get("explain")
+            if isinstance(explain, dict):
+                value = explain.get("display_p_hat")
+                if isinstance(value, (int, float)) and math.isfinite(float(value)):
+                    return float(value)
+                final = explain.get("final")
+                if isinstance(final, dict):
+                    value = final.get("display_p_hat", final.get("p_hat_final"))
+                    if isinstance(value, (int, float)) and math.isfinite(float(value)):
+                        return float(value)
+        return float(p_hat)
 
     def _ensure_map_identity_from_raw(
         self,
@@ -2685,6 +2731,10 @@ class Runner:
             write_to_store=write_to_store,
             session_runtime=session_runtime,
         )
+        display_p_hat_prev = await self._previous_display_p_hat_for_compute(
+            write_to_store=write_to_store,
+            session_runtime=session_runtime,
+        )
         bounds_result = compute_bounds(frame, config, new_state)
         bound_low, bound_high = bounds_result[0], bounds_result[1]
         bounds_debug = bounds_result[2] if len(bounds_result) > 2 else {}
@@ -2712,13 +2762,16 @@ class Runner:
                 new_state,
                 (rail_low, rail_high),
                 p_hat_prev=p_hat_prev,
+                display_p_hat_prev=display_p_hat_prev,
             )
             dbg = {**dbg, **bounds_debug, **rails_debug}
             dbg["bo3_monotonic_gate"] = gate_diag
             dbg["match_context_diag"] = _match_context_diag(ctx, _sel_decision.to_diag() if _sel_decision else None)
 
+        display_p_hat = self._display_p_hat_from_debug(p_hat, dbg)
         if session_runtime is not None:
             setattr(session_runtime, "last_p_hat", p_hat)
+            setattr(session_runtime, "last_display_p_hat", display_p_hat)
 
         from engine.diagnostics.fragility_cs2 import build_raw_debug, compute_fragility_debug
         dbg["raw"] = build_raw_debug(frame)
@@ -2901,6 +2954,7 @@ class Runner:
             ep_point = HistoryPoint(
                 time=t,
                 p_hat=p_hat,
+                display_p_hat=display_p_hat,
                 bound_low=bound_low,
                 bound_high=bound_high,
                 rail_low=rail_low,
@@ -2915,7 +2969,7 @@ class Runner:
                 event=evt,
                 **_team_identity_for_point(getattr(new_state, "last_frame", None), config),
             )
-            await self._store.append_point(ep_point, new_state, Derived(p_hat=p_hat, bound_low=bound_low, bound_high=bound_high, rail_low=rail_low, rail_high=rail_high, kappa=0.0, debug={**dbg, "event": evt}))
+            await self._store.append_point(ep_point, new_state, Derived(p_hat=p_hat, display_p_hat=display_p_hat, bound_low=bound_low, bound_high=bound_high, rail_low=rail_low, rail_high=rail_high, kappa=0.0, debug={**dbg, "event": evt}))
             await self._broadcast_point(ep_point)
         # BO3 liveness diagnostics (success path)
         self._bo3_success_counter += 1
@@ -2949,6 +3003,7 @@ class Runner:
         point = HistoryPoint(
             time=t,
             p_hat=p_hat,
+            display_p_hat=display_p_hat,
             bound_low=bound_low,
             bound_high=bound_high,
             rail_low=rail_low,
@@ -2964,6 +3019,7 @@ class Runner:
         )
         derived = Derived(
             p_hat=p_hat,
+            display_p_hat=display_p_hat,
             bound_low=bound_low,
             bound_high=bound_high,
             rail_low=rail_low,
@@ -3230,6 +3286,10 @@ class Runner:
             write_to_store=write_to_store,
             session_runtime=session_runtime,
         )
+        display_p_hat_prev = await self._previous_display_p_hat_for_compute(
+            write_to_store=write_to_store,
+            session_runtime=session_runtime,
+        )
         bounds_result = compute_bounds(frame, config, new_state)
         bound_low, bound_high = bounds_result[0], bounds_result[1]
         bounds_debug = bounds_result[2] if len(bounds_result) > 2 else {}
@@ -3255,13 +3315,16 @@ class Runner:
                 new_state,
                 (rail_low, rail_high),
                 p_hat_prev=p_hat_prev,
+                display_p_hat_prev=display_p_hat_prev,
             )
             dbg = {**dbg, **bounds_debug, **rails_debug}
             dbg["source"] = "GRID"
             dbg["grid_series_id"] = grid_series_id
             dbg["match_context_diag"] = _match_context_diag(ctx, _sel_decision.to_diag() if _sel_decision else None)
+        display_p_hat = self._display_p_hat_from_debug(p_hat, dbg)
         if session_runtime is not None:
             setattr(session_runtime, "last_p_hat", p_hat)
+            setattr(session_runtime, "last_display_p_hat", display_p_hat)
         dbg["raw"] = build_raw_debug(frame)
         dbg["fragility"] = compute_fragility_debug(frame)
         dbg.update(_compute_dominance_features(frame))
@@ -3289,6 +3352,7 @@ class Runner:
         point = HistoryPoint(
             time=t,
             p_hat=p_hat,
+            display_p_hat=display_p_hat,
             bound_low=bound_low,
             bound_high=bound_high,
             rail_low=rail_low,
@@ -3303,6 +3367,7 @@ class Runner:
         )
         derived = Derived(
             p_hat=p_hat,
+            display_p_hat=display_p_hat,
             bound_low=bound_low,
             bound_high=bound_high,
             rail_low=rail_low,
@@ -3593,6 +3658,7 @@ class Runner:
         old_state = await self._store.get_state()
         new_state = reduce_state(old_state, frame, config)
         p_hat_prev = await self._previous_p_hat_for_compute(write_to_store=True)
+        display_p_hat_prev = await self._previous_display_p_hat_for_compute(write_to_store=True)
         bounds_result = compute_bounds(frame, config, new_state)
         bound_low, bound_high = bounds_result[0], bounds_result[1]
         bounds_debug = bounds_result[2] if len(bounds_result) > 2 else {}
@@ -3618,9 +3684,11 @@ class Runner:
                 new_state,
                 (rail_low, rail_high),
                 p_hat_prev=p_hat_prev,
+                display_p_hat_prev=display_p_hat_prev,
             )
             dbg = {**dbg, **bounds_debug, **rails_debug}
         dbg["replay_mode"] = "raw_contract"
+        display_p_hat = self._display_p_hat_from_debug(p_hat, dbg)
 
         from engine.diagnostics.fragility_cs2 import build_raw_debug, compute_fragility_debug
         dbg["raw"] = build_raw_debug(frame)
@@ -3723,6 +3791,7 @@ class Runner:
         point = HistoryPoint(
             time=t,
             p_hat=p_hat,
+            display_p_hat=display_p_hat,
             bound_low=bound_low,
             bound_high=bound_high,
             rail_low=rail_low,
@@ -3738,6 +3807,7 @@ class Runner:
         )
         derived = Derived(
             p_hat=p_hat,
+            display_p_hat=display_p_hat,
             bound_low=bound_low,
             bound_high=bound_high,
             rail_low=rail_low,

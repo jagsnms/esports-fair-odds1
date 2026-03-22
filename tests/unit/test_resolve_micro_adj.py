@@ -116,12 +116,16 @@ def test_resolve_uses_carried_forward_p_hat_prev_when_provided() -> None:
     rails = (0.2, 0.8)
     p, dbg = resolve_p_hat(frame, config, state, rails, p_hat_prev=0.78)
     assert dbg["p_hat_prev_source"] == "carried_forward"
+    assert dbg["p_hat_truth_prev"] == 0.78
+    assert dbg["display_p_hat_prev"] == 0.78
     assert dbg["p_hat_old"] == 0.78
     assert dbg["p_hat_reconstructed"] != 0.78
     target_p_hat = dbg["midround_v2"]["p_mid"]
-    expected = 0.78 + dbg["midround_weight"] * (target_p_hat - 0.78)
-    expected = max(rails[0], min(rails[1], expected))
-    assert p == expected
+    expected_display = 0.78 + dbg["midround_weight"] * (target_p_hat - 0.78)
+    expected_display = max(rails[0], min(rails[1], expected_display))
+    assert p == target_p_hat
+    assert dbg["display_p_hat"] == expected_display
+    assert dbg["p_hat_final"] == expected_display
 
 
 def test_midround_buy_time_holds_carried_forward_p_hat() -> None:
@@ -137,6 +141,8 @@ def test_midround_buy_time_holds_carried_forward_p_hat() -> None:
     p, dbg = resolve_p_hat(frame, config, state, rails, p_hat_prev=0.73)
     assert dbg["midround_weight"] == 0.0
     assert dbg["p_hat_prev_source"] == "carried_forward"
+    assert dbg["p_hat_truth"] == 0.73
+    assert dbg["display_p_hat"] == 0.73
     assert dbg["p_hat_final"] == 0.73
     assert p == 0.73
     mv2 = dbg.get("midround_v2") or {}
@@ -181,7 +187,7 @@ def test_non_in_progress_phase_holds_carried_forward_p_hat() -> None:
 
 
 def test_midround_in_progress_stays_within_rails() -> None:
-    """When round_phase is IN_PROGRESS, V2 is applied and p_hat_final within rails."""
+    """When round_phase is IN_PROGRESS, truth PHAT and display PHAT both stay within rails."""
     frame = _frame(
         alive_counts=(5, 1),
         hp_totals=(400.0, 100.0),
@@ -196,7 +202,9 @@ def test_midround_in_progress_stays_within_rails() -> None:
     assert mv2.get("skipped") is not True
     rlo, rhi = rails
     assert rlo <= p <= rhi
-    assert p == dbg["p_hat_final"]
+    assert p == dbg["p_hat_truth"]
+    assert rlo <= dbg["display_p_hat"] <= rhi
+    assert dbg["p_hat_final"] == dbg["display_p_hat"]
 
 
 def test_midround_monotonic_higher_q_intra_raises_p_hat() -> None:
@@ -228,7 +236,7 @@ def test_midround_monotonic_higher_q_intra_raises_p_hat() -> None:
 
 
 def test_midround_v2_p_hat_follows_movement_formula_when_rails_wide() -> None:
-    """IN_PROGRESS: p_hat_final = p_hat_old + confidence*(target_p_hat - p_hat_old) clamped to rails (Stage 2)."""
+    """IN_PROGRESS: truth PHAT equals target; display PHAT follows the movement formula."""
     state = _state()
     rail_low, rail_high = 0.01, 0.99
     rails = (rail_low, rail_high)
@@ -247,7 +255,9 @@ def test_midround_v2_p_hat_follows_movement_formula_when_rails_wide() -> None:
     confidence = dbg["midround_weight"]
     expected = p_hat_old + confidence * (target_p_hat - p_hat_old)
     expected_clamped = max(rail_low, min(rail_high, expected))
-    assert p == expected_clamped
+    assert p == target_p_hat
+    assert dbg["display_p_hat"] == expected_clamped
+    assert dbg["p_hat_final"] == expected_clamped
     assert rail_low <= p <= rail_high
 
 
@@ -303,6 +313,8 @@ def test_resolve_debug_contains_explain_with_required_keys() -> None:
     assert "rail_low" in explain["rails"]
     assert "rail_high" in explain["rails"]
     assert "corridor_width" in explain["rails"]
+    assert "p_hat_truth" in explain
+    assert "display_p_hat" in explain
     assert "p_hat_final" in explain["final"]
     assert "clamp_reason" in explain["final"]
 
@@ -391,7 +403,7 @@ def test_contract_target_matches_bible_formula() -> None:
 
 
 def test_contract_testing_mode_runtime_follows_movement_contract() -> None:
-    """Stage 2: runtime uses movement step so IN_PROGRESS p_hat_final matches contract (no movement_contract_gap)."""
+    """Contract diagnostics stay attached to the downstream display PHAT movement path."""
     frame = _frame(
         alive_counts=(5, 1),
         hp_totals=(450.0, 100.0),
@@ -402,12 +414,13 @@ def test_contract_testing_mode_runtime_follows_movement_contract() -> None:
     setattr(config, "contract_testing_mode", True)
     state = _state()
     rails = (0.2, 0.8)
-    p_hat_final, dbg = resolve_p_hat(frame, config, state, rails)
+    p_hat_truth, dbg = resolve_p_hat(frame, config, state, rails)
     diag = dbg["contract_diagnostics"]
     assert diag["contract_testing_mode"] is True
     expected_after_movement = diag.get("expected_p_hat_after_movement")
     assert expected_after_movement is not None
-    assert abs(p_hat_final - expected_after_movement) < 1e-9, "runtime p_hat_final should follow movement contract"
+    assert abs(dbg["display_p_hat"] - expected_after_movement) < 1e-9, "display PHAT should follow movement contract"
+    assert p_hat_truth == diag["target_p_hat"]
     assert "movement_contract_gap" not in diag["behavioral_violations"]
 
 

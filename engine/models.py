@@ -164,6 +164,7 @@ class Derived:
     """
 
     p_hat: float = 0.5
+    display_p_hat: float | None = None
     rail_low: float = 0.0
     rail_high: float = 1.0
     bound_low: float = 0.0
@@ -198,6 +199,7 @@ class HistoryPoint:
 
     time: float = 0.0
     p_hat: float = 0.5
+    display_p_hat: float | None = None
     bound_low: float = 0.0
     bound_high: float = 1.0
     rail_low: float = 0.0

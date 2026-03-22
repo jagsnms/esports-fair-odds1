@@ -46,6 +46,10 @@ def _state_derived_to_dict(state: State, derived: Derived) -> dict[str, Any]:
     if "rail_low" in derived_d and "rail_high" in derived_d:
         derived_d.setdefault("map_low", derived_d["rail_low"])
         derived_d.setdefault("map_high", derived_d["rail_high"])
+    if "p_hat" in derived_d:
+        derived_d.setdefault("p_hat_truth", derived_d["p_hat"])
+        if derived_d.get("display_p_hat") is None:
+            derived_d["display_p_hat"] = derived_d["p_hat"]
     # Config/Frame are nested dataclasses; asdict recurses. Tuples become lists.
     return {"state": state_d, "derived": derived_d}
 
@@ -58,6 +62,8 @@ def _history_point_to_wire(p: HistoryPoint) -> dict[str, Any]:
     out: dict[str, Any] = {
         "t": p.time,
         "p": p.p_hat,
+        "p_truth": p.p_hat,
+        "display_p": p.display_p_hat if getattr(p, "display_p_hat", None) is not None else p.p_hat,
         "lo": p.bound_low,
         "hi": p.bound_high,
         "m": p.market_mid,
@@ -129,9 +135,15 @@ def _make_score_diag_record(point: HistoryPoint) -> dict[str, Any] | None:
         base_intercept = 0.0
     contrib_sum = float(base_intercept) + sum(float(v) for v in term_contribs.values())
     residual_contrib = float(score_raw) - contrib_sum
+    p_hat_truth = float(getattr(point, "p_hat", 0.5))
     p_hat_final = final.get("p_hat_final")
     if p_hat_final is None:
-        p_hat_final = getattr(point, "p_hat", 0.5)
+        p_hat_final = getattr(point, "display_p_hat", None)
+    if p_hat_final is None:
+        p_hat_final = p_hat_truth
+    display_p_hat = getattr(point, "display_p_hat", None)
+    if display_p_hat is None:
+        display_p_hat = p_hat_final
     record: dict[str, Any] = {
         "schema": "score_diag_v2",
         "ts_ms": int(round(getattr(point, "time", 0.0) * 1000)),
@@ -143,6 +155,8 @@ def _make_score_diag_record(point: HistoryPoint) -> dict[str, Any] | None:
         "phase": phase,
         "round_phase": explain.get("round_phase"),
         "clamp_reason": final.get("clamp_reason"),
+        "p_hat_truth": p_hat_truth,
+        "display_p_hat": float(display_p_hat),
         "p_hat_final": float(p_hat_final),
         "rail_low": getattr(point, "rail_low", None),
         "rail_high": getattr(point, "rail_high", None),

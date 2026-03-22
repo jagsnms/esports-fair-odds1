@@ -17,6 +17,8 @@ const API_BASE = 'http://localhost:8000'
 type Point = {
   t: number
   p: number
+  p_truth?: number
+  display_p?: number
   lo: number
   hi: number
   m: number | null
@@ -177,7 +179,7 @@ function eventToMarker(
 
 function App() {
   const [wsStatus, setWsStatus] = useState<'connecting' | 'open' | 'closed' | 'error'>('connecting')
-  const [current, setCurrent] = useState<{ state?: unknown; derived?: { p_hat?: number } } | null>(null)
+  const [current, setCurrent] = useState<{ state?: unknown; derived?: { p_hat?: number; display_p_hat?: number } } | null>(null)
   const [hudFrame, setHudFrame] = useState<LastFrame | null>(null)
   const [snapshotHistory, setSnapshotHistory] = useState<Point[]>([])
   const [chartReady, setChartReady] = useState(false)
@@ -540,7 +542,7 @@ function App() {
     const seriesHi = point.series_high ?? point.hi
     const mapLo = point.map_low ?? point.rail_low ?? seriesLo
     const mapHi = point.map_high ?? point.rail_high ?? seriesHi
-    pSeriesRef.current?.update({ time, value: point.p })
+    pSeriesRef.current?.update({ time, value: point.display_p ?? point.p })
     loSeriesRef.current?.update({ time, value: seriesLo })
     hiSeriesRef.current?.update({ time, value: seriesHi })
     railLoSeriesRef.current?.update({ time, value: mapLo })
@@ -574,7 +576,7 @@ function App() {
       else if (pt.t === deduped[deduped.length - 1].t) deduped[deduped.length - 1] = pt
     }
     const utc = (t: number) => t as import('lightweight-charts').UTCTimestamp
-    const pData = deduped.map((pt) => ({ time: utc(pt.t), value: pt.p }))
+    const pData = deduped.map((pt) => ({ time: utc(pt.t), value: pt.display_p ?? pt.p }))
     const loData = deduped.map((pt) => ({
       time: utc(pt.t),
       value: pt.series_low ?? pt.lo,
@@ -816,7 +818,11 @@ function App() {
           setCurrent((prev) => ({
             ...(prev != null && typeof prev === 'object' ? prev : {}),
             state: prev != null && typeof prev === 'object' ? (prev as { state?: unknown }).state : undefined,
-            derived: { ...(prev != null && typeof prev === 'object' && (prev as { derived?: object }).derived != null ? (prev as { derived: object }).derived : {}), p_hat: pt.p },
+            derived: {
+              ...(prev != null && typeof prev === 'object' && (prev as { derived?: object }).derived != null ? (prev as { derived: object }).derived : {}),
+              p_hat: pt.p_truth ?? pt.p,
+              display_p_hat: pt.display_p ?? pt.p,
+            },
           }))
           if (!pSeriesRef.current) {
             pendingPointsRef.current.push(pt)
