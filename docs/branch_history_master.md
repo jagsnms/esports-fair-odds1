@@ -1,5 +1,27 @@
 # Branch History - `master`
 
+## 2026-03-22 - Raw-PHAT truth object vs display-smoothing separation
+- **Promoted from:** `codex/raw-phat-truth-vs-display-smoothing-separation-stage1`
+- **Larger project:** `Q-Intra Real-World Calibration Program`
+- **Current bounded stage:** `Raw-PHAT truth object vs display-smoothing separation`
+- **Project commit:**
+  - `8c581e43c440b4e9854ee772c3c1b7de7a247ca5` `Separate raw PHAT truth from display smoothing`
+- **Promotion path:** fast-forward promotion from the approved stage branch onto `master`
+- **Summary of promoted work:** Promoted the bounded PHAT truth-vs-display separation that makes authoritative PHAT truth explicit on core engine/persistence/evidence surfaces, keeps downstream smoothing explicit as `display_p_hat` / `display_p`, and moves the chart to the downstream display object instead of silently charting the truth object.
+- **Key files/subsystems touched:**
+  - `engine/compute/resolve.py`
+  - `engine/models.py`
+  - `backend/services/runner.py`
+  - `backend/store/memory_store.py`
+  - `frontend/src/App.tsx`
+  - `tests/unit/test_resolve_micro_adj.py`
+  - `tests/unit/test_memory_store_score_diag.py`
+  - `tests/unit/test_runner_bo3_hold.py`
+  - `tests/unit/test_runner_source_contract_parity.py`
+- **Checks run and result:** `tests/unit/test_resolve_micro_adj.py`, `tests/unit/test_memory_store_score_diag.py`, `tests/unit/test_runner_bo3_hold.py`, `tests/unit/test_runner_source_contract_parity.py`, `tests/unit/test_corridor_monotonicity.py`, `tests/unit/test_compute_slice1.py`, `tests/unit/test_runner_map_identity.py`, `tests/unit/test_export_backend_bo3_live_round_calibration_evidence.py`, `tests/unit/test_run_backend_bo3_live_q_intra_measurement.py`, and `tests/unit/test_run_backend_bo3_live_q_intra_reliability_gate.py` passed on the approved stage branch.
+- **Truth boundary:** This is not q tuning, not rail tuning, not PHAT movement retuning, and not display-math experimentation. It only makes the authoritative truth object explicit and pushes optional smoothing into a clearly downstream presentation layer.
+- **Compatibility caution:** legacy `p_hat_final` remains present on score/diagnostic surfaces for compatibility, but after this promotion it is display semantics only. Authoritative truth now lives on `p_hat` / `p_truth` / `p_hat_truth`.
+
 ## 2026-03-21 - PHAT semantics redesign / correction
 - **Promoted from:** `codex/phat-semantics-redesign-correction-stage1`
 - **Larger project:** `Q-Intra Real-World Calibration Program`

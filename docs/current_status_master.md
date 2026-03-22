@@ -1,6 +1,6 @@
 # Current Status - `master`
 
-Last updated: 2026-03-21
+Last updated: 2026-03-22
 
 ## Snapshot
 - **Promoted `master` BO3 lane state:** the active BO3 corpus defaults outside ordinary repo worktree hazard, one-time alignment and divergent recovery tools exist as special repair workflows, the bounded one-match diagnostic remains separate, the corpus-readiness analyzer remains separate, persisted BO3 `round_result` history rows now carry top-level `match_id`, and a narrow BO3 live labeled calibration exporter exists for round-level `q_intra_total` vs `round_result` only.
@@ -18,6 +18,7 @@ Last updated: 2026-03-21
 - **Promoted `master` q-intra reliability sufficiency packet:** `master` now includes one machine-readable BO3 live `q_intra_total` reliability/sufficiency artifact built from the existing labeled live evidence export, with explicit measurement-only / no-tuning boundaries and no retuning authorization.
 - **Promoted `master` q-intra measurement runner packet:** `master` now also includes one canonical end-to-end BO3 live q_intra measurement run path that orchestrates the existing exporter and reliability gate with stdout-only orchestration output. It does not add a new artifact layer or new calibration semantics.
 - **Promoted `master` PHAT semantics correction packet:** active BO3 / GRID / REPLAY compute paths now pass a true carried-forward prior `p_hat` into `resolve_p_hat(...)`; `BUY_TIME` / `FREEZETIME` and other non-`IN_PROGRESS` phases now hold that carried-forward state instead of midpoint-resetting or reconstructing a pseudo-anchor; and inter-map handling now keeps explicit `last_p` continuity when available.
+- **Promoted `master` raw-PHAT truth-vs-display packet:** `master` now separates authoritative PHAT truth from downstream display smoothing. The authoritative truth object stays on `p_hat` / `p_truth` / `p_hat_truth` surfaces for semantics, evidence, and calibration, while the downstream display object is exposed separately as `display_p_hat` / `display_p`, and the chart now renders the downstream display surface instead of silently charting the truth object.
 - **Promoted-ancestry truth for this push:** the PHAT semantics stage was promoted by fast-forward, so `master` now also contains its already-committed prerequisite ancestry: the unified BO3 calibration-grade evidence schema persistence packet plus the BO3 live side-context normalization completeness fix.
 
 ## Main red flags
@@ -29,6 +30,8 @@ Last updated: 2026-03-21
 6. **Point-source and projection surfaces are not comparison capability.** The promoted replay point-source, common basis, and common projection packets explicitly do not authorize lawful replay-to-canonical record matching or alignment.
 7. **The current q-intra line is still measurement/evidence-only.** Neither the promoted reliability gate nor the promoted measurement runner authorizes q retuning, p_hat calibration, rails calibration, or any broader engine-math change.
 8. **The promoted PHAT semantics correction is not calibration.** It corrects carried-forward state meaning and removes midpoint-style re-anchoring on active runner paths; it does not tune q, rails, or movement confidence.
+9. **The promoted raw/display separation is not movement retuning.** It only makes truth-vs-display ownership explicit; it does not change q coefficients, rail construction, or movement-confidence values.
+10. **Legacy `p_hat_final` is now a compatibility display field.** After this promotion, authoritative truth lives on `p_hat` / `p_truth` / `p_hat_truth`; any downstream consumer that still treats legacy `p_hat_final` as core truth is wrong.
 
 ## Most recent completed checks
 - `tests/unit/test_backend_bo3_capture_contract.py` now covers the default active corpus path, normal BO3 append behavior, stable same-match identity continuity, and explicit refusal/quarantine of a forced mid-session team flip.
@@ -48,6 +51,7 @@ Last updated: 2026-03-21
 - `tests/unit/test_run_backend_bo3_live_q_intra_measurement.py` now covers the promoted BO3 live q_intra measurement runner for happy-path exporter->gate chaining, insufficiency propagation, honest exporter/gate failure propagation, and the no-new-artifact boundary.
 - `tests/unit/test_resolve_micro_adj.py` and `tests/unit/test_runner_bo3_hold.py` now cover the promoted PHAT semantics correction for true carried-forward `p_hat_prev`, removal of `BUY_TIME` / `FREEZETIME` midpoint reset, hold behavior for non-`IN_PROGRESS` phases, live BO3 carry-forward usage, and explicit inter-map continuity when `last_p` exists.
 - `tests/unit/test_runner_source_contract_parity.py`, `tests/unit/test_runner_map_identity.py`, `tests/unit/test_memory_store_score_diag.py`, `tests/unit/test_export_backend_bo3_live_round_calibration_evidence.py`, `tests/unit/test_run_backend_bo3_live_q_intra_measurement.py`, and `tests/unit/test_run_backend_bo3_live_q_intra_reliability_gate.py` passed against the promoted PHAT semantics branch before promotion, preserving bounded compatibility without smuggling q/rail retuning.
+- `tests/unit/test_resolve_micro_adj.py`, `tests/unit/test_memory_store_score_diag.py`, `tests/unit/test_runner_bo3_hold.py`, `tests/unit/test_runner_source_contract_parity.py`, `tests/unit/test_corridor_monotonicity.py`, `tests/unit/test_compute_slice1.py`, `tests/unit/test_runner_map_identity.py`, `tests/unit/test_export_backend_bo3_live_round_calibration_evidence.py`, `tests/unit/test_run_backend_bo3_live_q_intra_measurement.py`, and `tests/unit/test_run_backend_bo3_live_q_intra_reliability_gate.py` passed on the approved raw-vs-display separation stage, confirming explicit truth-vs-display ownership without q/rail retuning.
 
 ## Current initiative status
 - **Actual current runtime BO3 ingestion path:** `backend/services/runner.py`.
@@ -66,9 +70,10 @@ Last updated: 2026-03-21
 - **Promoted `master` q-intra execution truth:** the canonical BO3 live q_intra measurement loop is now on `master` through the promoted orchestration runner, so the repo can execute exporter -> gate measurement runs without manual tool chaining.
 - **Promoted `master` live evidence continuity truth:** because the approved PHAT stage was stacked on committed prerequisites, `master` now also carries the unified BO3 calibration evidence schema persistence packet and the BO3 live side-context normalization completeness fix in the same promoted lineage.
 - **Promoted `master` PHAT semantics truth:** on active runner compute paths, `p_hat_prev` now means true carried-forward PHAT when available, `BUY_TIME` / `FREEZETIME` no longer midpoint-reset PHAT, non-`IN_PROGRESS` phases hold carried-forward PHAT explicitly, and inter-map continuity preserves `last_p` when it exists instead of silently recentering to a synthetic midpoint.
+- **Promoted `master` PHAT truth/display ownership truth:** authoritative PHAT truth now lives on `p_hat` surfaces, while `display_p_hat` is the explicitly downstream smoothed presentation object; score diagnostics keep legacy `p_hat_final` only as a compatibility display field and not as the authoritative calibration truth object.
 
 ## Next likely step
-- Restart the live backend on promoted `master` and collect a fresh post-promotion PHAT runtime slice so the larger `Q-Intra Real-World Calibration Program` can verify carried-forward continuity, absence of midpoint reset on active live paths, and actual live-semantics behavior before calibration work resumes.
+- Restart the live backend on promoted `master` and collect a fresh post-promotion raw-vs-display PHAT runtime slice so the larger `Q-Intra Real-World Calibration Program` can verify that authoritative truth surfaces and downstream display surfaces are both active and behaving correctly before calibration work resumes.
 
 ## Process note for future pushes
 - Append one new entry to `docs/branch_history_master.md` per final push.
