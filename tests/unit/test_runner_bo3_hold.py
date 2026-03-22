@@ -1672,11 +1672,224 @@ def test_bo3_live_tick_carries_forward_true_previous_p_hat_sync() -> None:
 def test_inter_map_break_preserves_carried_forward_p_hat_when_available() -> None:
     """Inter-map helper keeps last PHAT continuity instead of silently recentring it."""
     p_hat, dbg = _inter_map_break_phat_and_dbg(0.2, 0.8, "map_transition", 0.71, {})
-    expected = max(dbg["map_low"], min(dbg["map_high"], 0.71))
-    assert p_hat == expected
+    assert dbg["inter_map_break_anchor_source"] == "carried_forward"
+    assert p_hat == 0.71
     assert dbg["p_hat_old"] == 0.71
-    assert dbg["p_hat_final"] == expected
+    assert dbg["p_hat_final"] == 0.71
     assert dbg["map_low"] <= p_hat <= dbg["map_high"]
+
+
+async def test_round_result_event_returns_realized_round_endpoint_anchor() -> None:
+    """A credible round_result should return and persist the realized round endpoint."""
+    store = MemoryStore(max_history=100)
+    config = Config(source="BO3", match_id=991, poll_interval_s=5.0, team_a_is_team_one=True)
+    state = State(config=config, segment_id=0)
+    derived = Derived(p_hat=0.5, bound_low=0.2, bound_high=0.8, rail_low=0.35, rail_high=0.75, kappa=0.0)
+    await store.set_current(state, derived)
+
+    broadcaster = MagicMock()
+    broadcaster.broadcast = AsyncMock()
+    runner = Runner(store=store, broadcaster=broadcaster)
+    new_state = State(config=config, segment_id=0)
+
+    anchor = await runner._maybe_emit_outcome_events_from_bo3_payload(
+        raw={
+            "team_one": {"id": 101, "score": 4, "match_score": 0},
+            "team_two": {"id": 202, "score": 3, "match_score": 0},
+            "round_phase": "FINISHED",
+            "round_number": 7,
+            "game_number": 1,
+            "winning_team_id": 101,
+        },
+        config=config,
+        new_state=new_state,
+        t=2000.0,
+        p_hat=0.5,
+        bound_low=0.2,
+        bound_high=0.8,
+        rail_low=0.35,
+        rail_high=0.75,
+        market_mid=None,
+        dbg={},
+        team_a_is_team_one=True,
+        match_id_used=991,
+    )
+
+    assert anchor is not None
+    assert anchor["source"] == "round_result_endpoint"
+    assert anchor["winner_is_team_a"] is True
+    assert anchor["p_hat_truth"] == 0.75
+    hist = await store.get_history(limit=10)
+    round_points = [p for p in hist if (p.get("event") or {}).get("event_type") == "round_result"]
+    assert len(round_points) == 1
+    assert round_points[0]["p"] == 0.75
+    assert round_points[0]["display_p"] == 0.75
+
+
+def test_round_result_event_returns_realized_round_endpoint_anchor_sync() -> None:
+    asyncio.run(test_round_result_event_returns_realized_round_endpoint_anchor())
+
+
+async def test_segment_result_event_returns_realized_series_endpoint_anchor() -> None:
+    """A credible segment_result should return and persist the realized series endpoint."""
+    store = MemoryStore(max_history=100)
+    config = Config(source="BO3", match_id=992, poll_interval_s=5.0, team_a_is_team_one=True)
+    state = State(config=config, segment_id=0)
+    derived = Derived(p_hat=0.5, bound_low=0.2, bound_high=0.8, rail_low=0.35, rail_high=0.75, kappa=0.0)
+    await store.set_current(state, derived)
+
+    broadcaster = MagicMock()
+    broadcaster.broadcast = AsyncMock()
+    runner = Runner(store=store, broadcaster=broadcaster)
+    new_state = State(
+        config=config,
+        segment_id=0,
+        last_frame=Frame(scores=(13, 8)),
+    )
+    runner._bo3_last_seen_match_score_by_game = {1: (0, 0)}
+
+    anchor = await runner._maybe_emit_outcome_events_from_bo3_payload(
+        raw={
+            "team_one": {"id": 101, "score": 13, "match_score": 1},
+            "team_two": {"id": 202, "score": 8, "match_score": 0},
+            "round_phase": "PAUSED",
+            "round_number": 21,
+            "game_number": 1,
+            "winning_team_id": 0,
+        },
+        config=config,
+        new_state=new_state,
+        t=2001.0,
+        p_hat=0.5,
+        bound_low=0.2,
+        bound_high=0.8,
+        rail_low=0.35,
+        rail_high=0.75,
+        market_mid=None,
+        dbg={},
+        team_a_is_team_one=True,
+        match_id_used=992,
+    )
+
+    assert anchor is not None
+    assert anchor["source"] == "segment_result_endpoint"
+    assert anchor["winner_is_team_a"] is True
+    assert anchor["p_hat_truth"] == 0.8
+    hist = await store.get_history(limit=10)
+    seg_points = [p for p in hist if (p.get("event") or {}).get("event_type") == "segment_result"]
+    assert len(seg_points) == 1
+    assert seg_points[0]["p"] == 0.8
+    assert seg_points[0]["display_p"] == 0.8
+
+
+def test_segment_result_event_returns_realized_series_endpoint_anchor_sync() -> None:
+    asyncio.run(test_segment_result_event_returns_realized_series_endpoint_anchor())
+
+
+async def test_bo3_buy_time_inherits_realized_round_endpoint_after_round_advances() -> None:
+    """When a round advances, BUY_TIME main compute point should inherit the realized round endpoint."""
+    store = MemoryStore(max_history=100)
+    config = Config(source="BO3", match_id=993, poll_interval_s=5.0, team_a_is_team_one=True)
+    state = State(config=config, segment_id=0)
+    derived = Derived(
+        p_hat=0.55,
+        display_p_hat=0.55,
+        bound_low=0.2,
+        bound_high=0.8,
+        rail_low=0.35,
+        rail_high=0.75,
+        kappa=0.0,
+        debug={},
+    )
+    await store.set_current(state, derived)
+
+    broadcaster = MagicMock()
+    broadcaster.broadcast = AsyncMock()
+    runner = Runner(store=store, broadcaster=broadcaster)
+
+    snapshots = [
+        {
+            "team_one": {
+                "name": "A",
+                "id": 101,
+                "score": 3,
+                "player_states": [
+                    {"is_alive": True, "health": 100, "balance": 5000, "equipment_value": 3000, "side": "TERRORIST"},
+                    {"is_alive": True, "health": 90, "balance": 4000, "equipment_value": 2500, "side": "TERRORIST"},
+                ],
+            },
+            "team_two": {
+                "name": "B",
+                "id": 202,
+                "score": 3,
+                "player_states": [
+                    {"is_alive": True, "health": 100, "balance": 5000, "equipment_value": 3000, "side": "CT"},
+                    {"is_alive": True, "health": 100, "balance": 4500, "equipment_value": 2500, "side": "CT"},
+                ],
+            },
+            "created_at": "ts1",
+            "round_phase": "IN_PROGRESS",
+            "round_number": 6,
+            "game_number": 1,
+            "round_time_remaining": 45.0,
+            "winning_team_id": 0,
+        },
+        {
+            "team_one": {
+                "name": "A",
+                "id": 101,
+                "score": 4,
+                "player_states": [
+                    {"is_alive": True, "health": 100, "balance": 5000, "equipment_value": 3000, "side": "TERRORIST"},
+                    {"is_alive": True, "health": 90, "balance": 4000, "equipment_value": 2500, "side": "TERRORIST"},
+                ],
+            },
+            "team_two": {
+                "name": "B",
+                "id": 202,
+                "score": 3,
+                "player_states": [
+                    {"is_alive": True, "health": 100, "balance": 5000, "equipment_value": 3000, "side": "CT"},
+                    {"is_alive": True, "health": 100, "balance": 4500, "equipment_value": 2500, "side": "CT"},
+                ],
+            },
+            "created_at": "ts2",
+            "round_phase": "BUY_TIME",
+            "round_number": 7,
+            "game_number": 1,
+            "round_time_remaining": 115.0,
+            "winning_team_id": 0,
+        },
+    ]
+
+    with (
+        patch("engine.ingest.bo3_client.get_snapshot", AsyncMock(side_effect=snapshots)),
+        patch(
+            "backend.services.runner._bo3_snapshot_status",
+            side_effect=[("live", "ok", "ts1", True), ("live", "ok", "ts2", True)],
+        ),
+    ):
+        assert await runner._tick_bo3(config) is True
+        assert await runner._tick_bo3(config) is True
+
+    hist = await store.get_history(limit=20)
+    compute_rows = [p for p in hist if p.get("explain")]
+    buy_rows = [p for p in compute_rows if (p.get("explain") or {}).get("phase") == "BUY_TIME"]
+    in_progress_rows = [p for p in compute_rows if (p.get("explain") or {}).get("phase") == "IN_PROGRESS"]
+    assert buy_rows, "expected a BUY_TIME compute row after round advance"
+    assert in_progress_rows, "expected an IN_PROGRESS compute row before BUY_TIME"
+    buy_row = buy_rows[-1]
+    prior_in_progress = in_progress_rows[-1]
+    assert buy_row["p"] == buy_row["rail_high"]
+    assert buy_row["display_p"] == buy_row["rail_high"]
+    explain = buy_row.get("explain") or {}
+    assert (explain.get("non_live_truth_anchor") or {}).get("source") == "round_result_endpoint"
+    assert abs(explain.get("p_hat_truth_prev") - prior_in_progress["p"]) < 1e-4
+    assert explain.get("p_hat_truth") == buy_row["rail_high"]
+
+
+def test_bo3_buy_time_inherits_realized_round_endpoint_after_round_advances_sync() -> None:
+    asyncio.run(test_bo3_buy_time_inherits_realized_round_endpoint_after_round_advances())
 
 
 def test_bo3_invalid_driver_missing_microstate_does_not_append_history_point_sync() -> None:
