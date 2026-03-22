@@ -1,5 +1,20 @@
 # Branch History - `master`
 
+## 2026-03-22 - Non-live raw PHAT enrichment / correction
+- **Promoted from:** `codex/non-live-raw-phat-enrichment-correction-stage1`
+- **Larger project:** `Q-Intra Real-World Calibration Program`
+- **Current bounded stage:** `Non-live raw PHAT enrichment / correction`
+- **Project commit:**
+  - `4cb0bb323b05ec7e2ac68ab1f30365bc64309c92` `Enrich non-live raw PHAT continuity semantics`
+- **Promotion path:** fast-forward promotion from the approved stage branch onto `master`
+- **Summary of promoted work:** Promoted the bounded non-live raw PHAT semantics enrichment that explicitly anchors raw PHAT to the realized round endpoint on `round_result`, anchors raw PHAT to the realized series endpoint on `segment_result`, lets next-round non-live phases inherit that realized prior truth continuity instead of a vague hold, and keeps inter-map truth continuity tied to carried-forward `last_p` when it exists.
+- **Key files/subsystems touched:**
+  - `backend/services/runner.py`
+  - `tests/unit/test_runner_bo3_hold.py`
+- **Checks run and result:** `tests/unit/test_runner_bo3_hold.py`, `tests/unit/test_resolve_micro_adj.py`, and `tests/unit/test_runner_source_contract_parity.py` passed on the approved stage branch; broader compatibility also passed with `tests/unit/test_runner_map_identity.py`, `tests/unit/test_memory_store_score_diag.py`, `tests/unit/test_export_backend_bo3_live_round_calibration_evidence.py`, `tests/unit/test_run_backend_bo3_live_q_intra_measurement.py`, and `tests/unit/test_run_backend_bo3_live_q_intra_reliability_gate.py`.
+- **Truth boundary:** This is non-live raw PHAT semantics work only. It does not tune q, does not tune rails, does not retune PHAT movement parameters, does not add nonlinear weighting, and does not declare rail adequacy solved.
+- **Explicit caution preserved:** rail-richness remains an unresolved concern relative to the fuller intended vision. This PHAT-focused promotion strengthens lifecycle truth semantics, but it must not be read as a verdict that current rail richness is already sufficient for the eventual pre-calibration green light.
+
 ## 2026-03-22 - Raw-PHAT truth object vs display-smoothing separation
 - **Promoted from:** `codex/raw-phat-truth-vs-display-smoothing-separation-stage1`
 - **Larger project:** `Q-Intra Real-World Calibration Program`
