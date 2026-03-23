@@ -2118,12 +2118,14 @@ def test_bo3_provider_side_strings_persist_a_side_on_live_compute_and_score_rows
             assert history[0].get("a_side") == "T"
             explain = history[0].get("explain") or {}
             rail_context = explain.get("rail_context") or {}
-            assert rail_context.get("rail_input_contract_version") == "v2-stage2"
+            assert rail_context.get("rail_input_contract_version") == "v2-stage3"
             assert rail_context.get("rail_input_v2_activated") is True
             assert rail_context.get("cash_totals") is not None
             assert rail_context.get("armor_totals") is not None
             assert rail_context.get("alive_counts") is not None
             assert rail_context.get("rail_input_v2_carryover_edge") is not None
+            assert rail_context.get("rail_input_v2_branch_edge_if_a_round") is not None
+            assert rail_context.get("rail_input_v2_branch_edge_if_b_round") is not None
 
             score_rows = [
                 json.loads(line)
@@ -2134,10 +2136,109 @@ def test_bo3_provider_side_strings_persist_a_side_on_live_compute_and_score_rows
             assert score_rows[0].get("game_number") == 1
             assert score_rows[0].get("round_number") == 1
             assert score_rows[0].get("a_side") == "T"
-            assert score_rows[0].get("rail_input_contract_version") == "v2-stage2"
+            assert score_rows[0].get("rail_input_contract_version") == "v2-stage3"
             assert score_rows[0].get("rail_input_v2_activated") is True
             assert score_rows[0].get("cash_totals") is not None
             assert score_rows[0].get("armor_totals") is not None
             assert score_rows[0].get("rail_input_v2_carryover_edge") is not None
+            assert score_rows[0].get("rail_input_v2_branch_edge_if_a_round") is not None
+            assert score_rows[0].get("rail_input_v2_branch_edge_if_b_round") is not None
+
+    asyncio.run(_run())
+
+
+def test_bo3_live_v2_activates_without_armor_or_prematch_map_and_persists_provenance(tmp_path: Path) -> None:
+    async def _run() -> None:
+        history_path = tmp_path / "history_points.jsonl"
+        score_path = tmp_path / "history_score_points.jsonl"
+        with (
+            patch("backend.store.memory_store._HISTORY_RECORD_ENABLED", True),
+            patch("backend.store.memory_store._HISTORY_RECORD_JSONL_PATH", str(history_path)),
+            patch("backend.store.memory_store._HISTORY_SCORE_RECORD_ENABLED", True),
+            patch("backend.store.memory_store._HISTORY_SCORE_RECORD_JSONL_PATH", str(score_path)),
+        ):
+            store = MemoryStore(max_history=100)
+            config = Config(source="BO3", match_id=790, poll_interval_s=5.0, team_a_is_team_one=True)
+            state = State(config=config, segment_id=1)
+            derived = Derived(
+                p_hat=0.5,
+                bound_low=0.2,
+                bound_high=0.8,
+                rail_low=0.4,
+                rail_high=0.6,
+                kappa=0.0,
+                debug={},
+            )
+            await store.set_current(state, derived)
+
+            broadcaster = MagicMock()
+            broadcaster.broadcast = AsyncMock()
+            runner = Runner(store=store, broadcaster=broadcaster)
+
+            snap_missing_optional_activation_inputs = {
+                "team_one": {
+                    "name": "A",
+                    "score": 8,
+                    "match_score": 1,
+                    "id": 1,
+                    "side": "TERRORIST",
+                    "player_states": [
+                        {"is_alive": True, "health": 100, "balance": 5000, "equipment_value": 3500},
+                        {"is_alive": True, "health": 100, "balance": 3000, "equipment_value": 2500},
+                    ],
+                },
+                "team_two": {
+                    "name": "B",
+                    "score": 7,
+                    "match_score": 0,
+                    "id": 2,
+                    "side": "COUNTER_TERRORIST",
+                    "player_states": [
+                        {"is_alive": True, "health": 80, "balance": 1200, "equipment_value": 1800},
+                        {"is_alive": False, "health": 0, "balance": 600, "equipment_value": 0},
+                    ],
+                },
+                "created_at": "ts1",
+                "round_phase": "IN_PROGRESS",
+                "game_number": 1,
+                "round_number": 16,
+                "round_time_remaining": 42.0,
+            }
+
+            with (
+                patch("engine.ingest.bo3_client.get_snapshot", AsyncMock(return_value=snap_missing_optional_activation_inputs)),
+                patch(
+                    "backend.services.runner._bo3_snapshot_status",
+                    return_value=("live", "ok", "ts1", True),
+                ),
+            ):
+                did_bo3 = await runner._tick_bo3(config)
+
+            assert did_bo3 is True
+            history = await store.get_history(limit=10)
+            assert len(history) == 1
+            explain = history[0].get("explain") or {}
+            rail_context = explain.get("rail_context") or {}
+            assert rail_context.get("rail_input_contract_version") == "v2-stage3"
+            assert rail_context.get("rail_input_v2_activated") is True
+            assert rail_context.get("rail_input_v2_prematch_map_source") == "neutral_fallback"
+            assert rail_context.get("rail_input_v2_armor_totals_missing_assumed_zero") == 1.0
+            assert rail_context.get("cash_totals") is not None
+            assert rail_context.get("alive_counts") is not None
+            assert rail_context.get("rail_input_v2_branch_edge_if_a_round") is not None
+            assert rail_context.get("rail_input_v2_branch_edge_if_b_round") is not None
+
+            score_rows = [
+                json.loads(line)
+                for line in score_path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            assert len(score_rows) == 1
+            assert score_rows[0].get("rail_input_contract_version") == "v2-stage3"
+            assert score_rows[0].get("rail_input_v2_activated") is True
+            assert score_rows[0].get("rail_input_v2_prematch_map_source") == "neutral_fallback"
+            assert score_rows[0].get("rail_input_v2_armor_totals_missing_assumed_zero") == 1.0
+            assert score_rows[0].get("rail_input_v2_branch_edge_if_a_round") is not None
+            assert score_rows[0].get("rail_input_v2_branch_edge_if_b_round") is not None
 
     asyncio.run(_run())

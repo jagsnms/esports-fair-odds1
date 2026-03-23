@@ -209,6 +209,8 @@ def _build_rail_evidence_context(frame: Frame | None, dbg: dict[str, Any] | None
         "rail_input_v2_required_complete",
         "rail_input_v2_required_coverage_ratio",
         "rail_input_v1_fallback_reason_code",
+        "rail_input_v2_prematch_map_used",
+        "rail_input_v2_prematch_map_source",
         "rail_input_v2_missing_required_fields",
         "rail_input_v2_invalid_required_fields",
         "rail_input_v2_present_optional_fields",
@@ -227,6 +229,15 @@ def _build_rail_evidence_context(frame: Frame | None, dbg: dict[str, Any] | None
         "rail_input_v2_future_buy_fragility_a",
         "rail_input_v2_future_buy_fragility_b",
         "rail_input_v2_future_buy_fragility_edge",
+        "rail_input_v2_resource_resilience_a",
+        "rail_input_v2_resource_resilience_b",
+        "rail_input_v2_branch_score_leverage_if_a_round",
+        "rail_input_v2_branch_score_leverage_if_b_round",
+        "rail_input_v2_branch_edge_if_a_round",
+        "rail_input_v2_branch_edge_if_b_round",
+        "rail_input_v2_branch_endpoint_shift_if_a_round",
+        "rail_input_v2_branch_endpoint_shift_if_b_round",
+        "rail_input_v2_armor_totals_missing_assumed_zero",
     ):
         if key in source:
             out[key] = source.get(key)

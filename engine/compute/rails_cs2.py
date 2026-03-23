@@ -57,8 +57,8 @@ RAIL_INPUT_V1_FORBIDDEN_FIELDS = (
     "frame.armor_totals",
 )
 
-# --- Rail input contract v2 (Stage 2 enrichment). ---
-RAIL_INPUT_CONTRACT_VERSION = "v2-stage2"
+# --- Rail input contract v2 (Stage 3 live-activation + asymmetric endpoints). ---
+RAIL_INPUT_CONTRACT_VERSION = "v2-stage3"
 RAIL_INPUT_V2_CONTRACT_VERSION = RAIL_INPUT_CONTRACT_VERSION
 RAIL_INPUT_POLICY_FORCE_V1 = "force_v1"
 RAIL_INPUT_POLICY_V2_STRICT = "v2_strict"
@@ -72,19 +72,19 @@ RAIL_INPUT_V2_REQUIRED_FIELDS = (
     "frame.alive_counts",
     "frame.cash_totals",
     "frame.loadout_totals",
-    "frame.armor_totals",
     "frame.scores",
     "frame.series_score",
     "frame.series_fmt",
-    "config.prematch_map",
 )
 RAIL_INPUT_V2_OPTIONAL_FIELDS = (
+    "frame.armor_totals",
     "frame.wealth_totals",
     "frame.loadout_source",
     "frame.loadout_ev_count_a",
     "frame.loadout_ev_count_b",
     "frame.loadout_est_count_a",
     "frame.loadout_est_count_b",
+    "config.prematch_map",
 )
 RAIL_INPUT_V2_FORBIDDEN_FIELDS = (
     "frame.hp_totals",
@@ -106,15 +106,6 @@ V2_WINNER_EDGE_BIAS = 0.03
 
 def _v2_required_field_valid(key: str, frame: Frame, config: Config) -> bool:
     """Return True if the required field is present and valid for v2 carryover semantics."""
-    if key == "config.prematch_map":
-        val = getattr(config, "prematch_map", None)
-        if val is None:
-            return False
-        try:
-            f = float(val)
-            return math.isfinite(f) and 1e-6 <= f <= 1.0 - 1e-6
-        except (TypeError, ValueError):
-            return False
     if not key.startswith("frame."):
         return False
     attr = key.split(".", 1)[1]
@@ -152,6 +143,19 @@ def _v2_required_field_valid(key: str, frame: Frame, config: Config) -> bool:
     return False
 
 
+def _resolve_prematch_map_for_rails(config: Config) -> tuple[float, str]:
+    """Return the prematch map value used by rail construction plus explicit provenance."""
+    val = getattr(config, "prematch_map", None)
+    if val is not None:
+        try:
+            f = float(val)
+            if math.isfinite(f) and 1e-6 <= f <= 1.0 - 1e-6:
+                return (f, "config_prematch_map")
+        except (TypeError, ValueError):
+            pass
+    return (0.5, "neutral_fallback")
+
+
 def _rail_input_v2_provenance(
     frame: Frame,
     config: Config,
@@ -179,11 +183,15 @@ def _rail_input_v2_provenance(
 
     present_optional: list[str] = []
     for key in RAIL_INPUT_V2_OPTIONAL_FIELDS:
-        if not key.startswith("frame."):
+        if key == "config.prematch_map":
+            val = getattr(config, "prematch_map", None)
+            if val is not None:
+                present_optional.append(key)
             continue
-        attr = key.split(".", 1)[1]
-        if getattr(frame, attr, None) is not None:
-            present_optional.append(key)
+        if key.startswith("frame."):
+            attr = key.split(".", 1)[1]
+            if getattr(frame, attr, None) is not None:
+                present_optional.append(key)
 
     n_required = len(RAIL_INPUT_V2_REQUIRED_FIELDS)
     n_present = len(present_required)
@@ -210,6 +218,7 @@ def _rail_input_v2_provenance(
 
     v1_fallback_used = not v2_activated
     active_semantics = "v2" if v2_activated else "v1"
+    prematch_map_used, prematch_map_source = _resolve_prematch_map_for_rails(config)
 
     return {
         "rail_input_contract_version": RAIL_INPUT_V2_CONTRACT_VERSION,
@@ -229,6 +238,8 @@ def _rail_input_v2_provenance(
         "rail_input_v1_fallback_reason_code": reason_code,
         "rail_input_activation_reason_code": reason_code,
         "rail_input_active_endpoint_semantics": active_semantics,
+        "rail_input_v2_prematch_map_used": prematch_map_used,
+        "rail_input_v2_prematch_map_source": prematch_map_source,
         "rail_input_source": source,
         "rail_input_replay_kind": replay_kind,
     }
@@ -291,16 +302,67 @@ def _future_buy_fragility_score(
     )
 
 
-def _compute_v2_carryover_edge(frame: Frame) -> tuple[float, dict[str, float]]:
-    """Compute deterministic carryover edge from boundary-persistent signals only."""
+def _resource_resilience_score(
+    *,
+    cash_total: float,
+    loadout_total: float,
+    armor_total: float,
+    wealth_total: float,
+    alive_count: float,
+) -> float:
+    """Coarse persistent next-round resilience score from boundary-stable resources only."""
+    cash_quality = _clip01(cash_total / 16000.0)
+    wealth_quality = _clip01(wealth_total / 28000.0)
+    retained_quality = loadout_total + (8.0 * armor_total)
+    retained_quality_score = _clip01(retained_quality / 18000.0)
+    survivor_quality = _clip01(alive_count / 5.0)
+    return _clip01(
+        (0.35 * cash_quality)
+        + (0.25 * wealth_quality)
+        + (0.25 * retained_quality_score)
+        + (0.15 * survivor_quality)
+    )
+
+
+def _branch_score_leverage(
+    *,
+    canonical_endpoint_v1: float,
+    p0: float,
+    outcome: str,
+) -> float:
+    """Normalize branch leverage from the v1 score/map state itself.
+
+    This preserves score-leverage / comeback-burden asymmetry without hard-coding one case.
+    """
+    if outcome == "a_win":
+        denom = max(1e-6, 1.0 - p0)
+        return _clip01((canonical_endpoint_v1 - p0) / denom)
+    denom = max(1e-6, p0)
+    return _clip01((p0 - canonical_endpoint_v1) / denom)
+
+
+def _compute_v2_carryover_edge(
+    frame: Frame,
+    *,
+    canonical_if_a_v1: float,
+    canonical_if_b_v1: float,
+    p0: float,
+) -> tuple[float, dict[str, float]]:
+    """Compute deterministic carryover/asymmetry signals from boundary-persistent inputs only."""
     cash = getattr(frame, "cash_totals", (0.0, 0.0))
     loadout = getattr(frame, "loadout_totals", (0.0, 0.0))
-    armor = getattr(frame, "armor_totals", (0.0, 0.0))
+    armor = getattr(frame, "armor_totals", None)
     alive = getattr(frame, "alive_counts", (0.0, 0.0))
     wealth = getattr(frame, "wealth_totals", None)
     cash_a, cash_b = float(cash[0]), float(cash[1])
     load_a, load_b = float(loadout[0]), float(loadout[1])
-    arm_a, arm_b = float(armor[0]), float(armor[1])
+    if isinstance(armor, (tuple, list)) and len(armor) >= 2:
+        arm_a = float(armor[0]) if armor[0] is not None else 0.0
+        arm_b = float(armor[1]) if armor[1] is not None else 0.0
+        armor_present = True
+    else:
+        arm_a = arm_b = 0.0
+        armor_present = False
     alive_a = float(alive[0]) if alive[0] is not None else 0.0
     alive_b = float(alive[1]) if alive[1] is not None else 0.0
     if isinstance(wealth, (tuple, list)) and len(wealth) >= 2:
@@ -331,13 +393,43 @@ def _compute_v2_carryover_edge(frame: Frame) -> tuple[float, dict[str, float]]:
         alive_count=alive_b,
     )
     future_buy_fragility_edge = _clip(fragility_b - fragility_a, -1.0, 1.0)
-    carryover_edge = _clip(
-        (0.40 * economy_edge)
-        + (0.35 * retained_quality_edge)
-        + (0.25 * future_buy_fragility_edge),
-        -1.0,
-        1.0,
+    resilience_a = _resource_resilience_score(
+        cash_total=cash_a,
+        loadout_total=load_a,
+        armor_total=arm_a,
+        wealth_total=wealth_a,
+        alive_count=alive_a,
     )
+    resilience_b = _resource_resilience_score(
+        cash_total=cash_b,
+        loadout_total=load_b,
+        armor_total=arm_b,
+        wealth_total=wealth_b,
+        alive_count=alive_b,
+    )
+    score_leverage_if_a = _branch_score_leverage(
+        canonical_endpoint_v1=canonical_if_a_v1,
+        p0=p0,
+        outcome="a_win",
+    )
+    score_leverage_if_b = _branch_score_leverage(
+        canonical_endpoint_v1=canonical_if_b_v1,
+        p0=p0,
+        outcome="a_loss",
+    )
+    branch_edge_if_a_round = _clip01(
+        (0.40 * resilience_a)
+        + (0.25 * fragility_b)
+        + (0.20 * score_leverage_if_a)
+        + (0.15 * _clip01(0.5 * (1.0 + retained_quality_edge)))
+    )
+    branch_edge_if_b_round = _clip01(
+        (0.40 * resilience_b)
+        + (0.25 * fragility_a)
+        + (0.20 * score_leverage_if_b)
+        + (0.15 * _clip01(0.5 * (1.0 - retained_quality_edge)))
+    )
+    carryover_edge = _clip(branch_edge_if_a_round - branch_edge_if_b_round, -1.0, 1.0)
     return carryover_edge, {
         "carryover_edge": carryover_edge,
         "cash_delta_norm": d_cash,
@@ -350,6 +442,15 @@ def _compute_v2_carryover_edge(frame: Frame) -> tuple[float, dict[str, float]]:
         "future_buy_fragility_a": fragility_a,
         "future_buy_fragility_b": fragility_b,
         "future_buy_fragility_edge": future_buy_fragility_edge,
+        "resource_resilience_a": resilience_a,
+        "resource_resilience_b": resilience_b,
+        "branch_score_leverage_if_a_round": score_leverage_if_a,
+        "branch_score_leverage_if_b_round": score_leverage_if_b,
+        "branch_edge_if_a_round": branch_edge_if_a_round,
+        "branch_edge_if_b_round": branch_edge_if_b_round,
+        "branch_endpoint_shift_if_a_round": (V2_CARRYOVER_EDGE_SCALE * branch_edge_if_a_round) + V2_WINNER_EDGE_BIAS,
+        "branch_endpoint_shift_if_b_round": (V2_CARRYOVER_EDGE_SCALE * branch_edge_if_b_round) + V2_WINNER_EDGE_BIAS,
+        "armor_totals_missing_assumed_zero": 0.0 if armor_present else 1.0,
     }
 
 
@@ -469,11 +570,7 @@ def compute_rails_cs2(
     mb = int(series[1]) if len(series) > 1 and series[1] is not None else 0
     series_fmt = getattr(frame, "series_fmt", "bo3") or "bo3"
     bo = _n_maps_from_series_fmt(series_fmt)
-    p0 = getattr(config, "prematch_map", None)
-    if p0 is not None and isinstance(p0, (int, float)):
-        p0 = max(1e-6, min(1.0 - 1e-6, float(p0)))
-    else:
-        p0 = 0.5
+    p0, p0_source = _resolve_prematch_map_for_rails(config)
     wt = _cs2_win_target(ra, rb)
 
     # Map-level fair probability for counterfactual states under v1 baseline.
@@ -503,17 +600,22 @@ def compute_rails_cs2(
     canonical_if_b = canonical_if_b_v1
     carryover_debug: dict[str, Any] = {}
     if use_v2:
-        carryover_edge, carryover_debug = _compute_v2_carryover_edge(frame)
+        carryover_edge, carryover_debug = _compute_v2_carryover_edge(
+            frame,
+            canonical_if_a_v1=canonical_if_a_v1,
+            canonical_if_b_v1=canonical_if_b_v1,
+            p0=p0,
+        )
         if p_map_if_a_v1 is not None:
             p_map_if_a_val = _clip(
-                p_map_if_a_v1 + (V2_CARRYOVER_EDGE_SCALE * carryover_edge) + V2_WINNER_EDGE_BIAS,
+                p_map_if_a_v1 + (V2_CARRYOVER_EDGE_SCALE * carryover_debug["branch_edge_if_a_round"]) + V2_WINNER_EDGE_BIAS,
                 1e-6,
                 1.0 - 1e-6,
             )
             canonical_if_a = _clip01(series_win_prob_live(bo, ma, mb, p_map_if_a_val, p0))
         if p_map_if_b_v1 is not None:
             p_map_if_b_val = _clip(
-                p_map_if_b_v1 + (V2_CARRYOVER_EDGE_SCALE * carryover_edge) - V2_WINNER_EDGE_BIAS,
+                p_map_if_b_v1 - (V2_CARRYOVER_EDGE_SCALE * carryover_debug["branch_edge_if_b_round"]) - V2_WINNER_EDGE_BIAS,
                 1e-6,
                 1.0 - 1e-6,
             )
@@ -575,6 +677,7 @@ def compute_rails_cs2(
         "rails_cf_series_fmt": series_fmt,
         "rail_input_semantic_policy_state": policy_state,
         "rail_input_semantic_v2_activated": use_v2,
+        "rail_input_semantic_prematch_map_source": p0_source,
         "base_span": env.get("endpoint_base_span_abs"),
         "k": env.get("endpoint_env_fraction_k"),
     }

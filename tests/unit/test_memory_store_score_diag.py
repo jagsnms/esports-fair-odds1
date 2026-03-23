@@ -305,17 +305,23 @@ def test_make_score_diag_record_includes_rail_context_fields() -> None:
             "base_intercept": 0.0,
             "final": {"p_hat_final": 0.62, "clamp_reason": None},
             "rail_context": {
-                "rail_input_contract_version": "v2-stage2",
+                "rail_input_contract_version": "v2-stage3",
                 "rail_input_contract_policy": "v2_strict",
                 "rail_input_active_endpoint_semantics": "v2",
                 "rail_input_v2_activated": True,
                 "rail_input_v2_required_complete": True,
                 "rail_input_v2_required_coverage_ratio": 1.0,
                 "rail_input_v1_fallback_reason_code": "V2_STRICT_ACTIVATED",
+                "rail_input_v2_prematch_map_used": 0.5,
+                "rail_input_v2_prematch_map_source": "neutral_fallback",
                 "rail_input_v2_carryover_edge": 0.18,
                 "rail_input_v2_alive_delta_norm": 0.33,
                 "rail_input_v2_economy_edge": 0.11,
                 "rail_input_v2_future_buy_fragility_edge": 0.09,
+                "rail_input_v2_branch_edge_if_a_round": 0.64,
+                "rail_input_v2_branch_edge_if_b_round": 0.41,
+                "rail_input_v2_branch_score_leverage_if_a_round": 0.55,
+                "rail_input_v2_branch_score_leverage_if_b_round": 0.32,
                 "cash_totals": (9000.0, 6500.0),
                 "armor_totals": (350.0, 220.0),
                 "wealth_totals": (24000.0, 16500.0),
@@ -327,13 +333,16 @@ def test_make_score_diag_record_includes_rail_context_fields() -> None:
     )
     rec = _make_score_diag_record(point)
     assert rec is not None
-    assert rec["rail_input_contract_version"] == "v2-stage2"
+    assert rec["rail_input_contract_version"] == "v2-stage3"
     assert rec["rail_input_v2_activated"] is True
     assert rec["rail_input_v2_required_complete"] is True
+    assert rec["rail_input_v2_prematch_map_source"] == "neutral_fallback"
     assert rec["rail_input_v2_carryover_edge"] == 0.18
     assert rec["rail_input_v2_alive_delta_norm"] == 0.33
     assert rec["rail_input_v2_economy_edge"] == 0.11
     assert rec["rail_input_v2_future_buy_fragility_edge"] == 0.09
+    assert rec["rail_input_v2_branch_edge_if_a_round"] == 0.64
+    assert rec["rail_input_v2_branch_edge_if_b_round"] == 0.41
     assert rec["cash_totals"] == (9000.0, 6500.0)
     assert rec["armor_totals"] == (350.0, 220.0)
     assert rec["wealth_totals"] == (24000.0, 16500.0)

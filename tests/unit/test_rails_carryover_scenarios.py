@@ -372,3 +372,47 @@ def test_s11_forbidden_transient_invariance_strict() -> None:
     r_lo_p, r_hi_p, _ = run_scenario(perturbed, config, state, bounds)
     assert r_lo_base == r_lo_p, "rails must be invariant to forbidden transient perturbation"
     assert r_hi_base == r_hi_p, "rails must be invariant to forbidden transient perturbation"
+
+
+def test_s12_branch_asymmetry_from_resource_fragility() -> None:
+    """Resource fragility/resilience should create non-mirror endpoint shifts, not one shared rail move."""
+    config = _config(rail_input_contract_policy=RAIL_INPUT_POLICY_V2_STRICT)
+    state = _state()
+    bounds = (0.0, 1.0)
+    frame = _frame(
+        scores=(6, 6),
+        series_score=(1, 1),
+        series_fmt="bo3",
+        alive_counts=(5, 2),
+        cash_totals=(5000.0, 1000.0),
+        loadout_totals=(9000.0, 3500.0),
+        armor_totals=(400.0, 100.0),
+    )
+    _, _, debug = run_scenario(frame, config, state, bounds)
+    assert debug["rail_input_v2_activated"] is True
+    shift_if_a = debug["p_map_if_a"] - debug["p_map_if_a_v1"]
+    shift_if_b = debug["p_map_if_b_v1"] - debug["p_map_if_b"]
+    assert debug["rail_input_v2_branch_edge_if_a_round"] > debug["rail_input_v2_branch_edge_if_b_round"]
+    assert shift_if_a > shift_if_b
+
+
+def test_s13_branch_asymmetry_from_score_leverage_and_comeback_burden() -> None:
+    """Lopsided score states should create branch leverage asymmetry even with neutral resources."""
+    config = _config(rail_input_contract_policy=RAIL_INPUT_POLICY_V2_STRICT)
+    state = _state()
+    bounds = (0.0, 1.0)
+    frame = _frame(
+        scores=(10, 2),
+        series_score=(1, 0),
+        series_fmt="bo3",
+        alive_counts=(5, 5),
+        cash_totals=(2500.0, 2500.0),
+        loadout_totals=(7000.0, 7000.0),
+        armor_totals=(300.0, 300.0),
+    )
+    _, _, debug = run_scenario(frame, config, state, bounds)
+    assert debug["rail_input_v2_activated"] is True
+    assert debug["rail_input_v2_branch_score_leverage_if_a_round"] > debug["rail_input_v2_branch_score_leverage_if_b_round"]
+    shift_if_a = debug["p_map_if_a"] - debug["p_map_if_a_v1"]
+    shift_if_b = debug["p_map_if_b_v1"] - debug["p_map_if_b"]
+    assert shift_if_a > shift_if_b

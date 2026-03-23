@@ -83,6 +83,8 @@ def test_provenance_keys_emitted() -> None:
     assert "rail_input_v2_missing_required_fields" in debug
     assert "rail_input_v2_required_coverage_ratio" in debug
     assert "rail_input_v1_fallback_reason_code" in debug
+    assert "rail_input_v2_prematch_map_source" in debug
+    assert "rail_input_v2_prematch_map_used" in debug
     assert "bounds.low" in debug["rail_input_allowed_consumed"]
     assert "bounds.high" in debug["rail_input_allowed_consumed"]
 
@@ -240,7 +242,7 @@ def test_force_v1_policy_forces_fallback_even_when_required_complete() -> None:
 
 def test_v2_fallback_reason_missing_when_required_absent() -> None:
     """When v2 required fields are missing, fallback reason is V2_REQUIRED_FIELDS_MISSING."""
-    # Frame without cash_totals, loadout_totals, armor_totals (None)
+    # Frame without core live microstate fields.
     frame = _frame(scores=(2, 1), series_score=(0, 0), cash_totals=None, loadout_totals=None, armor_totals=None)
     config = _config(prematch_map=0.5)
     config.rail_input_contract_policy = RAIL_INPUT_POLICY_V2_STRICT
@@ -248,7 +250,7 @@ def test_v2_fallback_reason_missing_when_required_absent() -> None:
     _, _, debug = compute_rails_cs2(frame, config, state, (0.0, 1.0))
     assert debug["rail_input_v1_fallback_reason_code"] == V2_FALLBACK_REQUIRED_MISSING
     assert debug["rail_input_v2_activated"] is False
-    assert "frame.cash_totals" in debug["rail_input_v2_missing_required_fields"] or "frame.loadout_totals" in debug["rail_input_v2_missing_required_fields"] or "frame.armor_totals" in debug["rail_input_v2_missing_required_fields"]
+    assert "frame.cash_totals" in debug["rail_input_v2_missing_required_fields"] or "frame.loadout_totals" in debug["rail_input_v2_missing_required_fields"]
 
 
 def test_v2_strict_activates_when_required_complete() -> None:
@@ -272,6 +274,32 @@ def test_v2_strict_activates_when_required_complete() -> None:
     assert debug["rail_input_v2_required_coverage_ratio"] == 1.0
     assert "frame.alive_counts" in debug["rail_input_v2_required_fields"]
     assert "frame.alive_counts" in debug["rail_input_allowed_consumed"]
+    assert "frame.armor_totals" not in debug["rail_input_v2_required_fields"]
+    assert "config.prematch_map" not in debug["rail_input_v2_required_fields"]
+
+
+def test_v2_strict_activates_without_optional_armor_or_prematch_map() -> None:
+    """Missing optional armor/prematch_map should not block the enriched live rail path."""
+    frame = _frame(
+        scores=(8, 7),
+        series_score=(1, 0),
+        series_fmt="bo3",
+        alive_counts=(4, 3),
+        cash_totals=(3500.0, 1500.0),
+        loadout_totals=(9000.0, 5000.0),
+        armor_totals=None,
+    )
+    config = _config(prematch_map=None)
+    config.rail_input_contract_policy = RAIL_INPUT_POLICY_V2_STRICT
+    state = _state()
+    _, _, debug = compute_rails_cs2(frame, config, state, (0.0, 1.0))
+    assert debug["rail_input_v1_fallback_reason_code"] == V2_ACTIVATED
+    assert debug["rail_input_v2_activated"] is True
+    assert debug["rail_input_v2_required_complete"] is True
+    assert debug["rail_input_v2_prematch_map_source"] == "neutral_fallback"
+    assert "frame.armor_totals" in debug["rail_input_v2_optional_fields"]
+    assert "config.prematch_map" in debug["rail_input_v2_optional_fields"]
+    assert debug["rail_input_v2_armor_totals_missing_assumed_zero"] == 1.0
 
 
 def test_v2_fallback_reason_invalid_when_required_bad_type() -> None:
