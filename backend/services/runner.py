@@ -150,48 +150,49 @@ def _resolved_segment_endpoint_p_hat(
     return float(bound_high if map_winner_is_team_a else bound_low)
 
 
-def _apply_non_live_truth_anchor_to_debug(
+def _build_non_live_resolution_reference(
+    *,
+    source: str,
+    winner_is_team_a: bool,
+    realized_endpoint_p_hat: float,
+    p_hat_truth_at_resolution: float,
+    display_p_hat_at_resolution: float,
+) -> dict[str, Any]:
+    return {
+        "source": source,
+        "winner_is_team_a": winner_is_team_a,
+        "realized_endpoint_p_hat": float(realized_endpoint_p_hat),
+        "p_hat_truth_at_resolution": float(p_hat_truth_at_resolution),
+        "display_p_hat_at_resolution": float(display_p_hat_at_resolution),
+        "truth_minus_realized_endpoint": float(p_hat_truth_at_resolution) - float(realized_endpoint_p_hat),
+        "display_minus_realized_endpoint": float(display_p_hat_at_resolution) - float(realized_endpoint_p_hat),
+    }
+
+
+def _attach_non_live_resolution_reference_to_debug(
     dbg: dict[str, Any] | None,
     *,
-    p_hat_truth: float,
-    display_p_hat: float,
-    anchor: dict[str, Any],
+    reference: dict[str, Any],
 ) -> dict[str, Any]:
     out = dict(dbg or {})
-    anchor_diag = {
-        "applied": True,
-        "source": anchor.get("source"),
-        "winner_is_team_a": anchor.get("winner_is_team_a"),
-    }
-    out["p_hat_truth"] = p_hat_truth
-    out["display_p_hat"] = display_p_hat
-    out["p_hat_final"] = display_p_hat
-    out["non_live_truth_anchor"] = anchor_diag
+    ref_diag = dict(reference)
+    out["non_live_resolution_reference"] = ref_diag
     explain = out.get("explain")
     if isinstance(explain, dict):
         explain = dict(explain)
-        explain["p_hat_truth"] = p_hat_truth
-        explain["display_p_hat"] = display_p_hat
-        explain["non_live_truth_anchor"] = anchor_diag
+        explain["non_live_resolution_reference"] = ref_diag
         final = explain.get("final")
         if isinstance(final, dict):
             final = dict(final)
         else:
             final = {}
-        final["p_hat_truth"] = p_hat_truth
-        final["display_p_hat"] = display_p_hat
-        final["p_hat_final"] = display_p_hat
-        final["clamp_reason"] = anchor.get("source")
+        final["realized_endpoint_p_hat"] = ref_diag.get("realized_endpoint_p_hat")
         explain["final"] = final
         out["explain"] = explain
     contract_diag = out.get("contract_diagnostics")
     if isinstance(contract_diag, dict):
         contract_diag = dict(contract_diag)
-        contract_diag["p_hat_final"] = display_p_hat
-        contract_diag["movement_confidence"] = 0.0
-        contract_diag["expected_p_hat_after_movement"] = display_p_hat
-        contract_diag["movement_gap_abs"] = 0.0
-        contract_diag["non_live_truth_anchor"] = anchor_diag
+        contract_diag["non_live_resolution_reference"] = ref_diag
         out["contract_diagnostics"] = contract_diag
     return out
 
@@ -2041,6 +2042,7 @@ class Runner:
         new_state: State,
         t: float,
         p_hat: float,
+        display_p_hat: float | None = None,
         bound_low: float,
         bound_high: float,
         rail_low: float,
@@ -2056,7 +2058,12 @@ class Runner:
         Appends+broadcasts event HistoryPoints before the main point. Dedupes via session or runner trackers.
         """
         s = session_runtime
-        resolved_anchor: dict[str, Any] | None = None
+        resolved_reference: dict[str, Any] | None = None
+        current_p_hat_truth = float(p_hat)
+        if isinstance(display_p_hat, (int, float)) and math.isfinite(float(display_p_hat)):
+            current_display_p_hat = float(display_p_hat)
+        else:
+            current_display_p_hat = current_p_hat_truth
 
         def _tr(n: str, default: Any = None) -> Any:
             if s is not None:
@@ -2124,7 +2131,7 @@ class Runner:
         last_s2 = _tr("last_seen_score_team_two")
 
         async def maybe_emit_round_result(round_to_label: int, winner_team_id: int) -> bool:
-            nonlocal resolved_anchor
+            nonlocal resolved_reference
             if winner_team_id == 0:
                 return False
             if (
@@ -2138,11 +2145,23 @@ class Runner:
                 rail_high=rail_high,
                 round_winner_is_team_a=round_winner_is_team_a,
             )
+            resolved_reference = _build_non_live_resolution_reference(
+                source="round_result_endpoint",
+                winner_is_team_a=round_winner_is_team_a,
+                realized_endpoint_p_hat=resolved_p_hat,
+                p_hat_truth_at_resolution=current_p_hat_truth,
+                display_p_hat_at_resolution=current_display_p_hat,
+            )
             round_event = {
                 "event_type": "round_result",
                 "round_number": round_to_label,
                 "round_winner_team_id": winner_team_id,
                 "round_winner_is_team_a": round_winner_is_team_a,
+                "realized_endpoint_p_hat": resolved_p_hat,
+                "p_hat_truth_at_resolution": current_p_hat_truth,
+                "display_p_hat_at_resolution": current_display_p_hat,
+                "truth_minus_realized_endpoint": current_p_hat_truth - resolved_p_hat,
+                "display_minus_realized_endpoint": current_display_p_hat - resolved_p_hat,
             }
             if map_index is not None:
                 round_event["map_index"] = map_index
@@ -2155,8 +2174,8 @@ class Runner:
             )
             round_point = HistoryPoint(
                 time=t,
-                p_hat=resolved_p_hat,
-                display_p_hat=resolved_p_hat,
+                p_hat=current_p_hat_truth,
+                display_p_hat=current_display_p_hat,
                 bound_low=bound_low,
                 bound_high=bound_high,
                 rail_low=rail_low,
@@ -2172,8 +2191,8 @@ class Runner:
                 **identity_kw,
             )
             derived_evt = Derived(
-                p_hat=resolved_p_hat,
-                display_p_hat=resolved_p_hat,
+                p_hat=current_p_hat_truth,
+                display_p_hat=current_display_p_hat,
                 bound_low=bound_low,
                 bound_high=bound_high,
                 rail_low=rail_low,
@@ -2183,23 +2202,13 @@ class Runner:
                     **dbg,
                     "event": round_event,
                     "match_id_used": match_id_used,
-                    "non_live_truth_anchor": {
-                        "applied": True,
-                        "source": "round_result_endpoint",
-                        "winner_is_team_a": round_winner_is_team_a,
-                    },
+                    "non_live_resolution_reference": resolved_reference,
                 },
             )
             await self._store.append_point(round_point, new_state, derived_evt)
             await self._broadcast_point(round_point)
             _set_tr("last_emitted_round_number", round_to_label)
             _set_tr("last_emitted_round_winner_team_id", winner_team_id)
-            resolved_anchor = {
-                "source": "round_result_endpoint",
-                "winner_is_team_a": round_winner_is_team_a,
-                "p_hat_truth": resolved_p_hat,
-                "display_p_hat": resolved_p_hat,
-            }
             return True
 
         # Infer winner by score delta (winning_team_id is always 0 in our BO3 replay payloads)
@@ -2338,6 +2347,13 @@ class Runner:
                             bound_high=bound_high,
                             map_winner_is_team_a=map_winner_is_team_a,
                         )
+                        resolved_reference = _build_non_live_resolution_reference(
+                            source="segment_result_endpoint",
+                            winner_is_team_a=map_winner_is_team_a,
+                            realized_endpoint_p_hat=resolved_p_hat,
+                            p_hat_truth_at_resolution=current_p_hat_truth,
+                            display_p_hat_at_resolution=current_display_p_hat,
+                        )
                         segment_event = {
                             "event_type": "segment_result",
                             "segment_id": finished_map_index,
@@ -2346,6 +2362,11 @@ class Runner:
                             "map_winner_is_team_a": map_winner_is_team_a,
                             "final_rounds_a": final_rounds_a,
                             "final_rounds_b": final_rounds_b,
+                            "realized_endpoint_p_hat": resolved_p_hat,
+                            "p_hat_truth_at_resolution": current_p_hat_truth,
+                            "display_p_hat_at_resolution": current_display_p_hat,
+                            "truth_minus_realized_endpoint": current_p_hat_truth - resolved_p_hat,
+                            "display_minus_realized_endpoint": current_display_p_hat - resolved_p_hat,
                         }
                         seg_identity = (
                             _team_identity_from_cache(map_identity_entry)
@@ -2354,8 +2375,8 @@ class Runner:
                         )
                         segment_point = HistoryPoint(
                             time=t,
-                            p_hat=resolved_p_hat,
-                            display_p_hat=resolved_p_hat,
+                            p_hat=current_p_hat_truth,
+                            display_p_hat=current_display_p_hat,
                             bound_low=bound_low,
                             bound_high=bound_high,
                             rail_low=rail_low,
@@ -2371,8 +2392,8 @@ class Runner:
                             **seg_identity,
                         )
                         derived_seg = Derived(
-                            p_hat=resolved_p_hat,
-                            display_p_hat=resolved_p_hat,
+                            p_hat=current_p_hat_truth,
+                            display_p_hat=current_display_p_hat,
                             bound_low=bound_low,
                             bound_high=bound_high,
                             rail_low=rail_low,
@@ -2382,23 +2403,13 @@ class Runner:
                                 **dbg,
                                 "event": segment_event,
                                 "match_id_used": match_id_used,
-                                "non_live_truth_anchor": {
-                                    "applied": True,
-                                    "source": "segment_result_endpoint",
-                                    "winner_is_team_a": map_winner_is_team_a,
-                                },
+                                "non_live_resolution_reference": resolved_reference,
                             },
                         )
                         await self._store.append_point(segment_point, new_state, derived_seg)
                         await self._broadcast_point(segment_point)
                         _set_tr("last_seen_segment_id_for_result", finished_map_index)
                         _set_tr("last_seen_map_winner_team_id", winner_team_id)
-                        resolved_anchor = {
-                            "source": "segment_result_endpoint",
-                            "winner_is_team_a": map_winner_is_team_a,
-                            "p_hat_truth": resolved_p_hat,
-                            "display_p_hat": resolved_p_hat,
-                        }
 
             # Always update stored match_score for this game (overwrite on resets/decreases)
             d = dict(_tr("last_seen_match_score_by_game") or {})
@@ -2407,7 +2418,7 @@ class Runner:
             _set_tr("last_seen_game_number", game_number)
             _set_tr("last_seen_match_score_team_one", ms1)
             _set_tr("last_seen_match_score_team_two", ms2)
-        return resolved_anchor
+        return resolved_reference
 
     def _bo3_buffer_debug(self, session_runtime: Any, now: float) -> dict[str, Any]:
         """Build buffer observability dict for derived.debug from session_runtime BO3 buffer."""
@@ -3004,14 +3015,15 @@ class Runner:
         if breach_type is None:
             self._last_breach_type = None
         # Outcome label events (round_result, segment_result) from raw snapshot Ã¢â‚¬â€ emit before main point, no duplicate spam
-        non_live_truth_anchor = None
+        non_live_resolution_reference = None
         if isinstance(snap, dict):
-            non_live_truth_anchor = await self._maybe_emit_outcome_events_from_bo3_payload(
+            non_live_resolution_reference = await self._maybe_emit_outcome_events_from_bo3_payload(
                 raw=snap,
                 config=config,
                 new_state=new_state,
                 t=t,
                 p_hat=p_hat,
+                display_p_hat=display_p_hat,
                 bound_low=bound_low,
                 bound_high=bound_high,
                 rail_low=rail_low,
@@ -3022,18 +3034,11 @@ class Runner:
                 match_id_used=mid,
                 session_runtime=session_runtime,
             )
-        if non_live_truth_anchor is not None:
-            p_hat = float(non_live_truth_anchor["p_hat_truth"])
-            display_p_hat = float(non_live_truth_anchor.get("display_p_hat", p_hat))
-            dbg = _apply_non_live_truth_anchor_to_debug(
+        if non_live_resolution_reference is not None:
+            dbg = _attach_non_live_resolution_reference_to_debug(
                 dbg,
-                p_hat_truth=p_hat,
-                display_p_hat=display_p_hat,
-                anchor=non_live_truth_anchor,
+                reference=non_live_resolution_reference,
             )
-            if session_runtime is not None:
-                setattr(session_runtime, "last_p_hat", p_hat)
-                setattr(session_runtime, "last_display_p_hat", display_p_hat)
         # ML-ready series-line-dislocation episode logger: emit setup_trigger, episode_start/end/outcome into history
         bid_yes = market_dbg.get("market_bid")
         ask_yes = market_dbg.get("market_ask")
@@ -3874,14 +3879,15 @@ class Runner:
         if breach_type is None:
             self._last_breach_type = None
         # Outcome label events (round_result, segment_result) from replay payload Ã¢â‚¬â€ same logic as live
-        non_live_truth_anchor = None
+        non_live_resolution_reference = None
         if isinstance(payload, dict):
-            non_live_truth_anchor = await self._maybe_emit_outcome_events_from_bo3_payload(
+            non_live_resolution_reference = await self._maybe_emit_outcome_events_from_bo3_payload(
                 raw=payload,
                 config=config,
                 new_state=new_state,
                 t=t,
                 p_hat=p_hat,
+                display_p_hat=display_p_hat,
                 bound_low=bound_low,
                 bound_high=bound_high,
                 rail_low=rail_low,
@@ -3891,14 +3897,10 @@ class Runner:
                 team_a_is_team_one=team_a_is_team_one,
                 match_id_used=self._replay_match_id,
             )
-        if non_live_truth_anchor is not None:
-            p_hat = float(non_live_truth_anchor["p_hat_truth"])
-            display_p_hat = float(non_live_truth_anchor.get("display_p_hat", p_hat))
-            dbg = _apply_non_live_truth_anchor_to_debug(
+        if non_live_resolution_reference is not None:
+            dbg = _attach_non_live_resolution_reference_to_debug(
                 dbg,
-                p_hat_truth=p_hat,
-                display_p_hat=display_p_hat,
-                anchor=non_live_truth_anchor,
+                reference=non_live_resolution_reference,
             )
         replay_explain = dbg.get("explain")
         if replay_explain is None:

@@ -1705,6 +1705,7 @@ async def test_round_result_event_returns_realized_round_endpoint_anchor() -> No
         new_state=new_state,
         t=2000.0,
         p_hat=0.5,
+        display_p_hat=0.5,
         bound_low=0.2,
         bound_high=0.8,
         rail_low=0.35,
@@ -1718,12 +1719,16 @@ async def test_round_result_event_returns_realized_round_endpoint_anchor() -> No
     assert anchor is not None
     assert anchor["source"] == "round_result_endpoint"
     assert anchor["winner_is_team_a"] is True
-    assert anchor["p_hat_truth"] == 0.75
+    assert anchor["realized_endpoint_p_hat"] == 0.75
+    assert anchor["p_hat_truth_at_resolution"] == 0.5
+    assert anchor["display_p_hat_at_resolution"] == 0.5
     hist = await store.get_history(limit=10)
     round_points = [p for p in hist if (p.get("event") or {}).get("event_type") == "round_result"]
     assert len(round_points) == 1
-    assert round_points[0]["p"] == 0.75
-    assert round_points[0]["display_p"] == 0.75
+    assert round_points[0]["p"] == 0.5
+    assert round_points[0]["display_p"] == 0.5
+    assert (round_points[0].get("event") or {}).get("realized_endpoint_p_hat") == 0.75
+    assert (round_points[0].get("event") or {}).get("truth_minus_realized_endpoint") == -0.25
 
 
 def test_round_result_event_returns_realized_round_endpoint_anchor_sync() -> None:
@@ -1761,6 +1766,7 @@ async def test_segment_result_event_returns_realized_series_endpoint_anchor() ->
         new_state=new_state,
         t=2001.0,
         p_hat=0.5,
+        display_p_hat=0.5,
         bound_low=0.2,
         bound_high=0.8,
         rail_low=0.35,
@@ -1774,20 +1780,24 @@ async def test_segment_result_event_returns_realized_series_endpoint_anchor() ->
     assert anchor is not None
     assert anchor["source"] == "segment_result_endpoint"
     assert anchor["winner_is_team_a"] is True
-    assert anchor["p_hat_truth"] == 0.8
+    assert anchor["realized_endpoint_p_hat"] == 0.8
+    assert anchor["p_hat_truth_at_resolution"] == 0.5
+    assert anchor["display_p_hat_at_resolution"] == 0.5
     hist = await store.get_history(limit=10)
     seg_points = [p for p in hist if (p.get("event") or {}).get("event_type") == "segment_result"]
     assert len(seg_points) == 1
-    assert seg_points[0]["p"] == 0.8
-    assert seg_points[0]["display_p"] == 0.8
+    assert seg_points[0]["p"] == 0.5
+    assert seg_points[0]["display_p"] == 0.5
+    assert (seg_points[0].get("event") or {}).get("realized_endpoint_p_hat") == 0.8
+    assert abs((seg_points[0].get("event") or {}).get("truth_minus_realized_endpoint") + 0.3) < 1e-9
 
 
 def test_segment_result_event_returns_realized_series_endpoint_anchor_sync() -> None:
     asyncio.run(test_segment_result_event_returns_realized_series_endpoint_anchor())
 
 
-async def test_bo3_buy_time_inherits_realized_round_endpoint_after_round_advances() -> None:
-    """When a round advances, BUY_TIME main compute point should inherit the realized round endpoint."""
+async def test_bo3_buy_time_preserves_unsnapped_phat_after_round_advances() -> None:
+    """When a round advances, BUY_TIME main compute point should preserve unsnapped PHAT and record the realized endpoint separately."""
     store = MemoryStore(max_history=100)
     config = Config(source="BO3", match_id=993, poll_interval_s=5.0, team_a_is_team_one=True)
     state = State(config=config, segment_id=0)
@@ -1880,16 +1890,19 @@ async def test_bo3_buy_time_inherits_realized_round_endpoint_after_round_advance
     assert in_progress_rows, "expected an IN_PROGRESS compute row before BUY_TIME"
     buy_row = buy_rows[-1]
     prior_in_progress = in_progress_rows[-1]
-    assert buy_row["p"] == buy_row["rail_high"]
-    assert buy_row["display_p"] == buy_row["rail_high"]
+    assert abs(buy_row["p"] - prior_in_progress["p"]) < 1e-4
+    assert abs(buy_row["display_p"] - prior_in_progress["display_p"]) < 1e-4
+    assert buy_row["p"] != buy_row["rail_high"]
     explain = buy_row.get("explain") or {}
-    assert (explain.get("non_live_truth_anchor") or {}).get("source") == "round_result_endpoint"
+    reference = explain.get("non_live_resolution_reference") or {}
+    assert reference.get("source") == "round_result_endpoint"
+    assert reference.get("realized_endpoint_p_hat") == buy_row["rail_high"]
     assert abs(explain.get("p_hat_truth_prev") - prior_in_progress["p"]) < 1e-4
-    assert explain.get("p_hat_truth") == buy_row["rail_high"]
+    assert explain.get("p_hat_truth") == buy_row["p"]
 
 
-def test_bo3_buy_time_inherits_realized_round_endpoint_after_round_advances_sync() -> None:
-    asyncio.run(test_bo3_buy_time_inherits_realized_round_endpoint_after_round_advances())
+def test_bo3_buy_time_preserves_unsnapped_phat_after_round_advances_sync() -> None:
+    asyncio.run(test_bo3_buy_time_preserves_unsnapped_phat_after_round_advances())
 
 
 def test_bo3_invalid_driver_missing_microstate_does_not_append_history_point_sync() -> None:
