@@ -1,5 +1,25 @@
 # Branch History - `master`
 
+## 2026-03-23 - Rail-enrichment + rail-evidence-contract readiness
+- **Promoted from:** `codex/rail-enrichment-evidence-contract-readiness-stage1`
+- **Larger project:** `Q-Intra Real-World Calibration Program`
+- **Current bounded stage:** `Rail-enrichment + rail-evidence-contract readiness`
+- **Project commit:**
+  - `207907b822189d5d2d8cb06626524330245f948b` `Enrich rails and persist rail evidence contract`
+- **Promotion path:** fast-forward promotion from the approved stage branch onto `master`
+- **Summary of promoted work:** Promoted the bounded rail-enrichment stage that makes the strict rail object materially richer by adding survivor-derived carryover semantics plus explicit retained-quality / economy / future-buy fragility decomposition, and promoted the matching evidence-contract upgrade that persists the key rail-driving inputs and rail-provenance fields needed for later rail audit/calibration.
+- **Key files/subsystems touched:**
+  - `engine/compute/rails_cs2.py`
+  - `backend/services/runner.py`
+  - `backend/store/memory_store.py`
+  - `tests/unit/test_rails_input_contract.py`
+  - `tests/unit/test_rails_carryover_scenarios.py`
+  - `tests/unit/test_memory_store_score_diag.py`
+  - `tests/unit/test_runner_bo3_hold.py`
+- **Checks run and result:** `tests/unit/test_rails_input_contract.py`, `tests/unit/test_rails_carryover_scenarios.py`, `tests/unit/test_memory_store_score_diag.py`, and `tests/unit/test_runner_bo3_hold.py` passed on the approved stage branch; adjacent compatibility also passed with `tests/unit/test_resolve_micro_adj.py`, `tests/unit/test_runner_source_contract_parity.py`, `tests/unit/test_runner_map_identity.py`, `tests/unit/test_export_backend_bo3_live_round_calibration_evidence.py`, `tests/unit/test_run_backend_bo3_live_q_intra_measurement.py`, `tests/unit/test_run_backend_bo3_live_q_intra_reliability_gate.py`, `tests/unit/test_rails_cs2_basic.py`, and `tests/unit/test_rails_cs2_context_widening.py`.
+- **Truth boundary:** This stage improves rail meaning stability and collection-readiness only. It does not tune rails, does not tune q, does not tune PHAT movement, does not count as rail calibration, and does not declare rail adequacy fully solved.
+- **Explicit caution preserved:** residual per-weapon / per-kit retained-equipment richness is still not declared solved. This promotion makes future collection materially more reusable, but it must not be read as proof that no further rail-enrichment step will ever be needed.
+
 ## 2026-03-23 - Anti-snap round-resolution PHAT correction
 - **Promoted from:** `codex/anti-snap-round-resolution-phat-correction-stage1`
 - **Larger project:** `Q-Intra Real-World Calibration Program`
