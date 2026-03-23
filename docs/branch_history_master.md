@@ -1,5 +1,25 @@
 # Branch History - `master`
 
+## 2026-03-23 - Live rail-activation coverage plus asymmetric-endpoint contract
+- **Promoted from:** `codex/live-rail-activation-plus-asymmetric-endpoints-stage1`
+- **Larger project:** `Q-Intra Real-World Calibration Program`
+- **Current bounded stage:** `Live rail-activation coverage plus asymmetric-endpoint rail contract`
+- **Project commit:**
+  - `d7dd89f2b387921faf6ee1f63c6b49c46c185aa5` `Improve live rail activation and asymmetric endpoints`
+- **Promotion path:** fast-forward promotion from the approved stage branch onto `master`
+- **Summary of promoted work:** Promoted the bounded rail-object completion stage that makes the enriched asymmetric rail contract the ordinary live path instead of falling back on common missing-prematch or missing-armor cases, and promoted the matching branch-specific endpoint logic so upper/lower rails can diverge across multiple future-state asymmetry classes rather than inheriting one shared symmetric carryover edge.
+- **Key files/subsystems touched:**
+  - `engine/compute/rails_cs2.py`
+  - `backend/services/runner.py`
+  - `backend/store/memory_store.py`
+  - `tests/unit/test_rails_input_contract.py`
+  - `tests/unit/test_rails_carryover_scenarios.py`
+  - `tests/unit/test_memory_store_score_diag.py`
+  - `tests/unit/test_runner_bo3_hold.py`
+- **Checks run and result:** `tests/unit/test_rails_input_contract.py`, `tests/unit/test_rails_carryover_scenarios.py`, `tests/unit/test_memory_store_score_diag.py`, and `tests/unit/test_runner_bo3_hold.py` passed on the approved stage branch; adjacent compatibility also passed with `tests/unit/test_rails_cs2_basic.py`, `tests/unit/test_rails_cs2_context_widening.py`, `tests/unit/test_bo3_normalize_microstate_fields.py`, `tests/unit/test_resolve_micro_adj.py`, `tests/unit/test_runner_source_contract_parity.py`, `tests/unit/test_runner_map_identity.py`, `tests/unit/test_export_backend_bo3_live_round_calibration_evidence.py`, `tests/unit/test_run_backend_bo3_live_q_intra_measurement.py`, and `tests/unit/test_run_backend_bo3_live_q_intra_reliability_gate.py`.
+- **Truth boundary:** This stage improves live rail activation coverage, endpoint asymmetry, and collection-readiness only. It does not tune rails, does not tune q, does not tune PHAT movement, and does not count as rail calibration.
+- **Explicit caution preserved:** `neutral_fallback` is a narrow prematch-prior neutralization (`p0 = 0.5`) inside the enriched asymmetric v2 rail computation, not a broad fallback-model downgrade. Broader fallback still exists separately when true required-field failures occur and remains visible through `V2_REQUIRED_FIELDS_MISSING` and related activation provenance.
+
 ## 2026-03-23 - Rail-enrichment + rail-evidence-contract readiness
 - **Promoted from:** `codex/rail-enrichment-evidence-contract-readiness-stage1`
 - **Larger project:** `Q-Intra Real-World Calibration Program`
