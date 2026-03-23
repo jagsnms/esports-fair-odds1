@@ -1,5 +1,20 @@
 # Branch History - `master`
 
+## 2026-03-23 - Anti-snap round-resolution PHAT correction
+- **Promoted from:** `codex/anti-snap-round-resolution-phat-correction-stage1`
+- **Larger project:** `Q-Intra Real-World Calibration Program`
+- **Current bounded stage:** `Anti-snap round-resolution PHAT correction`
+- **Project commit:**
+  - `9298bcab1285c7d18d8e20b9cc6682b8f48c322e` `Remove forced PHAT snapping at round resolution`
+- **Promotion path:** fast-forward promotion from the approved stage branch onto `master`
+- **Summary of promoted work:** Promoted the bounded anti-snap PHAT correction that stops `round_result` / `segment_result` from forcing raw truth or display PHAT onto the realized endpoint, preserves the actual unsnapped PHAT state at resolution, and records the realized endpoint and PHAT-vs-endpoint miss explicitly for later evidence/calibration work.
+- **Key files/subsystems touched:**
+  - `backend/services/runner.py`
+  - `tests/unit/test_runner_bo3_hold.py`
+- **Checks run and result:** `tests/unit/test_runner_bo3_hold.py`, `tests/unit/test_resolve_micro_adj.py`, and `tests/unit/test_runner_source_contract_parity.py` passed on the approved stage branch; broader compatibility also passed with `tests/unit/test_runner_map_identity.py`, `tests/unit/test_memory_store_score_diag.py`, `tests/unit/test_export_backend_bo3_live_round_calibration_evidence.py`, `tests/unit/test_run_backend_bo3_live_q_intra_measurement.py`, and `tests/unit/test_run_backend_bo3_live_q_intra_reliability_gate.py`.
+- **Truth boundary:** This is an anti-snap PHAT semantics correction only. It does not tune q, does not tune rails, does not retune PHAT movement parameters, does not add nonlinear weighting, and does not redesign the broader engine.
+- **Explicit caution preserved:** rail-richness remains an unresolved concern relative to the fuller intended vision. This promotion restores truthful PHAT-vs-endpoint miss visibility, but it must not be read as a verdict that current rail richness is already sufficient for the eventual pre-calibration green light.
+
 ## 2026-03-22 - Non-live raw PHAT enrichment / correction
 - **Promoted from:** `codex/non-live-raw-phat-enrichment-correction-stage1`
 - **Larger project:** `Q-Intra Real-World Calibration Program`
