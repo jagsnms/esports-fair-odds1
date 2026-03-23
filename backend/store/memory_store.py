@@ -144,6 +144,9 @@ def _make_score_diag_record(point: HistoryPoint) -> dict[str, Any] | None:
     display_p_hat = getattr(point, "display_p_hat", None)
     if display_p_hat is None:
         display_p_hat = p_hat_final
+    rail_context = explain.get("rail_context")
+    if not isinstance(rail_context, dict):
+        rail_context = {}
     record: dict[str, Any] = {
         "schema": "score_diag_v2",
         "ts_ms": int(round(getattr(point, "time", 0.0) * 1000)),
@@ -178,6 +181,45 @@ def _make_score_diag_record(point: HistoryPoint) -> dict[str, Any] | None:
         "contrib_sum": contrib_sum,
         "residual_contrib": residual_contrib,
     }
+    if rail_context:
+        record["rail_context"] = rail_context
+        for key in (
+            "rail_input_contract_version",
+            "rail_input_contract_policy",
+            "rail_input_active_endpoint_semantics",
+            "rail_input_v2_activated",
+            "rail_input_v2_required_complete",
+            "rail_input_v2_required_coverage_ratio",
+            "rail_input_v1_fallback_reason_code",
+            "rail_input_v2_missing_required_fields",
+            "rail_input_v2_invalid_required_fields",
+            "rail_input_v2_present_optional_fields",
+            "canonical_if_a_round",
+            "canonical_if_b_round",
+            "p_map_if_a",
+            "p_map_if_b",
+            "rail_input_v2_carryover_edge",
+            "rail_input_v2_cash_delta_norm",
+            "rail_input_v2_loadout_delta_norm",
+            "rail_input_v2_armor_delta_norm",
+            "rail_input_v2_alive_delta_norm",
+            "rail_input_v2_wealth_delta_norm",
+            "rail_input_v2_retained_quality_edge",
+            "rail_input_v2_economy_edge",
+            "rail_input_v2_future_buy_fragility_a",
+            "rail_input_v2_future_buy_fragility_b",
+            "rail_input_v2_future_buy_fragility_edge",
+            "cash_totals",
+            "armor_totals",
+            "wealth_totals",
+            "loadout_source",
+            "loadout_ev_count_a",
+            "loadout_ev_count_b",
+            "loadout_est_count_a",
+            "loadout_est_count_b",
+        ):
+            if key in rail_context:
+                record[key] = rail_context.get(key)
     term_raw = explain.get("term_raw")
     term_coef = explain.get("term_coef")
     if isinstance(term_raw, dict) and isinstance(term_coef, dict):

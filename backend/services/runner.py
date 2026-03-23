@@ -197,6 +197,81 @@ def _attach_non_live_resolution_reference_to_debug(
     return out
 
 
+def _build_rail_evidence_context(frame: Frame | None, dbg: dict[str, Any] | None) -> dict[str, Any]:
+    """Extract the minimum rail-driving and rail-provenance context worth persisting."""
+    source = dbg or {}
+    out: dict[str, Any] = {}
+    for key in (
+        "rail_input_contract_version",
+        "rail_input_contract_policy",
+        "rail_input_active_endpoint_semantics",
+        "rail_input_v2_activated",
+        "rail_input_v2_required_complete",
+        "rail_input_v2_required_coverage_ratio",
+        "rail_input_v1_fallback_reason_code",
+        "rail_input_v2_missing_required_fields",
+        "rail_input_v2_invalid_required_fields",
+        "rail_input_v2_present_optional_fields",
+        "canonical_if_a_round",
+        "canonical_if_b_round",
+        "p_map_if_a",
+        "p_map_if_b",
+        "rail_input_v2_carryover_edge",
+        "rail_input_v2_cash_delta_norm",
+        "rail_input_v2_loadout_delta_norm",
+        "rail_input_v2_armor_delta_norm",
+        "rail_input_v2_alive_delta_norm",
+        "rail_input_v2_wealth_delta_norm",
+        "rail_input_v2_retained_quality_edge",
+        "rail_input_v2_economy_edge",
+        "rail_input_v2_future_buy_fragility_a",
+        "rail_input_v2_future_buy_fragility_b",
+        "rail_input_v2_future_buy_fragility_edge",
+    ):
+        if key in source:
+            out[key] = source.get(key)
+    if frame is not None:
+        for attr in (
+            "alive_counts",
+            "cash_totals",
+            "loadout_totals",
+            "armor_totals",
+            "wealth_totals",
+            "loadout_source",
+            "loadout_ev_count_a",
+            "loadout_ev_count_b",
+            "loadout_est_count_a",
+            "loadout_est_count_b",
+        ):
+            val = getattr(frame, attr, None)
+            if val is not None:
+                out[attr] = val
+    return out
+
+
+def _attach_rail_evidence_to_debug(
+    *,
+    frame: Frame | None,
+    dbg: dict[str, Any] | None,
+) -> dict[str, Any]:
+    out = dict(dbg or {})
+    rail_context = _build_rail_evidence_context(frame, out)
+    if not rail_context:
+        return out
+    out["rail_context"] = rail_context
+    explain = out.get("explain")
+    if isinstance(explain, dict):
+        explain = dict(explain)
+        explain["rail_context"] = rail_context
+        out["explain"] = explain
+    contract_diag = out.get("contract_diagnostics")
+    if isinstance(contract_diag, dict):
+        contract_diag = dict(contract_diag)
+        contract_diag["rail_context"] = rail_context
+        out["contract_diagnostics"] = contract_diag
+    return out
+
+
 def _compute_dominance_features(frame: Frame | None) -> dict[str, Any]:
     """
     Compute compact round dominance / win-quality features from Frame only.
@@ -2894,6 +2969,7 @@ class Runner:
                 display_p_hat_prev=display_p_hat_prev,
             )
             dbg = {**dbg, **bounds_debug, **rails_debug}
+            dbg = _attach_rail_evidence_to_debug(frame=frame, dbg=dbg)
             dbg["bo3_monotonic_gate"] = gate_diag
             dbg["match_context_diag"] = _match_context_diag(ctx, _sel_decision.to_diag() if _sel_decision else None)
 
@@ -3454,6 +3530,7 @@ class Runner:
                 display_p_hat_prev=display_p_hat_prev,
             )
             dbg = {**dbg, **bounds_debug, **rails_debug}
+            dbg = _attach_rail_evidence_to_debug(frame=frame, dbg=dbg)
             dbg["source"] = "GRID"
             dbg["grid_series_id"] = grid_series_id
             dbg["match_context_diag"] = _match_context_diag(ctx, _sel_decision.to_diag() if _sel_decision else None)
@@ -3823,6 +3900,7 @@ class Runner:
                 display_p_hat_prev=display_p_hat_prev,
             )
             dbg = {**dbg, **bounds_debug, **rails_debug}
+            dbg = _attach_rail_evidence_to_debug(frame=frame, dbg=dbg)
         dbg["replay_mode"] = "raw_contract"
         display_p_hat = self._display_p_hat_from_debug(p_hat, dbg)
 

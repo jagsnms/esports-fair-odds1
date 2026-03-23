@@ -272,6 +272,77 @@ def test_make_score_diag_record_includes_match_identity_and_movement_fields() ->
     assert rec["movement_gap_abs"] == 0.0025
 
 
+def test_make_score_diag_record_includes_rail_context_fields() -> None:
+    """Rail-driving inputs and provenance survive into score-space evidence rows."""
+    point = HistoryPoint(
+        time=50.0,
+        p_hat=0.64,
+        display_p_hat=0.62,
+        bound_low=0.2,
+        bound_high=0.8,
+        rail_low=0.4,
+        rail_high=0.72,
+        explain={
+            "phase": "IN_PROGRESS",
+            "round_phase": "IN_PROGRESS",
+            "q_intra_total": 0.77,
+            "alive_counts": (4, 2),
+            "hp_totals": (280.0, 130.0),
+            "loadout_totals": (15000.0, 10000.0),
+            "target_p_hat": 0.64,
+            "p_hat_prev": 0.60,
+            "movement_confidence": 0.25,
+            "expected_p_hat_after_movement": 0.62,
+            "movement_gap_abs": 0.02,
+            "score_raw": 0.16,
+            "term_contribs": {
+                "term_alive": 0.06,
+                "term_hp": 0.04,
+                "term_loadout": 0.05,
+                "term_bomb": 0.0,
+                "term_cash": 0.01,
+            },
+            "base_intercept": 0.0,
+            "final": {"p_hat_final": 0.62, "clamp_reason": None},
+            "rail_context": {
+                "rail_input_contract_version": "v2-stage2",
+                "rail_input_contract_policy": "v2_strict",
+                "rail_input_active_endpoint_semantics": "v2",
+                "rail_input_v2_activated": True,
+                "rail_input_v2_required_complete": True,
+                "rail_input_v2_required_coverage_ratio": 1.0,
+                "rail_input_v1_fallback_reason_code": "V2_STRICT_ACTIVATED",
+                "rail_input_v2_carryover_edge": 0.18,
+                "rail_input_v2_alive_delta_norm": 0.33,
+                "rail_input_v2_economy_edge": 0.11,
+                "rail_input_v2_future_buy_fragility_edge": 0.09,
+                "cash_totals": (9000.0, 6500.0),
+                "armor_totals": (350.0, 220.0),
+                "wealth_totals": (24000.0, 16500.0),
+                "loadout_source": "mixed",
+                "loadout_ev_count_a": 4,
+                "loadout_est_count_b": 1,
+            },
+        },
+    )
+    rec = _make_score_diag_record(point)
+    assert rec is not None
+    assert rec["rail_input_contract_version"] == "v2-stage2"
+    assert rec["rail_input_v2_activated"] is True
+    assert rec["rail_input_v2_required_complete"] is True
+    assert rec["rail_input_v2_carryover_edge"] == 0.18
+    assert rec["rail_input_v2_alive_delta_norm"] == 0.33
+    assert rec["rail_input_v2_economy_edge"] == 0.11
+    assert rec["rail_input_v2_future_buy_fragility_edge"] == 0.09
+    assert rec["cash_totals"] == (9000.0, 6500.0)
+    assert rec["armor_totals"] == (350.0, 220.0)
+    assert rec["wealth_totals"] == (24000.0, 16500.0)
+    assert rec["loadout_source"] == "mixed"
+    assert rec["loadout_ev_count_a"] == 4
+    assert rec["loadout_est_count_b"] == 1
+    assert isinstance(rec.get("rail_context"), dict)
+
+
 def test_make_score_diag_record_skips_missing_score_raw() -> None:
     """Ticks without score_raw in explain are not emitted."""
     point = HistoryPoint(

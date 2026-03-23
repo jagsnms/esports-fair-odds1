@@ -57,8 +57,8 @@ RAIL_INPUT_V1_FORBIDDEN_FIELDS = (
     "frame.armor_totals",
 )
 
-# --- Rail input contract v2 (Stage 1 semantic switch). ---
-RAIL_INPUT_CONTRACT_VERSION = "v2-stage1"
+# --- Rail input contract v2 (Stage 2 enrichment). ---
+RAIL_INPUT_CONTRACT_VERSION = "v2-stage2"
 RAIL_INPUT_V2_CONTRACT_VERSION = RAIL_INPUT_CONTRACT_VERSION
 RAIL_INPUT_POLICY_FORCE_V1 = "force_v1"
 RAIL_INPUT_POLICY_V2_STRICT = "v2_strict"
@@ -69,6 +69,7 @@ RAIL_INPUT_POLICY_STATES = (
 # Default Stage 1 policy: strict activation, deterministic fallback.
 RAIL_INPUT_V2_POLICY = RAIL_INPUT_POLICY_V2_STRICT
 RAIL_INPUT_V2_REQUIRED_FIELDS = (
+    "frame.alive_counts",
     "frame.cash_totals",
     "frame.loadout_totals",
     "frame.armor_totals",
@@ -87,7 +88,6 @@ RAIL_INPUT_V2_OPTIONAL_FIELDS = (
 )
 RAIL_INPUT_V2_FORBIDDEN_FIELDS = (
     "frame.hp_totals",
-    "frame.alive_counts",
     "frame.round_time_remaining_s",
     "frame.round_time_s",
     "frame.bomb_phase_time_remaining",
@@ -99,7 +99,7 @@ V2_FALLBACK_REQUIRED_INVALID = "V2_REQUIRED_FIELDS_INVALID"
 V2_FALLBACK_POLICY_UNSUPPORTED = "V2_POLICY_UNSUPPORTED"
 V2_ACTIVATED = "V2_STRICT_ACTIVATED"
 
-# Minimal carryover signal scaling used only when v2_strict is activated.
+# Semantic carryover signal scaling used only when v2_strict is activated.
 V2_CARRYOVER_EDGE_SCALE = 0.08
 V2_WINNER_EDGE_BIAS = 0.03
 
@@ -137,6 +137,15 @@ def _v2_required_field_valid(key: str, frame: Frame, config: Config) -> bool:
         try:
             a = float(val[0]) if val[0] is not None else None
             b = float(val[1]) if val[1] is not None else None
+            return a is not None and b is not None
+        except (TypeError, ValueError):
+            return False
+    if attr == "alive_counts":
+        if not isinstance(val, (tuple, list)) or len(val) < 2:
+            return False
+        try:
+            a = int(val[0]) if val[0] is not None else None
+            b = int(val[1]) if val[1] is not None else None
             return a is not None and b is not None
         except (TypeError, ValueError):
             return False
@@ -256,23 +265,91 @@ def _safe_norm_delta(a: float, b: float) -> float:
     return _clip((a - b) / denom, -1.0, 1.0)
 
 
+def _future_buy_fragility_score(
+    *,
+    cash_total: float,
+    loadout_total: float,
+    armor_total: float,
+    wealth_total: float,
+    alive_count: float,
+) -> float:
+    """Approximate next-round fragility from persistent resources only.
+
+    This is intentionally coarse and deterministic: it is a semantic decomposition
+    of future-buy resilience, not a tuned prediction model.
+    """
+    cash_pressure = 1.0 - _clip01(cash_total / 16000.0)
+    wealth_pressure = 1.0 - _clip01(wealth_total / 28000.0)
+    retained_quality = loadout_total + (8.0 * armor_total)
+    retained_pressure = 1.0 - _clip01(retained_quality / 18000.0)
+    survivor_pressure = 1.0 - _clip01(alive_count / 5.0)
+    return _clip01(
+        (0.35 * cash_pressure)
+        + (0.30 * wealth_pressure)
+        + (0.20 * retained_pressure)
+        + (0.15 * survivor_pressure)
+    )
+
+
 def _compute_v2_carryover_edge(frame: Frame) -> tuple[float, dict[str, float]]:
-    """Compute deterministic carryover edge from required v2 persistent signals only."""
+    """Compute deterministic carryover edge from boundary-persistent signals only."""
     cash = getattr(frame, "cash_totals", (0.0, 0.0))
     loadout = getattr(frame, "loadout_totals", (0.0, 0.0))
     armor = getattr(frame, "armor_totals", (0.0, 0.0))
+    alive = getattr(frame, "alive_counts", (0.0, 0.0))
+    wealth = getattr(frame, "wealth_totals", None)
     cash_a, cash_b = float(cash[0]), float(cash[1])
     load_a, load_b = float(loadout[0]), float(loadout[1])
     arm_a, arm_b = float(armor[0]), float(armor[1])
+    alive_a = float(alive[0]) if alive[0] is not None else 0.0
+    alive_b = float(alive[1]) if alive[1] is not None else 0.0
+    if isinstance(wealth, (tuple, list)) and len(wealth) >= 2:
+        wealth_a = float(wealth[0]) if wealth[0] is not None else (cash_a + load_a)
+        wealth_b = float(wealth[1]) if wealth[1] is not None else (cash_b + load_b)
+    else:
+        wealth_a = cash_a + load_a
+        wealth_b = cash_b + load_b
     d_cash = _safe_norm_delta(cash_a, cash_b)
     d_load = _safe_norm_delta(load_a, load_b)
     d_armor = _safe_norm_delta(arm_a, arm_b)
-    carryover_edge = _clip(0.35 * d_cash + 0.45 * d_load + 0.20 * d_armor, -1.0, 1.0)
+    d_alive = _safe_norm_delta(alive_a, alive_b)
+    d_wealth = _safe_norm_delta(wealth_a, wealth_b)
+    retained_quality_edge = _clip((0.60 * d_load) + (0.25 * d_armor) + (0.15 * d_alive), -1.0, 1.0)
+    economy_edge = _clip((0.55 * d_cash) + (0.45 * d_wealth), -1.0, 1.0)
+    fragility_a = _future_buy_fragility_score(
+        cash_total=cash_a,
+        loadout_total=load_a,
+        armor_total=arm_a,
+        wealth_total=wealth_a,
+        alive_count=alive_a,
+    )
+    fragility_b = _future_buy_fragility_score(
+        cash_total=cash_b,
+        loadout_total=load_b,
+        armor_total=arm_b,
+        wealth_total=wealth_b,
+        alive_count=alive_b,
+    )
+    future_buy_fragility_edge = _clip(fragility_b - fragility_a, -1.0, 1.0)
+    carryover_edge = _clip(
+        (0.40 * economy_edge)
+        + (0.35 * retained_quality_edge)
+        + (0.25 * future_buy_fragility_edge),
+        -1.0,
+        1.0,
+    )
     return carryover_edge, {
         "carryover_edge": carryover_edge,
         "cash_delta_norm": d_cash,
         "loadout_delta_norm": d_load,
         "armor_delta_norm": d_armor,
+        "alive_delta_norm": d_alive,
+        "wealth_delta_norm": d_wealth,
+        "retained_quality_edge": retained_quality_edge,
+        "economy_edge": economy_edge,
+        "future_buy_fragility_a": fragility_a,
+        "future_buy_fragility_b": fragility_b,
+        "future_buy_fragility_edge": future_buy_fragility_edge,
     }
 
 
@@ -455,9 +532,11 @@ def compute_rails_cs2(
         allowed_fields = (
             "bounds.low",
             "bounds.high",
+            "frame.alive_counts",
             "frame.cash_totals",
             "frame.loadout_totals",
             "frame.armor_totals",
+            "frame.wealth_totals",
             "frame.scores",
             "frame.series_score",
             "frame.series_fmt",

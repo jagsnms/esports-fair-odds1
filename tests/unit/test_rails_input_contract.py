@@ -88,7 +88,7 @@ def test_provenance_keys_emitted() -> None:
 
 
 def test_forbidden_perturbation_invariance() -> None:
-    """Perturbing forbidden transient inputs does not change contract rails under v2_strict activation."""
+    """Perturbing still-forbidden transient inputs does not change contract rails under v2_strict activation."""
     config = _config(prematch_map=0.5)
     config.rail_input_contract_policy = RAIL_INPUT_POLICY_V2_STRICT
     state = _state()
@@ -113,7 +113,7 @@ def test_forbidden_perturbation_invariance() -> None:
         scores=(5, 4),
         series_score=(1, 0),
         series_fmt="bo3",
-        alive_counts=(2, 3),
+        alive_counts=(5, 5),
         hp_totals=(100.0, 200.0),
         loadout_totals=(8000.0, 6000.0),
         bomb_phase_time_remaining={"round_phase": "IN_PROGRESS", "round_time_remaining": 45.0},
@@ -124,6 +124,38 @@ def test_forbidden_perturbation_invariance() -> None:
     r_lo_p, r_hi_p, _ = compute_rails_cs2(perturbed, config, state, bounds)
     assert r_lo_base == r_lo_p, "contract rails must be invariant to forbidden input perturbation"
     assert r_hi_base == r_hi_p, "contract rails must be invariant to forbidden input perturbation"
+
+
+def test_survivor_carryover_sensitivity_when_v2_active() -> None:
+    """Alive-count survivor advantage is now part of strict v2 endpoint semantics."""
+    config = _config(prematch_map=0.5)
+    config.rail_input_contract_policy = RAIL_INPUT_POLICY_V2_STRICT
+    state = _state()
+    bounds = (0.0, 1.0)
+    neutral = _frame(
+        scores=(6, 6),
+        series_score=(1, 1),
+        series_fmt="bo3",
+        alive_counts=(3, 3),
+        cash_totals=(2500.0, 2500.0),
+        loadout_totals=(7000.0, 7000.0),
+        armor_totals=(300.0, 300.0),
+    )
+    advantaged = _frame(
+        scores=(6, 6),
+        series_score=(1, 1),
+        series_fmt="bo3",
+        alive_counts=(5, 2),
+        cash_totals=(2500.0, 2500.0),
+        loadout_totals=(7000.0, 7000.0),
+        armor_totals=(300.0, 300.0),
+    )
+    lo_neutral, hi_neutral, dbg_neutral = compute_rails_cs2(neutral, config, state, bounds)
+    lo_adv, hi_adv, dbg_adv = compute_rails_cs2(advantaged, config, state, bounds)
+    assert dbg_neutral["rail_input_v2_activated"] is True
+    assert dbg_adv["rail_input_v2_activated"] is True
+    assert dbg_adv["rail_input_v2_alive_delta_norm"] > dbg_neutral["rail_input_v2_alive_delta_norm"]
+    assert ((lo_adv + hi_adv) / 2.0) > ((lo_neutral + hi_neutral) / 2.0)
 
 
 def test_carryover_sensitivity_when_v2_active() -> None:
@@ -238,6 +270,8 @@ def test_v2_strict_activates_when_required_complete() -> None:
     assert debug["rail_input_v2_activated"] is True
     assert debug["rail_input_active_endpoint_semantics"] == "v2"
     assert debug["rail_input_v2_required_coverage_ratio"] == 1.0
+    assert "frame.alive_counts" in debug["rail_input_v2_required_fields"]
+    assert "frame.alive_counts" in debug["rail_input_allowed_consumed"]
 
 
 def test_v2_fallback_reason_invalid_when_required_bad_type() -> None:

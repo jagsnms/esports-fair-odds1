@@ -2056,7 +2056,7 @@ def test_bo3_provider_side_strings_persist_a_side_on_live_compute_and_score_rows
             patch("backend.store.memory_store._HISTORY_SCORE_RECORD_JSONL_PATH", str(score_path)),
         ):
             store = MemoryStore(max_history=100)
-            config = Config(source="BO3", match_id=789, poll_interval_s=5.0, team_a_is_team_one=True)
+            config = Config(source="BO3", match_id=789, poll_interval_s=5.0, team_a_is_team_one=True, prematch_map=0.55)
             state = State(config=config, segment_id=1)
             derived = Derived(
                 p_hat=0.5,
@@ -2080,8 +2080,8 @@ def test_bo3_provider_side_strings_persist_a_side_on_live_compute_and_score_rows
                     "id": 1,
                     "side": "TERRORIST",
                     "player_states": [
-                        {"is_alive": True, "health": 100, "balance": 4000, "equipment_value": 3000},
-                        {"is_alive": True, "health": 100, "balance": 3500, "equipment_value": 2500},
+                        {"is_alive": True, "health": 100, "armor": 100, "balance": 4000, "equipment_value": 3000},
+                        {"is_alive": True, "health": 100, "armor": 80, "balance": 3500, "equipment_value": 2500},
                     ],
                 },
                 "team_two": {
@@ -2090,8 +2090,8 @@ def test_bo3_provider_side_strings_persist_a_side_on_live_compute_and_score_rows
                     "id": 2,
                     "side": "COUNTER_TERRORIST",
                     "player_states": [
-                        {"is_alive": True, "health": 100, "balance": 4000, "equipment_value": 3000},
-                        {"is_alive": True, "health": 80, "balance": 2000, "equipment_value": 1500},
+                        {"is_alive": True, "health": 100, "armor": 100, "balance": 4000, "equipment_value": 3000},
+                        {"is_alive": True, "health": 80, "armor": 40, "balance": 2000, "equipment_value": 1500},
                     ],
                 },
                 "created_at": "ts1",
@@ -2116,6 +2116,14 @@ def test_bo3_provider_side_strings_persist_a_side_on_live_compute_and_score_rows
             assert history[0].get("game_number") == 1
             assert history[0].get("round_number") == 1
             assert history[0].get("a_side") == "T"
+            explain = history[0].get("explain") or {}
+            rail_context = explain.get("rail_context") or {}
+            assert rail_context.get("rail_input_contract_version") == "v2-stage2"
+            assert rail_context.get("rail_input_v2_activated") is True
+            assert rail_context.get("cash_totals") is not None
+            assert rail_context.get("armor_totals") is not None
+            assert rail_context.get("alive_counts") is not None
+            assert rail_context.get("rail_input_v2_carryover_edge") is not None
 
             score_rows = [
                 json.loads(line)
@@ -2126,5 +2134,10 @@ def test_bo3_provider_side_strings_persist_a_side_on_live_compute_and_score_rows
             assert score_rows[0].get("game_number") == 1
             assert score_rows[0].get("round_number") == 1
             assert score_rows[0].get("a_side") == "T"
+            assert score_rows[0].get("rail_input_contract_version") == "v2-stage2"
+            assert score_rows[0].get("rail_input_v2_activated") is True
+            assert score_rows[0].get("cash_totals") is not None
+            assert score_rows[0].get("armor_totals") is not None
+            assert score_rows[0].get("rail_input_v2_carryover_edge") is not None
 
     asyncio.run(_run())

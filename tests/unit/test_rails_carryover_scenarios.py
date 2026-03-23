@@ -338,7 +338,7 @@ def test_s10_map_point_structural_pair_under_v2() -> None:
 
 def test_s11_forbidden_transient_invariance_strict() -> None:
     """S11: With fixed allowed inputs (scores, series, cash, loadout, armor), perturb only
-    forbidden transients (hp, alive, round_time, bomb_phase); rails must stay identical."""
+    still-forbidden transients (hp, round_time, bomb_phase); rails must stay identical."""
     config = _config(rail_input_contract_policy=RAIL_INPUT_POLICY_V2_STRICT)
     state = _state()
     base = _frame(
@@ -364,7 +364,7 @@ def test_s11_forbidden_transient_invariance_strict() -> None:
         cash_totals=(3000.0, 2000.0),
         loadout_totals=(8000.0, 6000.0),
         armor_totals=(400.0, 300.0),
-        alive_counts=(2, 3),
+        alive_counts=(5, 5),
         hp_totals=(100.0, 200.0),
         round_time_remaining_s=45.0,
         bomb_phase_time_remaining={"round_phase": "IN_PROGRESS", "round_time_remaining": 45.0},
